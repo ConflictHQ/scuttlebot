@@ -25,6 +25,7 @@ func main() {
 
 	cfg := &config.Config{}
 	cfg.Defaults()
+	cfg.ApplyEnv()
 
 	// Generate an API token for the Ergo management API if not set.
 	if cfg.Ergo.APIToken == "" {
@@ -73,7 +74,7 @@ func main() {
 	log.Info("api token", "token", apiToken) // printed once on startup — user copies this
 	apiSrv := api.New(reg, []string{apiToken}, log)
 	httpServer := &http.Server{
-		Addr:    ":8080",
+		Addr:    cfg.APIAddr,
 		Handler: apiSrv.Handler(),
 	}
 

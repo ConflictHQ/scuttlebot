@@ -1,0 +1,25 @@
+# docker-compose.override.yml — local dev overrides.
+# This file is applied automatically when you run `docker compose up`.
+# Exposes additional ports and loosens settings for local development.
+
+services:
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  ergo:
+    # Expose the ergo HTTP management API locally for debugging.
+    ports:
+      - "8089:8089"
+    environment:
+      # Cheap bcrypt for local dev (already set in template default, just documenting).
+      ERGO_HISTORY_ENABLED: "false"
+
+  scuttlebot:
+    # Rebuild image on every `docker compose up` for local dev.
+    build:
+      target: builder
+    environment:
+      # Verbose logging in dev.
+      SCUTTLEBOT_LOG_LEVEL: debug

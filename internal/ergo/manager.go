@@ -41,11 +41,31 @@ func (m *Manager) API() *APIClient {
 	return m.api
 }
 
-// Start writes the Ergo config, starts the subprocess, and waits for it to
-// become healthy. It then runs the process in the background, restarting it
-// with exponential backoff if it exits unexpectedly. Blocks until the
-// context is cancelled.
+// Start manages the Ergo IRC server. In managed mode (the default), it writes
+// the Ergo config, starts the subprocess, waits for health, then keeps it
+// alive with exponential backoff restarts. In external mode
+// (cfg.External=true), it skips subprocess management and simply waits for the
+// external ergo instance to become healthy, then blocks until ctx is done.
+// Either way, Start blocks until ctx is cancelled.
 func (m *Manager) Start(ctx context.Context) error {
+	if m.cfg.External {
+		return m.startExternal(ctx)
+	}
+	return m.startManaged(ctx)
+}
+
+// startExternal waits for a pre-existing ergo to become healthy, then blocks.
+func (m *Manager) startExternal(ctx context.Context) error {
+	m.log.Info("ergo external mode — waiting for ergo at", "addr", m.cfg.APIAddr)
+	if err := m.waitHealthy(ctx); err != nil {
+		return fmt.Errorf("ergo: did not become healthy: %w", err)
+	}
+	m.log.Info("ergo is healthy (external)")
+	<-ctx.Done()
+	return nil
+}
+
+func (m *Manager) startManaged(ctx context.Context) error {
 	if err := m.writeConfig(); err != nil {
 		return fmt.Errorf("ergo: write config: %w", err)
 	}

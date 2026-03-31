@@ -1,18 +1,31 @@
 // Package config defines scuttlebot's configuration schema.
 package config
 
+import "os"
+
 // Config is the top-level scuttlebot configuration.
 type Config struct {
-	Ergo     ErgoConfig     `yaml:"ergo"`
+	Ergo      ErgoConfig      `yaml:"ergo"`
 	Datastore DatastoreConfig `yaml:"datastore"`
+
+	// APIAddr is the address for scuttlebot's own HTTP management API.
+	// Default: ":8080"
+	APIAddr string `yaml:"api_addr"`
 }
 
 // ErgoConfig holds settings for the managed Ergo IRC server.
 type ErgoConfig struct {
+	// External disables subprocess management. When true, scuttlebot expects
+	// ergo to already be running and reachable at APIAddr and IRCAddr.
+	// Use this in Docker/K8s deployments where ergo runs as a separate container.
+	External bool `yaml:"external"`
+
 	// BinaryPath is the path to the ergo binary. Defaults to "ergo" (looks in PATH).
+	// Unused when External is true.
 	BinaryPath string `yaml:"binary_path"`
 
 	// DataDir is the directory where Ergo stores ircd.db and generated config.
+	// Unused when External is true.
 	DataDir string `yaml:"data_dir"`
 
 	// NetworkName is the human-readable IRC network name.
@@ -95,5 +108,54 @@ func (c *Config) Defaults() {
 	}
 	if c.Datastore.DSN == "" {
 		c.Datastore.DSN = "./data/scuttlebot.db"
+	}
+	if c.APIAddr == "" {
+		c.APIAddr = ":8080"
+	}
+}
+
+func envStr(key string) string { return os.Getenv(key) }
+
+// ApplyEnv overrides config values with SCUTTLEBOT_* environment variables.
+// Call after Defaults() to allow env to override defaults.
+//
+// Supported variables:
+//
+//	SCUTTLEBOT_API_ADDR          — scuttlebot HTTP API listen address (e.g. ":8080")
+//	SCUTTLEBOT_DB_DRIVER         — "sqlite" or "postgres"
+//	SCUTTLEBOT_DB_DSN            — datastore connection string
+//	SCUTTLEBOT_ERGO_EXTERNAL     — "true" to skip subprocess management
+//	SCUTTLEBOT_ERGO_API_ADDR     — ergo HTTP API address (e.g. "http://ergo:8089")
+//	SCUTTLEBOT_ERGO_API_TOKEN    — ergo HTTP API bearer token
+//	SCUTTLEBOT_ERGO_IRC_ADDR     — ergo IRC listen/connect address (e.g. "ergo:6667")
+//	SCUTTLEBOT_ERGO_NETWORK_NAME — IRC network name
+//	SCUTTLEBOT_ERGO_SERVER_NAME  — IRC server hostname
+func (c *Config) ApplyEnv() {
+	if v := envStr("SCUTTLEBOT_API_ADDR"); v != "" {
+		c.APIAddr = v
+	}
+	if v := envStr("SCUTTLEBOT_DB_DRIVER"); v != "" {
+		c.Datastore.Driver = v
+	}
+	if v := envStr("SCUTTLEBOT_DB_DSN"); v != "" {
+		c.Datastore.DSN = v
+	}
+	if v := envStr("SCUTTLEBOT_ERGO_EXTERNAL"); v == "true" || v == "1" {
+		c.Ergo.External = true
+	}
+	if v := envStr("SCUTTLEBOT_ERGO_API_ADDR"); v != "" {
+		c.Ergo.APIAddr = v
+	}
+	if v := envStr("SCUTTLEBOT_ERGO_API_TOKEN"); v != "" {
+		c.Ergo.APIToken = v
+	}
+	if v := envStr("SCUTTLEBOT_ERGO_IRC_ADDR"); v != "" {
+		c.Ergo.IRCAddr = v
+	}
+	if v := envStr("SCUTTLEBOT_ERGO_NETWORK_NAME"); v != "" {
+		c.Ergo.NetworkName = v
+	}
+	if v := envStr("SCUTTLEBOT_ERGO_SERVER_NAME"); v != "" {
+		c.Ergo.ServerName = v
 	}
 }

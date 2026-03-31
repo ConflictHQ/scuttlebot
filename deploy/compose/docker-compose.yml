@@ -1,0 +1,73 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: scuttlebot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scuttlebot}
+      POSTGRES_DB: scuttlebot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scuttlebot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ergo:
+    build:
+      context: ./ergo
+    restart: unless-stopped
+    environment:
+      ERGO_NETWORK_NAME: ${ERGO_NETWORK_NAME:-scuttlebot}
+      ERGO_SERVER_NAME: ${ERGO_SERVER_NAME:-irc.scuttlebot.local}
+      ERGO_API_TOKEN: ${ERGO_API_TOKEN:?ERGO_API_TOKEN is required}
+      ERGO_HISTORY_ENABLED: ${ERGO_HISTORY_ENABLED:-true}
+      ERGO_HISTORY_DSN: postgres://scuttlebot:${POSTGRES_PASSWORD:-scuttlebot}@postgres:5432/scuttlebot?sslmode=disable
+    volumes:
+      - ergo_data:/ircd
+    ports:
+      - "${IRC_PORT:-6667}:6667"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8089/v1/status --header='Authorization: Bearer ${ERGO_API_TOKEN}' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  scuttlebot:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      SCUTTLEBOT_ERGO_EXTERNAL: "true"
+      SCUTTLEBOT_ERGO_API_ADDR: http://ergo:8089
+      SCUTTLEBOT_ERGO_API_TOKEN: ${ERGO_API_TOKEN:?ERGO_API_TOKEN is required}
+      SCUTTLEBOT_ERGO_IRC_ADDR: ergo:6667
+      SCUTTLEBOT_ERGO_NETWORK_NAME: ${ERGO_NETWORK_NAME:-scuttlebot}
+      SCUTTLEBOT_ERGO_SERVER_NAME: ${ERGO_SERVER_NAME:-irc.scuttlebot.local}
+      SCUTTLEBOT_DB_DRIVER: postgres
+      SCUTTLEBOT_DB_DSN: postgres://scuttlebot:${POSTGRES_PASSWORD:-scuttlebot}@postgres:5432/scuttlebot?sslmode=disable
+      SCUTTLEBOT_API_ADDR: :8080
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      ergo:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/v1/status --header='Authorization: Bearer ignored' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+volumes:
+  postgres_data:
+  ergo_data:
