@@ -16,6 +16,7 @@ import (
 	"github.com/conflicthq/scuttlebot/internal/api"
 	"github.com/conflicthq/scuttlebot/internal/config"
 	"github.com/conflicthq/scuttlebot/internal/ergo"
+	"github.com/conflicthq/scuttlebot/internal/mcp"
 	"github.com/conflicthq/scuttlebot/internal/registry"
 )
 
@@ -87,19 +88,34 @@ func main() {
 	signingKey := []byte(mustGenToken())
 	reg := registry.New(manager.API(), signingKey)
 
-	// Start HTTP API server.
+	// Shared API token — used by both REST and MCP servers.
 	apiToken := mustGenToken()
 	log.Info("api token", "token", apiToken) // printed once on startup — user copies this
-	apiSrv := api.New(reg, []string{apiToken}, log)
+	tokens := []string{apiToken}
+
+	// Start HTTP REST API server.
+	apiSrv := api.New(reg, tokens, log)
 	httpServer := &http.Server{
 		Addr:    cfg.APIAddr,
 		Handler: apiSrv.Handler(),
 	}
-
 	go func() {
 		log.Info("api server listening", "addr", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("api server error", "err", err)
+		}
+	}()
+
+	// Start MCP server.
+	mcpSrv := mcp.New(reg, &ergoChannelLister{manager.API()}, tokens, log)
+	mcpServer := &http.Server{
+		Addr:    cfg.MCPAddr,
+		Handler: mcpSrv.Handler(),
+	}
+	go func() {
+		log.Info("mcp server listening", "addr", mcpServer.Addr)
+		if err := mcpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("mcp server error", "err", err)
 		}
 	}()
 
@@ -109,8 +125,30 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	_ = httpServer.Shutdown(shutdownCtx)
+	_ = mcpServer.Shutdown(shutdownCtx)
 
 	log.Info("goodbye")
+}
+
+// ergoChannelLister adapts ergo.APIClient to mcp.ChannelLister.
+type ergoChannelLister struct {
+	api *ergo.APIClient
+}
+
+func (e *ergoChannelLister) ListChannels() ([]mcp.ChannelInfo, error) {
+	resp, err := e.api.ListChannels()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcp.ChannelInfo, len(resp.Channels))
+	for i, ch := range resp.Channels {
+		out[i] = mcp.ChannelInfo{
+			Name:  ch.Name,
+			Topic: ch.Topic,
+			Count: ch.UserCount,
+		}
+	}
+	return out, nil
 }
 
 func mustGenToken() string {
