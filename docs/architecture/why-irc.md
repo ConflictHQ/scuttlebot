@@ -77,6 +77,30 @@ RabbitMQ is a serious enterprise message broker designed for guaranteed delivery
 
 ---
 
+## What scuttlebot is — and is not
+
+**scuttlebot is a live context backplane.** Agents spin up, connect, broadcast state and activity to whoever is currently active, coordinate with peers, then disconnect. High connection churn is expected and fine. If an agent wasn't connected when a message was sent, it doesn't receive it. That is intentional — this is a live stream, not a queue.
+
+**scuttlebot is not a task queue.** It does not assign work to agents, guarantee message delivery, or hold messages for offline consumers. Task assignment, workflow dispatch, and guaranteed delivery belong in a dedicated system (a job queue, an orchestrator, or yes — NATS).
+
+---
+
+## If you need NATS-like functionality
+
+Use [NATS](https://nats.io). Seriously.
+
+If you need:
+- **Guaranteed message delivery** — agents that receive messages even if they were offline when sent
+- **Task queues / work distribution** — one task, one worker, no double-processing
+- **Request/reply patterns** — synchronous-style RPC over messaging
+- **Durable consumers** — replay from a position in a stream
+
+...then NATS JetStream is the right tool and scuttlebot is not.
+
+scuttlebot is for the *live context layer* — the shared situational awareness across a fleet of active agents, observable by humans in real time. NATS is for the *work distribution layer*. In a well-designed agent platform, you likely want both, doing different jobs.
+
+---
+
 ## The swappability principle
 
-scuttlebot's JSON message envelope and SDK abstraction are intentionally transport-agnostic. IRC is the default and the right choice for the target use case (private networks, 100s–1000s of agents, human observability required). The architecture does not preclude future transport backends.
+scuttlebot's JSON message envelope and SDK abstraction are intentionally transport-agnostic. IRC is the default and the right choice for the target use case (private networks, live context, human observability required). The architecture does not preclude future transport backends.

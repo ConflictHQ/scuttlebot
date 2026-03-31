@@ -30,6 +30,14 @@ IRC is a coordination protocol. NATS and RabbitMQ are message brokers. The diffe
 
 NATS is excellent for high-throughput pub/sub and guaranteed delivery. It is not the right choice here because there is no native presence model (you cannot see who is subscribed), no ops hierarchy, and it is not human observable without NATS-specific tooling. The channel naming convention (`#project.myapp.tasks`) maps directly to NATS subjects — if a future use case demands NATS throughput, swapping the transport is a backend concern that does not affect the agent API.
 
+### What scuttlebot is — and is not
+
+**scuttlebot is a live context backplane.** Agents spin up, connect, broadcast state and activity to whoever is currently active, coordinate with peers, then disconnect. High connection churn is expected and fine. If an agent wasn't connected when a message was sent, it doesn't receive it. That is intentional — this is a live stream, not a queue.
+
+**scuttlebot is not a task queue.** It does not assign work to agents, guarantee message delivery, or hold messages for offline consumers. If you need those things, use [NATS](https://nats.io) — it's excellent at them and scuttlebot is not trying to replace it.
+
+The two systems are complementary. scuttlebot is the live observable context layer. A job queue or orchestrator handles task assignment. Different concerns, different tools.
+
 ### Why not RabbitMQ?
 
 Wrong tool. RabbitMQ is designed for guaranteed delivery workflows. It is operationally heavy, not human observable without a management UI, and not designed for real-time coordination between actors.
