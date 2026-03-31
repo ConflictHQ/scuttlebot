@@ -1,7 +1,12 @@
 // Package config defines scuttlebot's configuration schema.
 package config
 
-import "os"
+import (
+	"fmt"
+	"os"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Config is the top-level scuttlebot configuration.
 type Config struct {
@@ -115,6 +120,24 @@ func (c *Config) Defaults() {
 }
 
 func envStr(key string) string { return os.Getenv(key) }
+
+// LoadFile reads a YAML config file into c. Missing file is not an error —
+// returns nil so callers can treat an absent config file as "use defaults".
+// Call Defaults() first, then LoadFile(), then ApplyEnv() so that file values
+// override defaults and env values override the file.
+func (c *Config) LoadFile(path string) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("config: read %s: %w", path, err)
+	}
+	if err := yaml.Unmarshal(data, c); err != nil {
+		return fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	return nil
+}
 
 // ApplyEnv overrides config values with SCUTTLEBOT_* environment variables.
 // Call after Defaults() to allow env to override defaults.

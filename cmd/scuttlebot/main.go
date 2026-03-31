@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -21,11 +22,28 @@ import (
 var version = "dev"
 
 func main() {
+	configPath := flag.String("config", "scuttlebot.yaml", "path to config file (YAML)")
+	flag.Parse()
+
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	cfg := &config.Config{}
 	cfg.Defaults()
+	if err := cfg.LoadFile(*configPath); err != nil {
+		log.Error("load config", "path", *configPath, "err", err)
+		os.Exit(1)
+	}
 	cfg.ApplyEnv()
+
+	// In managed mode, auto-fetch the ergo binary if not found.
+	if !cfg.Ergo.External {
+		binary, err := ergo.EnsureBinary(cfg.Ergo.BinaryPath, cfg.Ergo.DataDir)
+		if err != nil {
+			log.Error("ergo binary unavailable", "err", err)
+			os.Exit(1)
+		}
+		cfg.Ergo.BinaryPath = binary
+	}
 
 	// Generate an API token for the Ergo management API if not set.
 	if cfg.Ergo.APIToken == "" {
