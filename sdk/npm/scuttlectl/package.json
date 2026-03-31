@@ -1,0 +1,25 @@
+{
+  "name": "@conflicthq/scuttlectl",
+  "version": "0.0.1",
+  "description": "scuttlectl — CLI for managing scuttlebot instances",
+  "bin": {
+    "scuttlectl": "./bin/scuttlectl.js"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "scripts": {},
+  "keywords": ["irc", "agents", "scuttlebot", "ai"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ConflictHQ/scuttlebot"
+  },
+  "dependencies": {
+    "tar": "^6.2.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
