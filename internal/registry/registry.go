@@ -27,12 +27,13 @@ const (
 
 // Agent is a registered agent.
 type Agent struct {
-	Nick        string    `json:"nick"`
-	Type        AgentType `json:"type"`
-	Channels    []string  `json:"channels"`
-	Permissions []string  `json:"permissions"`
-	CreatedAt   time.Time `json:"created_at"`
-	Revoked     bool      `json:"revoked"`
+	Nick        string           `json:"nick"`
+	Type        AgentType        `json:"type"`
+	Channels    []string         `json:"channels"`    // convenience: same as Config.Channels
+	Permissions []string         `json:"permissions"` // convenience: same as Config.Permissions
+	Config      EngagementConfig `json:"config"`
+	CreatedAt   time.Time        `json:"created_at"`
+	Revoked     bool             `json:"revoked"`
 }
 
 // Credentials are the SASL credentials an agent uses to connect to Ergo.
@@ -42,14 +43,13 @@ type Credentials struct {
 }
 
 // EngagementPayload is the signed payload delivered to an agent on registration.
-// It describes the agent's channel assignments, permissions, and engagement rules.
+// Agents verify this with VerifyPayload() before trusting its contents.
 type EngagementPayload struct {
-	V           int       `json:"v"`
-	Nick        string    `json:"nick"`
-	Type        AgentType `json:"type"`
-	Channels    []string  `json:"channels"`
-	Permissions []string  `json:"permissions"`
-	IssuedAt    time.Time `json:"issued_at"`
+	V        int              `json:"v"`
+	Nick     string           `json:"nick"`
+	Type     AgentType        `json:"type"`
+	Config   EngagementConfig `json:"config"`
+	IssuedAt time.Time        `json:"issued_at"`
 }
 
 // SignedPayload wraps an EngagementPayload with an HMAC signature.
@@ -84,7 +84,12 @@ func New(provisioner AccountProvisioner, signingKey []byte) *Registry {
 
 // Register creates a new agent, provisions its Ergo account, and returns
 // credentials and a signed rules-of-engagement payload.
-func (r *Registry) Register(nick string, agentType AgentType, channels, permissions []string) (*Credentials, *SignedPayload, error) {
+// cfg is validated before any provisioning occurs.
+func (r *Registry) Register(nick string, agentType AgentType, cfg EngagementConfig) (*Credentials, *SignedPayload, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("registry: invalid engagement config: %w", err)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -104,8 +109,9 @@ func (r *Registry) Register(nick string, agentType AgentType, channels, permissi
 	agent := &Agent{
 		Nick:        nick,
 		Type:        agentType,
-		Channels:    channels,
-		Permissions: permissions,
+		Channels:    cfg.Channels,
+		Permissions: cfg.Permissions,
+		Config:      cfg,
 		CreatedAt:   time.Now(),
 	}
 	r.agents[nick] = agent
@@ -198,12 +204,11 @@ func (r *Registry) get(nick string) (*Agent, error) {
 
 func (r *Registry) signPayload(agent *Agent) (*SignedPayload, error) {
 	payload := EngagementPayload{
-		V:           1,
-		Nick:        agent.Nick,
-		Type:        agent.Type,
-		Channels:    agent.Channels,
-		Permissions: agent.Permissions,
-		IssuedAt:    time.Now(),
+		V:        1,
+		Nick:     agent.Nick,
+		Type:     agent.Type,
+		Config:   agent.Config,
+		IssuedAt: time.Now(),
 	}
 
 	data, err := json.Marshal(payload)
