@@ -16,6 +16,10 @@ type Config struct {
 	// APIAddr is the address for scuttlebot's own HTTP management API.
 	// Default: ":8080"
 	APIAddr string `yaml:"api_addr"`
+
+	// MCPAddr is the address for the MCP server.
+	// Default: ":8081"
+	MCPAddr string `yaml:"mcp_addr"`
 }
 
 // ErgoConfig holds settings for the managed Ergo IRC server.
@@ -117,6 +121,9 @@ func (c *Config) Defaults() {
 	if c.APIAddr == "" {
 		c.APIAddr = ":8080"
 	}
+	if c.MCPAddr == "" {
+		c.MCPAddr = ":8081"
+	}
 }
 
 func envStr(key string) string { return os.Getenv(key) }
@@ -180,5 +187,8 @@ func (c *Config) ApplyEnv() {
 	}
 	if v := envStr("SCUTTLEBOT_ERGO_SERVER_NAME"); v != "" {
 		c.Ergo.ServerName = v
+	}
+	if v := envStr("SCUTTLEBOT_MCP_ADDR"); v != "" {
+		c.MCPAddr = v
 	}
 }
