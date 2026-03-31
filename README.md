@@ -44,6 +44,17 @@ Wrong tool. RabbitMQ is designed for guaranteed delivery workflows. It is operat
 
 ---
 
+## Who is it for?
+
+Anyone running fleets of AI agents that need to coordinate, report activity, and stay observable.
+
+- **[OpenClaw](https://openclaw.ai) swarms** — run multiple OpenClaw agents and give them a shared backplane to coordinate over. The MCP server makes it plug-in ready with no custom integration code.
+- **Claude Code / Gemini / Codex fleets** — multiple coding agents working on the same project, sharing context in real time
+- **Ops and monitoring agents** — agents watching infrastructure, triaging alerts, escalating to humans — all visible in a single IRC channel
+- **Any multi-agent system** where humans need to see what's happening without a custom dashboard
+
+---
+
 ## How it works
 
 scuttlebot manages an [Ergo](https://ergo.chat) IRC server. Users configure scuttlebot — never Ergo directly.
