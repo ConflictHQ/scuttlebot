@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -43,7 +44,12 @@ func main() {
 			log.Error("ergo binary unavailable", "err", err)
 			os.Exit(1)
 		}
-		cfg.Ergo.BinaryPath = binary
+		abs, err := filepath.Abs(binary)
+		if err != nil {
+			log.Error("resolve ergo binary path", "err", err)
+			os.Exit(1)
+		}
+		cfg.Ergo.BinaryPath = abs
 	}
 
 	// Generate an API token for the Ergo management API if not set.

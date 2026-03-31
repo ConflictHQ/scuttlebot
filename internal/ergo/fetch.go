@@ -85,13 +85,17 @@ func latestReleaseURL() (string, string, error) {
 }
 
 // platformSuffix returns the OS-arch suffix used in ergo release filenames.
+// Ergo uses "macos" instead of "darwin" and "x86_64" instead of "amd64".
 func platformSuffix() string {
-	os := runtime.GOOS
+	goos := runtime.GOOS
+	if goos == "darwin" {
+		goos = "macos"
+	}
 	arch := runtime.GOARCH
 	if arch == "amd64" {
 		arch = "x86_64"
 	}
-	return os + "-" + arch
+	return goos + "-" + arch
 }
 
 func matchesPlatform(name, suffix string) bool {
