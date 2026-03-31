@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>scuttlebot</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+  header { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 16px; color: #58a6ff; letter-spacing: 0.05em; }
+  header .tagline { font-size: 12px; color: #8b949e; }
+  header .spacer { flex: 1; }
+  .token-badge { font-size: 12px; color: #8b949e; display: flex; align-items: center; gap: 8px; }
+  .token-badge code { background: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 2px 8px; color: #a5d6ff; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button { cursor: pointer; border: 1px solid #30363d; border-radius: 6px; padding: 6px 12px; font-size: 13px; font-family: inherit; background: #21262d; color: #e6edf3; transition: background 0.1s; }
+  button:hover { background: #30363d; }
+  button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  button.primary:hover { background: #388bfd; }
+  button.danger { background: #21262d; border-color: #f85149; color: #f85149; }
+  button.danger:hover { background: #3d1f1e; }
+  button.small { padding: 3px 8px; font-size: 12px; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  .card-header { padding: 12px 16px; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 8px; }
+  .card-header h2 { font-size: 14px; color: #e6edf3; font-weight: 600; }
+  .card-header .badge { background: #1f6feb22; border: 1px solid #1f6feb44; color: #58a6ff; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+  .card-body { padding: 16px; }
+  .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .stat { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 12px 16px; }
+  .stat .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .stat .value { font-size: 20px; color: #58a6ff; font-weight: 600; }
+  .stat .sub { font-size: 11px; color: #8b949e; margin-top: 2px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.green { background: #3fb950; box-shadow: 0 0 6px #3fb950aa; }
+  .dot.red { background: #f85149; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; border-bottom: 1px solid #21262d; }
+  td { padding: 10px 12px; border-bottom: 1px solid #21262d; color: #e6edf3; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #1c2128; }
+  .tag { display: inline-block; background: #1f6feb22; border: 1px solid #1f6feb44; color: #79c0ff; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin: 1px; }
+  .tag.type-orchestrator { background: #8957e522; border-color: #8957e544; color: #d2a8ff; }
+  .tag.type-worker { background: #1f6feb22; border-color: #1f6feb44; color: #79c0ff; }
+  .tag.type-observer { background: #21262d; border-color: #30363d; color: #8b949e; }
+  .tag.revoked { background: #f8514922; border-color: #f8514944; color: #ff7b72; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .empty { color: #8b949e; font-size: 13px; text-align: center; padding: 24px; }
+  form { display: flex; flex-direction: column; gap: 14px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 4px; }
+  input, select, textarea { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; color: #e6edf3; outline: none; transition: border-color 0.1s; }
+  input:focus, select:focus, textarea:focus { border-color: #58a6ff; }
+  select option { background: #161b22; }
+  textarea { resize: vertical; min-height: 60px; }
+  .hint { font-size: 11px; color: #8b949e; margin-top: 3px; }
+  .alert { border-radius: 6px; padding: 12px 14px; font-size: 13px; display: flex; gap: 10px; align-items: flex-start; }
+  .alert.info { background: #1f6feb1a; border: 1px solid #1f6feb44; color: #79c0ff; }
+  .alert.error { background: #f851491a; border: 1px solid #f8514944; color: #ff7b72; }
+  .alert.success { background: #3fb9501a; border: 1px solid #3fb95044; color: #7ee787; }
+  .alert .icon { flex-shrink: 0; font-size: 16px; line-height: 1.3; }
+  .cred-box { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-size: 12px; }
+  .cred-box .cred-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .cred-box .cred-row:last-child { margin-bottom: 0; }
+  .cred-box .cred-key { color: #8b949e; min-width: 90px; }
+  .cred-box .cred-val { color: #a5d6ff; word-break: break-all; flex: 1; }
+  .cred-box .copy-btn { flex-shrink: 0; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: #0d111788; z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 24px; width: 480px; max-width: 95vw; }
+  .modal h3 { font-size: 15px; margin-bottom: 16px; }
+  .modal .btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⬡ scuttlebot</h1>
+  <span class="tagline">agent coordination backplane</span>
+  <div class="spacer"></div>
+  <div class="token-badge">
+    <span>token:</span>
+    <code id="token-display">not set</code>
+    <button class="small" onclick="openTokenModal()">set</button>
+  </div>
+</header>
+
+<main>
+  <div id="no-token-banner" class="alert info" style="display:none">
+    <span class="icon">ℹ</span>
+    <span>Paste your API token to continue. It was printed to stderr when scuttlebot started:<br><code style="color:#a5d6ff">level=INFO msg="api token" token=...</code></span>
+  </div>
+
+  <!-- Status -->
+  <div class="card">
+    <div class="card-header">
+      <span class="dot green" id="status-dot"></span>
+      <h2>status</h2>
+    </div>
+    <div class="card-body">
+      <div class="status-grid" id="status-grid">
+        <div class="stat"><div class="label">state</div><div class="value" id="stat-status">—</div></div>
+        <div class="stat"><div class="label">uptime</div><div class="value" id="stat-uptime">—</div></div>
+        <div class="stat"><div class="label">agents</div><div class="value" id="stat-agents">—</div></div>
+        <div class="stat"><div class="label">started</div><div class="value" style="font-size:13px" id="stat-started">—</div><div class="sub" id="stat-started-rel"></div></div>
+      </div>
+      <div id="status-error" style="margin-top:12px;display:none"></div>
+    </div>
+  </div>
+
+  <!-- Agents -->
+  <div class="card">
+    <div class="card-header">
+      <h2>agents</h2>
+      <span class="badge" id="agent-count">0</span>
+      <div class="spacer"></div>
+      <button class="small" onclick="loadAgents()">↻ refresh</button>
+    </div>
+    <div class="card-body" style="padding:0">
+      <div id="agents-container"></div>
+    </div>
+  </div>
+
+  <!-- Register -->
+  <div class="card">
+    <div class="card-header"><h2>register agent</h2></div>
+    <div class="card-body">
+      <form id="register-form" onsubmit="handleRegister(event)">
+        <div class="form-row">
+          <div>
+            <label>nick *</label>
+            <input type="text" id="reg-nick" placeholder="my-agent-01" required>
+          </div>
+          <div>
+            <label>type</label>
+            <select id="reg-type">
+              <option value="worker">worker — gets +v in channels</option>
+              <option value="orchestrator">orchestrator — gets +o in channels</option>
+              <option value="observer">observer — read-only</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label>channels</label>
+          <input type="text" id="reg-channels" placeholder="#fleet, #ops, #project.foo">
+          <div class="hint">comma-separated; must start with #</div>
+        </div>
+        <div>
+          <label>permissions</label>
+          <input type="text" id="reg-permissions" placeholder="task.create, task.update">
+          <div class="hint">comma-separated message types this agent is allowed to send</div>
+        </div>
+        <div id="register-result" style="display:none"></div>
+        <div style="display:flex;justify-content:flex-end">
+          <button type="submit" class="primary">register</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</main>
+
+<!-- Token modal -->
+<div class="modal-overlay" id="token-modal">
+  <div class="modal">
+    <h3>set API token</h3>
+    <p style="font-size:13px;color:#8b949e;margin-bottom:14px">The token is printed to stderr when scuttlebot starts:<br><code style="color:#a5d6ff">level=INFO msg="api token" token=&lt;value&gt;</code></p>
+    <label>token</label>
+    <input type="text" id="token-input" placeholder="paste token here" autocomplete="off" spellcheck="false">
+    <div class="btn-row">
+      <button onclick="closeTokenModal()">cancel</button>
+      <button class="primary" onclick="saveToken()">save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- token management ---
+function getToken() { return localStorage.getItem('scuttlebot_token') || ''; }
+function setToken(t) {
+  localStorage.setItem('scuttlebot_token', t);
+  updateTokenDisplay();
+}
+function updateTokenDisplay() {
+  const t = getToken();
+  const el = document.getElementById('token-display');
+  const banner = document.getElementById('no-token-banner');
+  if (t) {
+    el.textContent = t.slice(0, 8) + '…' + t.slice(-4);
+    banner.style.display = 'none';
+  } else {
+    el.textContent = 'not set';
+    banner.style.display = 'flex';
+  }
+}
+function openTokenModal() {
+  document.getElementById('token-input').value = getToken();
+  document.getElementById('token-modal').classList.add('open');
+  setTimeout(() => document.getElementById('token-input').focus(), 50);
+}
+function closeTokenModal() { document.getElementById('token-modal').classList.remove('open'); }
+function saveToken() {
+  const v = document.getElementById('token-input').value.trim();
+  if (v) { setToken(v); closeTokenModal(); loadAll(); }
+}
+document.getElementById('token-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeTokenModal();
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeTokenModal();
+});
+
+// --- API ---
+async function api(method, path, body) {
+  const token = getToken();
+  const opts = { method, headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => ({ error: res.statusText }));
+  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { status: res.status });
+  return data;
+}
+
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = orig; }, 1200);
+  });
+}
+
+// --- status ---
+async function loadStatus() {
+  try {
+    const s = await api('GET', '/v1/status');
+    document.getElementById('stat-status').innerHTML = '<span class="dot green"></span>' + s.status;
+    document.getElementById('stat-uptime').textContent = s.uptime;
+    document.getElementById('stat-agents').textContent = s.agents;
+    const started = new Date(s.started);
+    document.getElementById('stat-started').textContent = started.toLocaleTimeString();
+    document.getElementById('stat-started-rel').textContent = started.toLocaleDateString();
+    document.getElementById('status-error').style.display = 'none';
+  } catch (e) {
+    document.getElementById('stat-status').innerHTML = '<span class="dot red"></span>error';
+    const err = document.getElementById('status-error');
+    err.style.display = 'block';
+    err.innerHTML = renderAlert('error', e.message);
+  }
+}
+
+// --- agents ---
+async function loadAgents() {
+  const container = document.getElementById('agents-container');
+  try {
+    const data = await api('GET', '/v1/agents');
+    const agents = data.agents || [];
+    document.getElementById('agent-count').textContent = agents.length;
+    if (agents.length === 0) {
+      container.innerHTML = '<div class="empty">no agents registered yet</div>';
+      return;
+    }
+    let rows = agents.map(a => {
+      const channels = (a.config?.channels || []).map(c => `<span class="tag">${esc(c)}</span>`).join('');
+      const perms = (a.config?.permissions || []).map(p => `<span class="tag">${esc(p)}</span>`).join('');
+      const revoked = a.revoked_at ? '<span class="tag revoked">revoked</span>' : '';
+      return `<tr>
+        <td><strong>${esc(a.nick)}</strong></td>
+        <td><span class="tag type-${a.type}">${esc(a.type)}</span>${revoked}</td>
+        <td>${channels || '<span style="color:#8b949e">—</span>'}</td>
+        <td>${perms || '<span style="color:#8b949e">—</span>'}</td>
+        <td>${fmtTime(a.created_at)}</td>
+        <td>
+          <div class="actions">
+            ${!a.revoked_at ? `<button class="small" onclick="rotateAgent('${esc(a.nick)}')">rotate</button>
+            <button class="small danger" onclick="revokeAgent('${esc(a.nick)}')">revoke</button>` : ''}
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+    container.innerHTML = `<table>
+      <thead><tr><th>nick</th><th>type</th><th>channels</th><th>permissions</th><th>registered</th><th>actions</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  } catch (e) {
+    container.innerHTML = renderAlert('error', e.message);
+  }
+}
+
+async function revokeAgent(nick) {
+  if (!confirm(`Revoke agent "${nick}"? This cannot be undone.`)) return;
+  try {
+    await api('POST', `/v1/agents/${nick}/revoke`);
+    await loadAgents();
+    await loadStatus();
+  } catch(e) {
+    alert('Revoke failed: ' + e.message);
+  }
+}
+
+async function rotateAgent(nick) {
+  try {
+    const creds = await api('POST', `/v1/agents/${nick}/rotate`);
+    showCredentials(nick, creds, null, 'rotate');
+  } catch(e) {
+    alert('Rotate failed: ' + e.message);
+  }
+}
+
+// --- register ---
+async function handleRegister(e) {
+  e.preventDefault();
+  const nick = document.getElementById('reg-nick').value.trim();
+  const type = document.getElementById('reg-type').value;
+  const channelsRaw = document.getElementById('reg-channels').value;
+  const permsRaw = document.getElementById('reg-permissions').value;
+
+  const channels = channelsRaw.split(',').map(s => s.trim()).filter(Boolean);
+  const permissions = permsRaw.split(',').map(s => s.trim()).filter(Boolean);
+
+  const resultEl = document.getElementById('register-result');
+  resultEl.style.display = 'none';
+
+  try {
+    const res = await api('POST', '/v1/agents/register', { nick, type, channels, permissions });
+    showCredentials(nick, res.credentials, res.payload, 'register');
+    document.getElementById('register-form').reset();
+    await loadAgents();
+    await loadStatus();
+  } catch(e) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = renderAlert('error', e.message);
+  }
+}
+
+function showCredentials(nick, creds, payload, mode) {
+  const resultEl = document.getElementById('register-result');
+  resultEl.style.display = 'block';
+
+  const passphrase = creds?.passphrase || creds?.Passphrase || '';
+  const payloadSig = payload?.signature || '';
+  const payloadEnc = payload ? JSON.stringify(payload.payload || payload, null, 2) : '';
+
+  resultEl.innerHTML = renderAlert('success',
+    `<strong>${mode === 'register' ? 'Agent registered' : 'Credentials rotated'}: ${esc(nick)}</strong>
+    <div style="margin-top:10px" class="cred-box">
+      <div class="cred-row">
+        <span class="cred-key">nick</span>
+        <span class="cred-val">${esc(creds?.nick || nick)}</span>
+        <button class="small copy-btn" onclick="copyText('${esc(creds?.nick || nick)}', this)">copy</button>
+      </div>
+      <div class="cred-row">
+        <span class="cred-key">passphrase</span>
+        <span class="cred-val">${esc(passphrase)}</span>
+        <button class="small copy-btn" onclick="copyText('${esc(passphrase)}', this)">copy</button>
+      </div>
+      ${payloadSig ? `<div class="cred-row">
+        <span class="cred-key">sig</span>
+        <span class="cred-val" style="font-size:11px">${esc(payloadSig)}</span>
+      </div>` : ''}
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:#7ee787">⚠ Save the passphrase now — it will not be shown again.</div>`
+  );
+}
+
+// --- helpers ---
+function renderAlert(type, msg) {
+  const icons = { info: 'ℹ', error: '✕', success: '✓' };
+  return `<div class="alert ${type}"><span class="icon">${icons[type]}</span><div>${msg}</div></div>`;
+}
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+}
+
+// --- init ---
+function loadAll() { loadStatus(); loadAgents(); }
+updateTokenDisplay();
+loadAll();
+setInterval(loadStatus, 15000);
+</script>
+</body>
+</html>
