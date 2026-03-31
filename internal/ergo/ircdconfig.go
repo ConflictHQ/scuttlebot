@@ -17,6 +17,7 @@ server:
         "{{.IRCAddr}}": {}
     casemapping: ascii
     enforce-utf8: true
+    max-sendq: 96k
     relaymsg:
         enabled: false
     ip-cloaking:
@@ -24,7 +25,7 @@ server:
     lookup-hostnames: false
 
 datastore:
-    path: {{.DataDir}}/ircd.db
+    path: ./ircd.db
     autoupgrade: true
 {{- if .HistoryEnabled}}
     {{- if .PostgresDSN}}
@@ -93,39 +94,6 @@ limits:
     kicklen: 255
     topiclen: 512
 
-opers:
-    scuttlebot:
-        class: ircop
-        hidden: true
-        whois-line: scuttlebot operator
-
-oper-classes:
-    ircop:
-        title: IRC Operator
-        capabilities:
-            - oper:local_kill
-            - oper:local_ban
-            - oper:local_unban
-            - oper:remote_kill
-            - oper:remote_ban
-            - oper:remote_unban
-            - oper:rehash
-            - oper:die
-            - oper:nofakelag
-            - oper:relaymsg
-            - ban:nick
-            - ban:hostname
-            - ban:cidr
-            - ban:ip
-            - samode
-            - sajoin
-            - snomask
-            - vhosts
-            - accreg
-            - chanreg
-            - history
-            - defcon
-            - massmessage
 `))
 
 type ircdTemplateData struct {

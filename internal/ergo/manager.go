@@ -138,7 +138,11 @@ func (m *Manager) writeConfig() error {
 }
 
 func (m *Manager) configPath() string {
-	return filepath.Join(m.cfg.DataDir, ircdConfigFile)
+	p := filepath.Join(m.cfg.DataDir, ircdConfigFile)
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }
 
 func (m *Manager) waitHealthy(ctx context.Context) error {
