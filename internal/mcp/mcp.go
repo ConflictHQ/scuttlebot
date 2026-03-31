@@ -289,7 +289,7 @@ func (s *Server) toolRegisterAgent(args map[string]any) (string, error) {
 		}
 	}
 
-	creds, _, err := s.registry.Register(nick, agentType, channels, nil)
+	creds, _, err := s.registry.Register(nick, agentType, registry.EngagementConfig{Channels: channels})
 	if err != nil {
 		return "", err
 	}

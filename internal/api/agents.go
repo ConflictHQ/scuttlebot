@@ -9,10 +9,12 @@ import (
 )
 
 type registerRequest struct {
-	Nick        string            `json:"nick"`
-	Type        registry.AgentType `json:"type"`
-	Channels    []string          `json:"channels"`
-	Permissions []string          `json:"permissions"`
+	Nick        string                    `json:"nick"`
+	Type        registry.AgentType        `json:"type"`
+	Channels    []string                  `json:"channels"`
+	Permissions []string                  `json:"permissions"`
+	RateLimit   *registry.RateLimitConfig `json:"rate_limit,omitempty"`
+	Rules       *registry.EngagementRules `json:"engagement,omitempty"`
 }
 
 type registerResponse struct {
@@ -34,7 +36,17 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		req.Type = registry.AgentTypeWorker
 	}
 
-	creds, payload, err := s.registry.Register(req.Nick, req.Type, req.Channels, req.Permissions)
+	cfg := registry.EngagementConfig{
+		Channels:    req.Channels,
+		Permissions: req.Permissions,
+	}
+	if req.RateLimit != nil {
+		cfg.RateLimit = *req.RateLimit
+	}
+	if req.Rules != nil {
+		cfg.Rules = *req.Rules
+	}
+	creds, payload, err := s.registry.Register(req.Nick, req.Type, cfg)
 	if err != nil {
 		if strings.Contains(err.Error(), "already registered") {
 			writeError(w, http.StatusConflict, err.Error())
