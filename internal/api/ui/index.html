@@ -47,6 +47,14 @@
   .tag.revoked { background: #f8514922; border-color: #f8514944; color: #ff7b72; }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .empty { color: #8b949e; font-size: 13px; text-align: center; padding: 24px; }
+  .chan-item { padding: 8px 12px; font-size: 13px; cursor: pointer; color: #8b949e; border-bottom: 1px solid #21262d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chan-item:hover { background: #1c2128; color: #e6edf3; }
+  .chan-item.active { background: #1f6feb22; color: #58a6ff; border-left: 2px solid #58a6ff; }
+  .msg-row { display: flex; gap: 8px; font-size: 13px; line-height: 1.6; padding: 1px 0; }
+  .msg-time { color: #8b949e; font-size: 11px; flex-shrink: 0; padding-top: 3px; min-width: 44px; }
+  .msg-nick { color: #58a6ff; font-weight: 600; flex-shrink: 0; min-width: 80px; text-align: right; }
+  .msg-nick.bridge-nick { color: #3fb950; }
+  .msg-text { color: #e6edf3; word-break: break-word; }
   form { display: flex; flex-direction: column; gap: 14px; }
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 4px; }
@@ -157,6 +165,35 @@
           <button type="submit" class="primary">register</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Chat -->
+  <div class="card" id="chat-card" style="display:none">
+    <div class="card-header">
+      <h2>chat</h2>
+      <span class="badge" id="chat-channel-badge" style="display:none"></span>
+      <div class="spacer"></div>
+      <span id="chat-stream-status" style="font-size:11px;color:#8b949e"></span>
+    </div>
+    <div style="display:flex;height:440px">
+      <div id="chat-channel-list" style="width:140px;border-right:1px solid #30363d;overflow-y:auto;flex-shrink:0;padding:8px 0;display:flex;flex-direction:column">
+        <div style="padding:6px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#8b949e">channels</div>
+        <div style="padding:6px 8px;border-bottom:1px solid #21262d;display:flex;gap:4px">
+          <input type="text" id="join-channel-input" placeholder="#channel" style="flex:1;font-size:11px;padding:3px 6px" autocomplete="off">
+          <button class="small" onclick="joinChannel()" style="padding:3px 6px;font-size:11px">+</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;flex:1;min-width:0">
+        <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:2px">
+          <div class="empty" id="chat-placeholder">select a channel to view messages</div>
+        </div>
+        <div style="padding:10px 14px;border-top:1px solid #30363d;display:flex;gap:8px;align-items:center">
+          <input type="text" id="chat-nick-input" placeholder="your nick" style="width:110px;flex-shrink:0" autocomplete="off">
+          <input type="text" id="chat-text-input" placeholder="type a message…" style="flex:1" autocomplete="off">
+          <button class="primary small" id="chat-send-btn" onclick="sendChatMessage()">send</button>
+        </div>
+      </div>
     </div>
   </div>
 </main>
@@ -378,8 +415,130 @@ function fmtTime(iso) {
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
 }
 
+// --- chat ---
+let chatChannel = null;
+let chatSSE = null;
+
+async function loadChannels() {
+  if (!getToken()) return;
+  try {
+    const data = await api('GET', '/v1/channels');
+    renderChannelList(data.channels || []);
+    document.getElementById('chat-card').style.display = '';
+  } catch(e) {
+    // bridge disabled or error — keep chat card hidden
+  }
+}
+
+function renderChannelList(channels) {
+  const list = document.getElementById('chat-channel-list');
+  // Remove old channel items (keep header div and join input div)
+  Array.from(list.querySelectorAll('.chan-item')).forEach(el => el.remove());
+  channels.sort().forEach(ch => {
+    const el = document.createElement('div');
+    el.className = 'chan-item' + (ch === chatChannel ? ' active' : '');
+    el.textContent = ch;
+    el.onclick = () => selectChannel(ch);
+    list.appendChild(el);
+  });
+}
+
+async function joinChannel() {
+  let ch = document.getElementById('join-channel-input').value.trim();
+  if (!ch) return;
+  if (!ch.startsWith('#')) ch = '#' + ch;
+  const slug = ch.replace(/^#/, '');
+  try {
+    await api('POST', `/v1/channels/${slug}/join`);
+    document.getElementById('join-channel-input').value = '';
+    await loadChannels();
+    selectChannel(ch);
+  } catch(e) {
+    alert('Join failed: ' + e.message);
+  }
+}
+
+document.getElementById('join-channel-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') joinChannel();
+});
+
+async function selectChannel(ch) {
+  chatChannel = ch;
+  document.getElementById('chat-channel-badge').textContent = ch;
+  document.getElementById('chat-channel-badge').style.display = '';
+  document.getElementById('chat-placeholder').style.display = 'none';
+  document.querySelectorAll('.chan-item').forEach(el => {
+    el.classList.toggle('active', el.textContent === ch);
+  });
+
+  const area = document.getElementById('chat-messages');
+  // clear previous messages (keep placeholder)
+  Array.from(area.children).forEach(el => { if (!el.id) el.remove(); });
+
+  try {
+    const slug = ch.replace(/^#/, '');
+    const data = await api('GET', `/v1/channels/${slug}/messages`);
+    (data.messages || []).forEach(appendMessage);
+    area.scrollTop = area.scrollHeight;
+  } catch(e) {}
+
+  if (chatSSE) { chatSSE.close(); chatSSE = null; }
+  const slug = ch.replace(/^#/, '');
+  const url = `/v1/channels/${slug}/stream?token=${encodeURIComponent(getToken())}`;
+  const es = new EventSource(url);
+  chatSSE = es;
+  const status = document.getElementById('chat-stream-status');
+  es.onopen = () => { status.textContent = '● live'; status.style.color = '#3fb950'; };
+  es.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      appendMessage(msg);
+      area.scrollTop = area.scrollHeight;
+    } catch(_) {}
+  };
+  es.onerror = () => { status.textContent = '○ reconnecting…'; status.style.color = '#8b949e'; };
+}
+
+function appendMessage(msg) {
+  const area = document.getElementById('chat-messages');
+  const t = new Date(msg.at);
+  const timeStr = t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const isBridge = msg.nick === 'bridge';
+  const row = document.createElement('div');
+  row.className = 'msg-row';
+  row.innerHTML = `<span class="msg-time">${esc(timeStr)}</span>`
+    + `<span class="msg-nick${isBridge ? ' bridge-nick' : ''}">${esc(msg.nick)}</span>`
+    + `<span class="msg-text">${esc(msg.text)}</span>`;
+  area.appendChild(row);
+}
+
+async function sendChatMessage() {
+  if (!chatChannel) return;
+  const input = document.getElementById('chat-text-input');
+  const nick = document.getElementById('chat-nick-input').value.trim() || 'web';
+  const text = input.value.trim();
+  if (!text) return;
+  input.disabled = true;
+  document.getElementById('chat-send-btn').disabled = true;
+  try {
+    const slug = chatChannel.replace(/^#/, '');
+    await api('POST', `/v1/channels/${slug}/messages`, { text, nick });
+    input.value = '';
+  } catch(e) {
+    alert('Send failed: ' + e.message);
+  } finally {
+    input.disabled = false;
+    document.getElementById('chat-send-btn').disabled = false;
+    input.focus();
+  }
+}
+
+document.getElementById('chat-text-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendChatMessage();
+});
+
 // --- init ---
-function loadAll() { loadStatus(); loadAgents(); }
+function loadAll() { loadStatus(); loadAgents(); loadChannels(); }
 updateTokenDisplay();
 loadAll();
 setInterval(loadStatus, 15000);

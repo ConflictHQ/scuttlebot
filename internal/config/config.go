@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Ergo      ErgoConfig      `yaml:"ergo"`
 	Datastore DatastoreConfig `yaml:"datastore"`
+	Bridge    BridgeConfig    `yaml:"bridge"`
 
 	// APIAddr is the address for scuttlebot's own HTTP management API.
 	// Default: ":8080"
@@ -81,6 +82,25 @@ type MySQLConfig struct {
 	Database string `yaml:"database"`
 }
 
+// BridgeConfig configures the IRC bridge bot that powers the web chat UI.
+type BridgeConfig struct {
+	// Enabled controls whether the bridge bot starts. Default: true.
+	Enabled bool `yaml:"enabled"`
+
+	// Nick is the IRC nick for the bridge bot. Default: "bridge".
+	Nick string `yaml:"nick"`
+
+	// Password is the SASL PLAIN passphrase for the bridge's NickServ account.
+	// Auto-generated on first start if empty.
+	Password string `yaml:"password"`
+
+	// Channels is the list of IRC channels the bridge joins on startup.
+	Channels []string `yaml:"channels"`
+
+	// BufferSize is the number of messages to keep per channel. Default: 200.
+	BufferSize int `yaml:"buffer_size"`
+}
+
 // DatastoreConfig configures scuttlebot's own state store (separate from Ergo).
 type DatastoreConfig struct {
 	// Driver is "sqlite" or "postgres". Default: "sqlite".
@@ -123,6 +143,15 @@ func (c *Config) Defaults() {
 	}
 	if c.MCPAddr == "" {
 		c.MCPAddr = ":8081"
+	}
+	if !c.Bridge.Enabled && c.Bridge.Nick == "" {
+		c.Bridge.Enabled = true // enabled by default
+	}
+	if c.Bridge.Nick == "" {
+		c.Bridge.Nick = "bridge"
+	}
+	if c.Bridge.BufferSize == 0 {
+		c.Bridge.BufferSize = 200
 	}
 }
 

@@ -32,7 +32,7 @@ func TestGenerateConfig(t *testing.T) {
 		{"network name", "name: testnet"},
 		{"server name", "name: irc.test.local"},
 		{"irc addr", `"127.0.0.1:6667"`},
-		{"data dir", "/tmp/ergo/ircd.db"},
+		{"data dir", "path: ./ircd.db"},
 		{"api addr", `"127.0.0.1:8089"`},
 		{"api token", "test-token-abc123"},
 		{"api enabled", "enabled: true"},

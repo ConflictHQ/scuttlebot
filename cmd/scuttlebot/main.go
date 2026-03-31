@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/conflicthq/scuttlebot/internal/api"
+	"github.com/conflicthq/scuttlebot/internal/bots/bridge"
 	"github.com/conflicthq/scuttlebot/internal/config"
 	"github.com/conflicthq/scuttlebot/internal/ergo"
 	"github.com/conflicthq/scuttlebot/internal/mcp"
@@ -99,8 +100,37 @@ func main() {
 	log.Info("api token", "token", apiToken) // printed once on startup — user copies this
 	tokens := []string{apiToken}
 
+	// Start bridge bot (powers the web chat UI).
+	var bridgeBot *bridge.Bot
+	if cfg.Bridge.Enabled {
+		if cfg.Bridge.Password == "" {
+			cfg.Bridge.Password = mustGenToken()
+		}
+		// Ensure the bridge's NickServ account exists with the current password.
+		if err := manager.API().RegisterAccount(cfg.Bridge.Nick, cfg.Bridge.Password); err != nil {
+			// Account exists from a previous run — update the password so it matches.
+			if err2 := manager.API().ChangePassword(cfg.Bridge.Nick, cfg.Bridge.Password); err2 != nil {
+				log.Error("bridge account setup failed", "err", err2)
+				os.Exit(1)
+			}
+		}
+		bridgeBot = bridge.New(
+			cfg.Ergo.IRCAddr,
+			cfg.Bridge.Nick,
+			cfg.Bridge.Password,
+			cfg.Bridge.Channels,
+			cfg.Bridge.BufferSize,
+			log,
+		)
+		go func() {
+			if err := bridgeBot.Start(ctx); err != nil {
+				log.Error("bridge bot error", "err", err)
+			}
+		}()
+	}
+
 	// Start HTTP REST API server.
-	apiSrv := api.New(reg, tokens, log)
+	apiSrv := api.New(reg, tokens, bridgeBot, log)
 	httpServer := &http.Server{
 		Addr:    cfg.APIAddr,
 		Handler: apiSrv.Handler(),
