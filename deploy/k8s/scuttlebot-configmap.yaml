@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scuttlebot-config
+data:
+  ergo.network-name: "scuttlebot"
+  ergo.server-name: "irc.scuttlebot.local"
+  ergo.api-addr: "http://ergo-api:8089"
+  ergo.irc-addr: "ergo-irc:6667"
+  api.addr: ":8080"
+  mcp.addr: ":8081"
+  db.driver: "postgres"

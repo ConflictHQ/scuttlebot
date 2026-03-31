@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scuttlebot
+  labels:
+    app: scuttlebot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scuttlebot
+  template:
+    metadata:
+      labels:
+        app: scuttlebot
+    spec:
+      containers:
+        - name: scuttlebot
+          image: ghcr.io/conflicthq/scuttlebot:latest
+          imagePullPolicy: Always
+          ports:
+            - name: api
+              containerPort: 8080
+            - name: mcp
+              containerPort: 8081
+          env:
+            - name: SCUTTLEBOT_ERGO_EXTERNAL
+              value: "true"
+            - name: SCUTTLEBOT_ERGO_API_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: scuttlebot-config
+                  key: ergo.api-addr
+            - name: SCUTTLEBOT_ERGO_IRC_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: scuttlebot-config
+                  key: ergo.irc-addr
+            - name: SCUTTLEBOT_ERGO_NETWORK_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: scuttlebot-config
+                  key: ergo.network-name
+            - name: SCUTTLEBOT_ERGO_SERVER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: scuttlebot-config
+                  key: ergo.server-name
+            - name: SCUTTLEBOT_ERGO_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: scuttlebot-secrets
+                  key: ergo-api-token
+            - name: SCUTTLEBOT_DB_DRIVER
+              valueFrom:
+                configMapKeyRef:
+                  name: scuttlebot-config
+                  key: db.driver
+            - name: SCUTTLEBOT_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: scuttlebot-secrets
+                  key: postgres-dsn
+            - name: SCUTTLEBOT_API_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: scuttlebot-config
+                  key: api.addr
+            - name: SCUTTLEBOT_MCP_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: scuttlebot-config
+                  key: mcp.addr
+          livenessProbe:
+            httpGet:
+              path: /v1/status
+              port: 8080
+              httpHeaders:
+                - name: Authorization
+                  value: "Bearer probe-check"
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /v1/status
+              port: 8080
+              httpHeaders:
+                - name: Authorization
+                  value: "Bearer probe-check"
+            initialDelaySeconds: 10
+            periodSeconds: 10

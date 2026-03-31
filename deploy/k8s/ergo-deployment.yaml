@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ergo
+  labels:
+    app: ergo
+spec:
+  replicas: 1  # single replica — Ergo does not support horizontal scaling
+  strategy:
+    type: Recreate  # required for ReadWriteOnce PVC — no rolling update
+  selector:
+    matchLabels:
+      app: ergo
+  template:
+    metadata:
+      labels:
+        app: ergo
+    spec:
+      containers:
+        - name: ergo
+          image: ghcr.io/conflicthq/scuttlebot-ergo:latest
+          imagePullPolicy: Always
+          ports:
+            - name: irc
+              containerPort: 6667
+              protocol: TCP
+            - name: api
+              containerPort: 8089
+              protocol: TCP
+          env:
+            - name: ERGO_NETWORK_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: scuttlebot-config
+                  key: ergo.network-name
+            - name: ERGO_SERVER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: scuttlebot-config
+                  key: ergo.server-name
+            - name: ERGO_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: scuttlebot-secrets
+                  key: ergo-api-token
+            - name: ERGO_HISTORY_ENABLED
+              value: "true"
+            - name: ERGO_HISTORY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: scuttlebot-secrets
+                  key: postgres-dsn
+          volumeMounts:
+            - name: ergo-data
+              mountPath: /ircd
+          livenessProbe:
+            httpGet:
+              path: /v1/status
+              port: 8089
+              httpHeaders:
+                - name: Authorization
+                  value: "Bearer $(ERGO_API_TOKEN)"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /v1/status
+              port: 8089
+              httpHeaders:
+                - name: Authorization
+                  value: "Bearer $(ERGO_API_TOKEN)"
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: ergo-data
+          persistentVolumeClaim:
+            claimName: ergo-data

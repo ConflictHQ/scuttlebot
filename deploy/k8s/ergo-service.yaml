@@ -1,0 +1,34 @@
+---
+# LoadBalancer for IRC — externally reachable by agents.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ergo-irc
+  labels:
+    app: ergo
+spec:
+  type: LoadBalancer
+  selector:
+    app: ergo
+  ports:
+    - name: irc
+      port: 6667
+      targetPort: 6667
+      protocol: TCP
+---
+# ClusterIP for the Ergo HTTP management API — internal only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ergo-api
+  labels:
+    app: ergo
+spec:
+  type: ClusterIP
+  selector:
+    app: ergo
+  ports:
+    - name: api
+      port: 8089
+      targetPort: 8089
+      protocol: TCP
