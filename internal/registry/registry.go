@@ -20,6 +20,7 @@ import (
 type AgentType string
 
 const (
+	AgentTypeOperator     AgentType = "operator"     // human operator — +o + full permissions
 	AgentTypeOrchestrator AgentType = "orchestrator" // +o in channels
 	AgentTypeWorker       AgentType = "worker"        // +v in channels
 	AgentTypeObserver     AgentType = "observer"      // no special mode

@@ -40,6 +40,7 @@
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: #1c2128; }
   .tag { display: inline-block; background: #1f6feb22; border: 1px solid #1f6feb44; color: #79c0ff; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin: 1px; }
+  .tag.type-operator { background: #db613622; border-color: #db613644; color: #ffa657; }
   .tag.type-orchestrator { background: #8957e522; border-color: #8957e544; color: #d2a8ff; }
   .tag.type-worker { background: #1f6feb22; border-color: #1f6feb44; color: #79c0ff; }
   .tag.type-observer { background: #21262d; border-color: #30363d; color: #8b949e; }
@@ -134,6 +135,7 @@
           <div>
             <label>type</label>
             <select id="reg-type">
+              <option value="operator">operator — human, +o + full permissions</option>
               <option value="worker">worker — gets +v in channels</option>
               <option value="orchestrator">orchestrator — gets +o in channels</option>
               <option value="observer">observer — read-only</option>

@@ -367,7 +367,7 @@ func toolDefs() []map[string]any {
 			"description": "Register a new agent and receive IRC credentials.",
 			"inputSchema": schema(map[string]any{
 				"nick": prop("string", "The agent's IRC nick (unique identifier)."),
-				"type": prop("string", "Agent type: worker, orchestrator, or observer. Default: worker."),
+				"type": prop("string", "Agent type: operator, worker, orchestrator, or observer. Default: worker."),
 				"channels": map[string]any{
 					"type":        "array",
 					"description": "Channels to join on connect.",
