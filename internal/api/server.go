@@ -33,16 +33,22 @@ func New(reg *registry.Registry, tokens []string, log *slog.Logger) *Server {
 }
 
 // Handler returns the HTTP handler with all routes registered.
-// Auth middleware wraps every route — no endpoint is reachable without a valid token.
+// /v1/ routes require a valid Bearer token. /ui/ is served unauthenticated.
 func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("GET /v1/status", s.handleStatus)
+	apiMux.HandleFunc("GET /v1/agents", s.handleListAgents)
+	apiMux.HandleFunc("GET /v1/agents/{nick}", s.handleGetAgent)
+	apiMux.HandleFunc("POST /v1/agents/register", s.handleRegister)
+	apiMux.HandleFunc("POST /v1/agents/{nick}/rotate", s.handleRotate)
+	apiMux.HandleFunc("POST /v1/agents/{nick}/revoke", s.handleRevoke)
 
-	mux.HandleFunc("GET /v1/status", s.handleStatus)
-	mux.HandleFunc("GET /v1/agents", s.handleListAgents)
-	mux.HandleFunc("GET /v1/agents/{nick}", s.handleGetAgent)
-	mux.HandleFunc("POST /v1/agents/register", s.handleRegister)
-	mux.HandleFunc("POST /v1/agents/{nick}/rotate", s.handleRotate)
-	mux.HandleFunc("POST /v1/agents/{nick}/revoke", s.handleRevoke)
+	outer := http.NewServeMux()
+	outer.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusFound)
+	})
+	outer.Handle("/ui/", s.uiFileServer())
+	outer.Handle("/v1/", s.authMiddleware(apiMux))
 
-	return s.authMiddleware(mux)
+	return outer
 }
