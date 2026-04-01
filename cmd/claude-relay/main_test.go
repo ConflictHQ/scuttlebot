@@ -1,0 +1,52 @@
+package main
+
+import (
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestFilterMessages(t *testing.T) {
+	now := time.Now()
+	nick := "claude-test"
+	messages := []message{
+		{Nick: "operator", Text: "claude-test: hello", At: now},
+		{Nick: "claude-test", Text: "i am claude", At: now}, // self
+		{Nick: "other", Text: "not for me", At: now},        // no mention
+		{Nick: "bridge", Text: "system message", At: now},   // service bot
+	}
+
+	filtered, _ := filterMessages(messages, now.Add(-time.Minute), nick)
+	if len(filtered) != 1 {
+		t.Errorf("expected 1 filtered message, got %d", len(filtered))
+	}
+	if filtered[0].Nick != "operator" {
+		t.Errorf("expected operator message, got %s", filtered[0].Nick)
+	}
+}
+
+func TestLoadConfig(t *testing.T) {
+	t.Setenv("SCUTTLEBOT_CONFIG_FILE", filepath.Join(t.TempDir(), "scuttlebot-relay.env"))
+	t.Setenv("SCUTTLEBOT_URL", "http://test:8080")
+	t.Setenv("SCUTTLEBOT_TOKEN", "test-token")
+	t.Setenv("SCUTTLEBOT_SESSION_ID", "abc")
+	t.Setenv("SCUTTLEBOT_NICK", "")
+
+	cfg, err := loadConfig([]string{"--cd", "../.."})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.URL != "http://test:8080" {
+		t.Errorf("expected URL http://test:8080, got %s", cfg.URL)
+	}
+	if cfg.Token != "test-token" {
+		t.Errorf("expected token test-token, got %s", cfg.Token)
+	}
+	if cfg.SessionID != "abc" {
+		t.Errorf("expected session ID abc, got %s", cfg.SessionID)
+	}
+	if cfg.Nick != "claude-scuttlebot-abc" {
+		t.Errorf("expected nick claude-scuttlebot-abc, got %s", cfg.Nick)
+	}
+}

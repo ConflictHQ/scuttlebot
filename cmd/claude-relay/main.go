@@ -1,0 +1,602 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"hash/crc32"
+	"io"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/conflicthq/scuttlebot/pkg/ircagent"
+	"github.com/conflicthq/scuttlebot/pkg/sessionrelay"
+	"github.com/creack/pty"
+	"golang.org/x/term"
+)
+
+const (
+	defaultRelayURL     = "http://localhost:8080"
+	defaultIRCAddr      = "127.0.0.1:6667"
+	defaultChannel      = "general"
+	defaultTransport    = sessionrelay.TransportHTTP
+	defaultPollInterval = 2 * time.Second
+	defaultConnectWait  = 10 * time.Second
+	defaultInjectDelay  = 150 * time.Millisecond
+	defaultBusyWindow   = 1500 * time.Millisecond
+	defaultHeartbeat    = 60 * time.Second
+	defaultConfigFile   = ".config/scuttlebot-relay.env"
+)
+
+var serviceBots = map[string]struct{}{
+	"bridge":    {},
+	"oracle":    {},
+	"sentinel":  {},
+	"steward":   {},
+	"scribe":    {},
+	"warden":    {},
+	"snitch":    {},
+	"herald":    {},
+	"scroll":    {},
+	"systembot": {},
+	"auditbot":  {},
+}
+
+type config struct {
+	ClaudeBin          string
+	ConfigFile         string
+	Transport          sessionrelay.Transport
+	URL                string
+	Token              string
+	IRCAddr            string
+	IRCPass            string
+	IRCAgentType       string
+	IRCDeleteOnClose   bool
+	Channel            string
+	SessionID          string
+	Nick               string
+	HooksEnabled       bool
+	InterruptOnMessage bool
+	PollInterval       time.Duration
+	HeartbeatInterval  time.Duration
+	TargetCWD          string
+	Args               []string
+}
+
+type message = sessionrelay.Message
+
+type relayState struct {
+	mu       sync.RWMutex
+	lastBusy time.Time
+}
+
+func main() {
+	cfg, err := loadConfig(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "claude-relay:", err)
+		os.Exit(1)
+	}
+
+	if err := run(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "claude-relay:", err)
+		os.Exit(1)
+	}
+}
+
+func run(cfg config) error {
+	fmt.Fprintf(os.Stderr, "claude-relay: nick %s\n", cfg.Nick)
+	relayRequested := cfg.HooksEnabled && shouldRelaySession(cfg.Args)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var relay sessionrelay.Connector
+	relayActive := false
+	if relayRequested {
+		conn, err := sessionrelay.New(sessionrelay.Config{
+			Transport: cfg.Transport,
+			URL:       cfg.URL,
+			Token:     cfg.Token,
+			Channel:   cfg.Channel,
+			Nick:      cfg.Nick,
+			IRC: sessionrelay.IRCConfig{
+				Addr:          cfg.IRCAddr,
+				Pass:          cfg.IRCPass,
+				AgentType:     cfg.IRCAgentType,
+				DeleteOnClose: cfg.IRCDeleteOnClose,
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "claude-relay: relay disabled: %v\n", err)
+		} else {
+			connectCtx, connectCancel := context.WithTimeout(ctx, defaultConnectWait)
+			if err := conn.Connect(connectCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "claude-relay: relay disabled: %v\n", err)
+				_ = conn.Close(context.Background())
+			} else {
+				relay = conn
+				relayActive = true
+				_ = relay.Post(context.Background(), fmt.Sprintf(
+					"online in %s; mention %s to interrupt before the next action",
+					filepath.Base(cfg.TargetCWD), cfg.Nick,
+				))
+			}
+			connectCancel()
+		}
+	}
+	if relay != nil {
+		defer func() {
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), defaultConnectWait)
+			defer closeCancel()
+			_ = relay.Close(closeCtx)
+		}()
+	}
+
+	cmd := exec.Command(cfg.ClaudeBin, cfg.Args...)
+	cmd.Env = append(os.Environ(),
+		"SCUTTLEBOT_CONFIG_FILE="+cfg.ConfigFile,
+		"SCUTTLEBOT_URL="+cfg.URL,
+		"SCUTTLEBOT_TOKEN="+cfg.Token,
+		"SCUTTLEBOT_CHANNEL="+cfg.Channel,
+		"SCUTTLEBOT_HOOKS_ENABLED="+boolString(cfg.HooksEnabled),
+		"SCUTTLEBOT_SESSION_ID="+cfg.SessionID,
+		"SCUTTLEBOT_NICK="+cfg.Nick,
+		"SCUTTLEBOT_ACTIVITY_VIA_BROKER="+boolString(relayActive),
+	)
+	if relayActive {
+		go presenceLoop(ctx, relay, cfg.HeartbeatInterval)
+	}
+
+	if !isInteractiveTTY() {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
+		if err != nil {
+			exitCode := exitStatus(err)
+			if relayActive {
+				_ = relay.Post(context.Background(), fmt.Sprintf("offline (exit %d)", exitCode))
+			}
+			return err
+		}
+		if relayActive {
+			_ = relay.Post(context.Background(), "offline (exit 0)")
+		}
+		return nil
+	}
+
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ptmx.Close() }()
+
+	state := &relayState{}
+
+	if err := pty.InheritSize(os.Stdin, ptmx); err == nil {
+		resizeCh := make(chan os.Signal, 1)
+		signal.Notify(resizeCh, syscall.SIGWINCH)
+		defer signal.Stop(resizeCh)
+		go func() {
+			for range resizeCh {
+				_ = pty.InheritSize(os.Stdin, ptmx)
+			}
+		}()
+		resizeCh <- syscall.SIGWINCH
+	}
+
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
+
+	go func() {
+		_, _ = io.Copy(ptmx, os.Stdin)
+	}()
+	go func() {
+		copyPTYOutput(ptmx, os.Stdout, state)
+	}()
+	if relayActive {
+		go relayInputLoop(ctx, relay, cfg, state, ptmx)
+	}
+
+	err = cmd.Wait()
+	cancel()
+
+	exitCode := exitStatus(err)
+	if relayActive {
+		_ = relay.Post(context.Background(), fmt.Sprintf("offline (exit %d)", exitCode))
+	}
+	return err
+}
+
+func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, state *relayState, ptyFile *os.File) {
+	lastSeen := time.Now()
+	ticker := time.NewTicker(cfg.PollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			messages, err := relay.MessagesSince(ctx, lastSeen)
+			if err != nil {
+				continue
+			}
+			batch, newest := filterMessages(messages, lastSeen, cfg.Nick)
+			if len(batch) == 0 {
+				continue
+			}
+			lastSeen = newest
+			if err := injectMessages(ptyFile, cfg, state, batch); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func presenceLoop(ctx context.Context, relay sessionrelay.Connector, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = relay.Touch(ctx)
+		}
+	}
+}
+
+func injectMessages(writer io.Writer, cfg config, state *relayState, batch []message) error {
+	lines := make([]string, 0, len(batch))
+	for _, msg := range batch {
+		text := ircagent.TrimAddressedText(strings.TrimSpace(msg.Text), cfg.Nick)
+		if text == "" {
+			text = strings.TrimSpace(msg.Text)
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", msg.Nick, text))
+	}
+
+	var block strings.Builder
+	block.WriteString("[IRC operator messages]\n")
+	for _, line := range lines {
+		block.WriteString(line)
+		block.WriteByte('\n')
+	}
+
+	notice := "\r\n" + block.String() + "\r\n"
+	_, _ = os.Stdout.WriteString(notice)
+
+	if cfg.InterruptOnMessage && state.shouldInterrupt(time.Now()) {
+		if _, err := writer.Write([]byte{3}); err != nil {
+			return err
+		}
+		time.Sleep(defaultInjectDelay)
+	}
+
+	if _, err := writer.Write([]byte(block.String())); err != nil {
+		return err
+	}
+	_, err := writer.Write([]byte{'\r'})
+	return err
+}
+
+func copyPTYOutput(src io.Reader, dst io.Writer, state *relayState) {
+	buf := make([]byte, 4096)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			state.observeOutput(buf[:n], time.Now())
+			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (s *relayState) observeOutput(data []byte, now time.Time) {
+	if s == nil {
+		return
+	}
+	// Claude Code uses "esc to interrupt" as its busy signal.
+	if strings.Contains(strings.ToLower(string(data)), "esc to interrupt") {
+		s.mu.Lock()
+		s.lastBusy = now
+		s.mu.Unlock()
+	}
+}
+
+func (s *relayState) shouldInterrupt(now time.Time) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	lastBusy := s.lastBusy
+	s.mu.RUnlock()
+	return !lastBusy.IsZero() && now.Sub(lastBusy) <= defaultBusyWindow
+}
+
+func filterMessages(messages []message, since time.Time, nick string) ([]message, time.Time) {
+	filtered := make([]message, 0, len(messages))
+	newest := since
+	for _, msg := range messages {
+		if msg.At.IsZero() || !msg.At.After(since) {
+			continue
+		}
+		if msg.At.After(newest) {
+			newest = msg.At
+		}
+		if msg.Nick == nick {
+			continue
+		}
+		if _, ok := serviceBots[msg.Nick]; ok {
+			continue
+		}
+		if ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes()) {
+			continue
+		}
+		if !ircagent.MentionsNick(msg.Text, nick) {
+			continue
+		}
+		filtered = append(filtered, msg)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].At.Before(filtered[j].At)
+	})
+	return filtered, newest
+}
+
+func loadConfig(args []string) (config, error) {
+	fileConfig := readEnvFile(configFilePath())
+
+	cfg := config{
+		ClaudeBin:          getenvOr(fileConfig, "CLAUDE_BIN", "claude"),
+		ConfigFile:         getenvOr(fileConfig, "SCUTTLEBOT_CONFIG_FILE", configFilePath()),
+		Transport:          sessionrelay.Transport(strings.ToLower(getenvOr(fileConfig, "SCUTTLEBOT_TRANSPORT", string(defaultTransport)))),
+		URL:                getenvOr(fileConfig, "SCUTTLEBOT_URL", defaultRelayURL),
+		Token:              getenvOr(fileConfig, "SCUTTLEBOT_TOKEN", ""),
+		IRCAddr:            getenvOr(fileConfig, "SCUTTLEBOT_IRC_ADDR", defaultIRCAddr),
+		IRCPass:            getenvOr(fileConfig, "SCUTTLEBOT_IRC_PASS", ""),
+		IRCAgentType:       getenvOr(fileConfig, "SCUTTLEBOT_IRC_AGENT_TYPE", "worker"),
+		IRCDeleteOnClose:   getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_DELETE_ON_CLOSE", true),
+		Channel:            strings.TrimPrefix(getenvOr(fileConfig, "SCUTTLEBOT_CHANNEL", defaultChannel), "#"),
+		HooksEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true),
+		InterruptOnMessage: getenvBoolOr(fileConfig, "SCUTTLEBOT_INTERRUPT_ON_MESSAGE", true),
+		PollInterval:       getenvDurationOr(fileConfig, "SCUTTLEBOT_POLL_INTERVAL", defaultPollInterval),
+		HeartbeatInterval:  getenvDurationAllowZeroOr(fileConfig, "SCUTTLEBOT_PRESENCE_HEARTBEAT", defaultHeartbeat),
+		Args:               append([]string(nil), args...),
+	}
+
+	target, err := targetCWD(args)
+	if err != nil {
+		return config{}, err
+	}
+	cfg.TargetCWD = target
+
+	sessionID := getenvOr(fileConfig, "SCUTTLEBOT_SESSION_ID", "")
+	if sessionID == "" {
+		sessionID = defaultSessionID(target)
+	}
+	cfg.SessionID = sanitize(sessionID)
+
+	nick := getenvOr(fileConfig, "SCUTTLEBOT_NICK", "")
+	if nick == "" {
+		nick = fmt.Sprintf("claude-%s-%s", sanitize(filepath.Base(target)), cfg.SessionID)
+	}
+	cfg.Nick = sanitize(nick)
+
+	if cfg.Channel == "" {
+		cfg.Channel = defaultChannel
+	}
+	if cfg.Transport == sessionrelay.TransportHTTP && cfg.Token == "" {
+		cfg.HooksEnabled = false
+	}
+	return cfg, nil
+}
+
+func configFilePath() string {
+	if value := os.Getenv("SCUTTLEBOT_CONFIG_FILE"); value != "" {
+		return value
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".config", "scuttlebot-relay.env") // Fallback
+	}
+	return filepath.Join(home, ".config", "scuttlebot-relay.env")
+}
+
+func readEnvFile(path string) map[string]string {
+	values := make(map[string]string)
+	file, err := os.Open(path)
+	if err != nil {
+		return values
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		values[strings.TrimSpace(key)] = strings.TrimSpace(strings.Trim(value, `"'`))
+	}
+	return values
+}
+
+func getenvOr(file map[string]string, key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	if value := file[key]; value != "" {
+		return value
+	}
+	return fallback
+}
+
+func getenvBoolOr(file map[string]string, key string, fallback bool) bool {
+	value := getenvOr(file, key, "")
+	if value == "" {
+		return fallback
+	}
+	switch strings.ToLower(value) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func getenvDurationOr(file map[string]string, key string, fallback time.Duration) time.Duration {
+	value := getenvOr(file, key, "")
+	if value == "" {
+		return fallback
+	}
+	if strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) == -1 {
+		value += "s"
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
+func getenvDurationAllowZeroOr(file map[string]string, key string, fallback time.Duration) time.Duration {
+	value := getenvOr(file, key, "")
+	if value == "" {
+		return fallback
+	}
+	if strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) == -1 {
+		value += "s"
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d < 0 {
+		return fallback
+	}
+	return d
+}
+
+func targetCWD(args []string) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	target := cwd
+	var prev string
+	for _, arg := range args {
+		switch {
+		case prev == "-C" || prev == "--cd":
+			target = arg
+			prev = ""
+			continue
+		case arg == "-C" || arg == "--cd":
+			prev = arg
+			continue
+		case strings.HasPrefix(arg, "-C="):
+			target = strings.TrimPrefix(arg, "-C=")
+		case strings.HasPrefix(arg, "--cd="):
+			target = strings.TrimPrefix(arg, "--cd=")
+		}
+	}
+	if filepath.IsAbs(target) {
+		return target, nil
+	}
+	return filepath.Abs(target)
+}
+
+func sanitize(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	result := strings.Trim(b.String(), "-")
+	if result == "" {
+		return "session"
+	}
+	return result
+}
+
+func defaultSessionID(target string) string {
+	sum := crc32.ChecksumIEEE([]byte(fmt.Sprintf("%s|%d|%d|%d", target, os.Getpid(), os.Getppid(), time.Now().UnixNano())))
+	return fmt.Sprintf("%08x", sum)
+}
+
+func isInteractiveTTY() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+func boolString(v bool) string {
+	if v {
+		return "1"
+	}
+	return "0"
+}
+
+func shouldRelaySession(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help", "-V", "--version":
+			return false
+		}
+	}
+
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		switch arg {
+		case "help", "completion":
+			return false
+		default:
+			return true
+		}
+	}
+
+	return true
+}
+
+func exitStatus(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return 1
+}
