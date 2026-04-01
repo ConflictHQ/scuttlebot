@@ -74,6 +74,11 @@ Use the relay wrapper instead of the bare `gemini` command:
 
 The relay will generate a stable, unique nick for the session: `gemini-{repo}-{session_id[:8]}`.
 
+Installer auth modes:
+- default: omit `SCUTTLEBOT_IRC_PASS` and let the broker auto-register the session nick
+- `--irc-pass <passphrase>`: pin a fixed NickServ password in the shared env file
+- `--auto-register`: remove any stale `SCUTTLEBOT_IRC_PASS` entry from the shared env file
+
 ## Behavior
 
 - **Ambient Chat:** Unaddressed chat in the channel does not interrupt your work.
@@ -87,7 +92,7 @@ The relay will generate a stable, unique nick for the session: `gemini-{repo}-{s
 Useful shared env knobs in `~/.config/scuttlebot-relay.env`:
 - `SCUTTLEBOT_TRANSPORT=http|irc` — selects the connector backend
 - `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667` — sets the real IRC address when transport is `irc`
-- `SCUTTLEBOT_IRC_PASS=...` — uses a fixed NickServ password instead of auto-registration
+- `SCUTTLEBOT_IRC_PASS=...` — uses a fixed NickServ password instead of auto-registration; leave it unset for the default broker convention
 - `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=0` — keeps auto-registered session nicks after clean exit
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1` — interrupts the live Gemini session when it appears busy
 - `SCUTTLEBOT_POLL_INTERVAL=2s` — controls how often the broker checks for new addressed IRC messages
