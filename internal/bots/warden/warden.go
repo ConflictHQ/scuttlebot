@@ -66,9 +66,9 @@ type nickState struct {
 
 // channelState holds per-channel warden state.
 type channelState struct {
-	mu     sync.Mutex
-	cfg    ChannelConfig
-	nicks  map[string]*nickState
+	mu    sync.Mutex
+	cfg   ChannelConfig
+	nicks map[string]*nickState
 }
 
 func newChannelState(cfg ChannelConfig) *channelState {

@@ -91,14 +91,14 @@ func (c *Config) setDefaults() {
 
 // msgEntry is a buffered channel message.
 type msgEntry struct {
-	at      time.Time
-	nick    string
-	text    string
+	at   time.Time
+	nick string
+	text string
 }
 
 // chanBuffer holds unanalysed messages for a channel.
 type chanBuffer struct {
-	msgs    []msgEntry
+	msgs     []msgEntry
 	lastScan time.Time
 }
 

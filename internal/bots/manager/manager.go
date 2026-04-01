@@ -80,7 +80,7 @@ type Manager struct {
 	prov      Provisioner
 	channels  ChannelLister
 	log       *slog.Logger
-	passwords map[string]string         // nick → password, persisted
+	passwords map[string]string // nick → password, persisted
 	running   map[string]context.CancelFunc
 }
 
