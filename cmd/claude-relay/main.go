@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -24,16 +26,19 @@ import (
 )
 
 const (
-	defaultRelayURL     = "http://localhost:8080"
-	defaultIRCAddr      = "127.0.0.1:6667"
-	defaultChannel      = "general"
-	defaultTransport    = sessionrelay.TransportHTTP
-	defaultPollInterval = 2 * time.Second
-	defaultConnectWait  = 10 * time.Second
-	defaultInjectDelay  = 150 * time.Millisecond
-	defaultBusyWindow   = 1500 * time.Millisecond
-	defaultHeartbeat    = 60 * time.Second
-	defaultConfigFile   = ".config/scuttlebot-relay.env"
+	defaultRelayURL      = "http://localhost:8080"
+	defaultIRCAddr       = "127.0.0.1:6667"
+	defaultChannel       = "general"
+	defaultTransport     = sessionrelay.TransportIRC
+	defaultPollInterval  = 2 * time.Second
+	defaultConnectWait   = 10 * time.Second
+	defaultInjectDelay   = 150 * time.Millisecond
+	defaultBusyWindow    = 1500 * time.Millisecond
+	defaultHeartbeat     = 60 * time.Second
+	defaultConfigFile    = ".config/scuttlebot-relay.env"
+	defaultScanInterval  = 250 * time.Millisecond
+	defaultDiscoverWait  = 20 * time.Second
+	defaultMirrorLineMax = 360
 )
 
 var serviceBots = map[string]struct{}{
@@ -49,6 +54,13 @@ var serviceBots = map[string]struct{}{
 	"systembot": {},
 	"auditbot":  {},
 }
+
+var (
+	secretHexPattern   = regexp.MustCompile(`\b[a-f0-9]{32,}\b`)
+	secretKeyPattern   = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]+\b`)
+	bearerPattern      = regexp.MustCompile(`(?i)(bearer\s+)([A-Za-z0-9._:-]+)`)
+	assignTokenPattern = regexp.MustCompile(`(?i)\b([A-Z0-9_]*(TOKEN|KEY|SECRET|PASSPHRASE)[A-Z0-9_]*=)([^ \t"'` + "`" + `]+)`)
+)
 
 type config struct {
 	ClaudeBin          string
@@ -76,6 +88,23 @@ type message = sessionrelay.Message
 type relayState struct {
 	mu       sync.RWMutex
 	lastBusy time.Time
+}
+
+// Claude Code JSONL session entry.
+type claudeSessionEntry struct {
+	Type    string `json:"type"`
+	CWD     string `json:"cwd"`
+	Message struct {
+		Role    string `json:"role"`
+		Content []struct {
+			Type  string          `json:"type"`
+			Text  string          `json:"text"`
+			Name  string          `json:"name"`
+			Input json.RawMessage `json:"input"`
+		} `json:"content"`
+	} `json:"message"`
+	Timestamp string `json:"timestamp"`
+	SessionID string `json:"sessionId"`
 }
 
 func main() {
@@ -140,6 +169,7 @@ func run(cfg config) error {
 		}()
 	}
 
+	startedAt := time.Now()
 	cmd := exec.Command(cfg.ClaudeBin, cfg.Args...)
 	cmd.Env = append(os.Environ(),
 		"SCUTTLEBOT_CONFIG_FILE="+cfg.ConfigFile,
@@ -152,6 +182,7 @@ func run(cfg config) error {
 		"SCUTTLEBOT_ACTIVITY_VIA_BROKER="+boolString(relayActive),
 	)
 	if relayActive {
+		go mirrorSessionLoop(ctx, relay, cfg, startedAt)
 		go presenceLoop(ctx, relay, cfg.HeartbeatInterval)
 	}
 
@@ -218,6 +249,320 @@ func run(cfg config) error {
 	}
 	return err
 }
+
+// --- Session mirroring ---
+
+func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time) {
+	sessionPath, err := discoverSessionPath(ctx, cfg, startedAt)
+	if err != nil {
+		return
+	}
+	_ = tailSessionFile(ctx, sessionPath, func(text string) {
+		for _, line := range splitMirrorText(text) {
+			if line == "" {
+				continue
+			}
+			_ = relay.Post(ctx, line)
+		}
+	})
+}
+
+func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (string, error) {
+	root, err := claudeSessionsRoot(cfg.TargetCWD)
+	if err != nil {
+		return "", err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, defaultDiscoverWait)
+	defer cancel()
+
+	ticker := time.NewTicker(defaultScanInterval)
+	defer ticker.Stop()
+
+	for {
+		path, err := findLatestSessionPath(root, cfg.TargetCWD, startedAt.Add(-2*time.Second))
+		if err == nil && path != "" {
+			return path, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// claudeSessionsRoot returns ~/.claude/projects/<sanitized-cwd>/
+func claudeSessionsRoot(cwd string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	sanitized := strings.ReplaceAll(cwd, "/", "-")
+	sanitized = strings.TrimLeft(sanitized, "-")
+	return filepath.Join(home, ".claude", "projects", "-"+sanitized), nil
+}
+
+// findLatestSessionPath finds the most recently modified .jsonl file in root
+// that contains an entry with cwd matching targetCWD and timestamp after since.
+func findLatestSessionPath(root, targetCWD string, since time.Time) (string, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
+
+	type candidate struct {
+		path    string
+		modTime time.Time
+	}
+	var candidates []candidate
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(since) {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			path:    filepath.Join(root, e.Name()),
+			modTime: info.ModTime(),
+		})
+	}
+	if len(candidates) == 0 {
+		return "", errors.New("no session files found")
+	}
+	// Sort newest first.
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].modTime.After(candidates[j].modTime)
+	})
+	// Return the first file that has an entry matching our cwd.
+	for _, c := range candidates {
+		if matchesSession(c.path, targetCWD, since) {
+			return c.path, nil
+		}
+	}
+	return "", errors.New("no matching session found")
+}
+
+// matchesSession peeks at the first few lines of a JSONL file to verify cwd.
+func matchesSession(path, targetCWD string, since time.Time) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	checked := 0
+	for scanner.Scan() && checked < 5 {
+		checked++
+		var entry claudeSessionEntry
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			continue
+		}
+		if entry.CWD == "" {
+			continue
+		}
+		return entry.CWD == targetCWD
+	}
+	return false
+}
+
+func tailSessionFile(ctx context.Context, path string, emit func(string)) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if _, err := file.Seek(0, io.SeekEnd); err != nil {
+		return err
+	}
+
+	reader := bufio.NewReader(file)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			for _, text := range sessionMessages(line) {
+				if text != "" {
+					emit(text)
+				}
+			}
+		}
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, io.EOF) {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(defaultScanInterval):
+			}
+			continue
+		}
+		return err
+	}
+}
+
+// sessionMessages parses a Claude Code JSONL line and returns IRC-ready strings.
+func sessionMessages(line []byte) []string {
+	var entry claudeSessionEntry
+	if err := json.Unmarshal(line, &entry); err != nil {
+		return nil
+	}
+	if entry.Type != "assistant" || entry.Message.Role != "assistant" {
+		return nil
+	}
+
+	var out []string
+	for _, block := range entry.Message.Content {
+		switch block.Type {
+		case "text":
+			for _, l := range splitMirrorText(block.Text) {
+				if l != "" {
+					out = append(out, sanitizeSecrets(l))
+				}
+			}
+		case "tool_use":
+			if msg := summarizeToolUse(block.Name, block.Input); msg != "" {
+				out = append(out, msg)
+			}
+		// thinking blocks are intentionally skipped — too verbose for IRC
+		}
+	}
+	return out
+}
+
+func summarizeToolUse(name string, inputRaw json.RawMessage) string {
+	var input map[string]json.RawMessage
+	_ = json.Unmarshal(inputRaw, &input)
+
+	str := func(key string) string {
+		v, ok := input[key]
+		if !ok {
+			return ""
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return strings.Trim(string(v), `"`)
+		}
+		return s
+	}
+
+	switch name {
+	case "Bash":
+		cmd := sanitizeSecrets(compactCommand(str("command")))
+		if cmd != "" {
+			return "› " + cmd
+		}
+		return "› bash"
+	case "Edit":
+		if p := str("file_path"); p != "" {
+			return "edit " + p
+		}
+		return "edit"
+	case "Write":
+		if p := str("file_path"); p != "" {
+			return "write " + p
+		}
+		return "write"
+	case "Read":
+		if p := str("file_path"); p != "" {
+			return "read " + p
+		}
+		return "read"
+	case "Glob":
+		if p := str("pattern"); p != "" {
+			return "glob " + p
+		}
+		return "glob"
+	case "Grep":
+		if p := str("pattern"); p != "" {
+			return "grep " + p
+		}
+		return "grep"
+	case "Agent":
+		return "spawn agent"
+	case "WebFetch":
+		if u := str("url"); u != "" {
+			return "fetch " + sanitizeSecrets(u)
+		}
+		return "fetch"
+	case "WebSearch":
+		if q := str("query"); q != "" {
+			return "search " + q
+		}
+		return "search"
+	case "TodoWrite":
+		return "update todos"
+	case "NotebookEdit":
+		if p := str("notebook_path"); p != "" {
+			return "edit notebook " + p
+		}
+		return "edit notebook"
+	default:
+		if name == "" {
+			return ""
+		}
+		return name
+	}
+}
+
+func compactCommand(cmd string) string {
+	trimmed := strings.TrimSpace(cmd)
+	trimmed = strings.Join(strings.Fields(trimmed), " ")
+	if strings.HasPrefix(trimmed, "cd ") {
+		if idx := strings.Index(trimmed, " && "); idx > 0 {
+			trimmed = strings.TrimSpace(trimmed[idx+4:])
+		}
+	}
+	if len(trimmed) > 140 {
+		return trimmed[:140] + "..."
+	}
+	return trimmed
+}
+
+func sanitizeSecrets(text string) string {
+	if text == "" {
+		return ""
+	}
+	text = bearerPattern.ReplaceAllString(text, "${1}[redacted]")
+	text = assignTokenPattern.ReplaceAllString(text, "${1}[redacted]")
+	text = secretKeyPattern.ReplaceAllString(text, "[redacted]")
+	text = secretHexPattern.ReplaceAllString(text, "[redacted]")
+	return text
+}
+
+func splitMirrorText(text string) []string {
+	clean := strings.ReplaceAll(text, "\r\n", "\n")
+	clean = strings.ReplaceAll(clean, "\r", "\n")
+	raw := strings.Split(clean, "\n")
+	var out []string
+	for _, line := range raw {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		for len(line) > defaultMirrorLineMax {
+			cut := strings.LastIndex(line[:defaultMirrorLineMax], " ")
+			if cut <= 0 {
+				cut = defaultMirrorLineMax
+			}
+			out = append(out, line[:cut])
+			line = strings.TrimSpace(line[cut:])
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// --- Relay input (operator → Claude) ---
 
 func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, state *relayState, ptyFile *os.File) {
 	lastSeen := time.Now()
@@ -364,6 +709,8 @@ func filterMessages(messages []message, since time.Time, nick string) ([]message
 	return filtered, newest
 }
 
+// --- Config loading ---
+
 func loadConfig(args []string) (config, error) {
 	fileConfig := readEnvFile(configFilePath())
 
@@ -418,7 +765,7 @@ func configFilePath() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".config", "scuttlebot-relay.env") // Fallback
+		return filepath.Join(".config", "scuttlebot-relay.env")
 	}
 	return filepath.Join(home, ".config", "scuttlebot-relay.env")
 }
