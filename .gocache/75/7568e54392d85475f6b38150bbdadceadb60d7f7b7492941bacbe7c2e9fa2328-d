@@ -1,0 +1,10 @@
+./doc.go
+./ioctl.go
+./ioctl_bsd.go
+./ioctl_inner.go
+./pty_darwin.go
+./run.go
+./start.go
+./winsize.go
+./winsize_unix.go
+./ztypes_arm64.go

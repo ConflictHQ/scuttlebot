@@ -12,6 +12,8 @@ linters:
 linters-settings:
   govet:
     enable-all: true
+    disable:
+      - fieldalignment
 
 issues:
   exclude-rules:

@@ -1,0 +1,11 @@
+./anthropic.go
+./bedrock.go
+./config.go
+./factory.go
+./filter.go
+./gemini.go
+./ollama.go
+./openai.go
+./provider.go
+./stub.go
+./openai_test.go

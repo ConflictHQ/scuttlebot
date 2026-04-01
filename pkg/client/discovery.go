@@ -138,7 +138,7 @@ func (d *Discovery) ListChannels(ctx context.Context) ([]ChannelSummary, error) 
 			return
 		}
 		var count int
-		fmt.Sscanf(e.Params[2], "%d", &count)
+		_, _ = fmt.Sscanf(e.Params[2], "%d", &count)
 		mu.Lock()
 		results = append(results, item{e.Params[1], count, e.Last()})
 		mu.Unlock()

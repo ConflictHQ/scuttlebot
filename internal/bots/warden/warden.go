@@ -160,10 +160,6 @@ type ActionSink interface {
 	Record(ActionRecord)
 }
 
-type botOptions struct {
-	sink ActionSink
-}
-
 // New creates a warden bot. channelConfigs overrides per-channel limits;
 // defaultConfig is used for channels not in the map.
 func New(ircAddr, password string, channelConfigs map[string]ChannelConfig, defaultConfig ChannelConfig, log *slog.Logger) *Bot {

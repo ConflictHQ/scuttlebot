@@ -16,7 +16,7 @@ type EntryKind string
 
 const (
 	EntryKindEnvelope EntryKind = "envelope" // parsed as a valid JSON envelope
-	EntryKindRaw      EntryKind = "raw"       // could not be parsed, logged as-is
+	EntryKindRaw      EntryKind = "raw"      // could not be parsed, logged as-is
 )
 
 // Entry is a single structured log record written by scribe.
