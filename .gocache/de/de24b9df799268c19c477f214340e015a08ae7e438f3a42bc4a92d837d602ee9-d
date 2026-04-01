@@ -1,4 +1,0 @@
-./http.go
-./irc.go
-./sessionrelay.go
-./sessionrelay_test.go
