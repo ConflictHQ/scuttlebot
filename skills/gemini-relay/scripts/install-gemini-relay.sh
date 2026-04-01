@@ -14,6 +14,8 @@ Options:
   --channel CHANNEL        Set SCUTTLEBOT_CHANNEL in the shared env file.
   --transport MODE         Set SCUTTLEBOT_TRANSPORT (http or irc). Default: http.
   --irc-addr ADDR          Set SCUTTLEBOT_IRC_ADDR. Default: 127.0.0.1:6667.
+  --irc-pass PASS          Write SCUTTLEBOT_IRC_PASS for fixed-identity IRC mode.
+  --auto-register          Remove SCUTTLEBOT_IRC_PASS so IRC mode auto-registers session nicks. Default.
   --enabled                Write SCUTTLEBOT_HOOKS_ENABLED=1. Default.
   --disabled               Write SCUTTLEBOT_HOOKS_ENABLED=0.
   --config-file PATH       Shared env file path. Default: ~/.config/scuttlebot-relay.env
@@ -56,7 +58,14 @@ SCUTTLEBOT_TOKEN_VALUE="${SCUTTLEBOT_TOKEN:-}"
 SCUTTLEBOT_CHANNEL_VALUE="${SCUTTLEBOT_CHANNEL:-}"
 SCUTTLEBOT_TRANSPORT_VALUE="${SCUTTLEBOT_TRANSPORT:-http}"
 SCUTTLEBOT_IRC_ADDR_VALUE="${SCUTTLEBOT_IRC_ADDR:-127.0.0.1:6667}"
-SCUTTLEBOT_IRC_PASS_VALUE="${SCUTTLEBOT_IRC_PASS:-}"
+if [ -n "${SCUTTLEBOT_IRC_PASS:-}" ]; then
+  SCUTTLEBOT_IRC_PASS_MODE="fixed"
+  SCUTTLEBOT_IRC_PASS_VALUE="$SCUTTLEBOT_IRC_PASS"
+else
+  SCUTTLEBOT_IRC_PASS_MODE="auto"
+  SCUTTLEBOT_IRC_PASS_VALUE=""
+fi
+SCUTTLEBOT_IRC_DELETE_ON_CLOSE_VALUE="${SCUTTLEBOT_IRC_DELETE_ON_CLOSE:-1}"
 SCUTTLEBOT_HOOKS_ENABLED_VALUE="${SCUTTLEBOT_HOOKS_ENABLED:-1}"
 SCUTTLEBOT_INTERRUPT_ON_MESSAGE_VALUE="${SCUTTLEBOT_INTERRUPT_ON_MESSAGE:-1}"
 SCUTTLEBOT_POLL_INTERVAL_VALUE="${SCUTTLEBOT_POLL_INTERVAL:-2s}"
@@ -88,6 +97,16 @@ while [ $# -gt 0 ]; do
     --irc-addr)
       SCUTTLEBOT_IRC_ADDR_VALUE="${2:?missing value for --irc-addr}"
       shift 2
+      ;;
+    --irc-pass)
+      SCUTTLEBOT_IRC_PASS_MODE="fixed"
+      SCUTTLEBOT_IRC_PASS_VALUE="${2:?missing value for --irc-pass}"
+      shift 2
+      ;;
+    --auto-register)
+      SCUTTLEBOT_IRC_PASS_MODE="auto"
+      SCUTTLEBOT_IRC_PASS_VALUE=""
+      shift
       ;;
     --enabled)
       SCUTTLEBOT_HOOKS_ENABLED_VALUE=1
@@ -164,6 +183,16 @@ upsert_env_var() {
         print key "=" value
       }
     }
+  ' "$file" > "${file}.tmp"
+  mv "${file}.tmp" "$file"
+}
+
+remove_env_var() {
+  local file="$1"
+  local key="$2"
+  awk -v key="$key" '
+    $0 ~ "^(export[[:space:]]+)?" key "=" { next }
+    { print }
   ' "$file" > "${file}.tmp"
   mv "${file}.tmp" "$file"
 }
@@ -271,9 +300,12 @@ if [ -n "$SCUTTLEBOT_CHANNEL_VALUE" ]; then
 fi
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_TRANSPORT "$SCUTTLEBOT_TRANSPORT_VALUE"
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_IRC_ADDR "$SCUTTLEBOT_IRC_ADDR_VALUE"
-if [ -n "$SCUTTLEBOT_IRC_PASS_VALUE" ]; then
+if [ "$SCUTTLEBOT_IRC_PASS_MODE" = "fixed" ]; then
   upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_IRC_PASS "$SCUTTLEBOT_IRC_PASS_VALUE"
+else
+  remove_env_var "$CONFIG_FILE" SCUTTLEBOT_IRC_PASS
 fi
+upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_IRC_DELETE_ON_CLOSE "$SCUTTLEBOT_IRC_DELETE_ON_CLOSE_VALUE"
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_HOOKS_ENABLED "$SCUTTLEBOT_HOOKS_ENABLED_VALUE"
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_INTERRUPT_ON_MESSAGE "$SCUTTLEBOT_INTERRUPT_ON_MESSAGE_VALUE"
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_POLL_INTERVAL "$SCUTTLEBOT_POLL_INTERVAL_VALUE"
@@ -284,6 +316,7 @@ printf '  hooks:      %s\n' "$HOOKS_DIR"
 printf '  settings:   %s\n' "$SETTINGS_JSON"
 printf '  launcher:   %s\n' "$LAUNCHER_DST"
 printf '  env:        %s\n' "$CONFIG_FILE"
+printf '  irc auth:   %s\n' "$([ "$SCUTTLEBOT_IRC_PASS_MODE" = "fixed" ] && printf 'fixed-pass override' || printf 'auto-register')"
 printf '\n'
 printf 'Next steps:\n'
 printf '  1. Launch with: %s\n' "$LAUNCHER_DST"

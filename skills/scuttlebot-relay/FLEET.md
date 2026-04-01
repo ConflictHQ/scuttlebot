@@ -93,6 +93,7 @@ The installer is intentionally narrow. It:
 - builds and installs `claude-relay` into `~/.local/bin/`
 - merges required hook entries into `~/.claude/settings.json`
 - writes `SCUTTLEBOT_*` settings into `~/.config/scuttlebot-relay.env`
+- defaults IRC auth to auto-registration by removing any stale `SCUTTLEBOT_IRC_PASS`
 - keeps one backup copy as `*.bak` before overwriting an existing installed file
 
 It does not:
@@ -103,12 +104,16 @@ It does not:
 Useful shared env knobs:
 - `SCUTTLEBOT_TRANSPORT=http|irc` selects the connector backend
 - `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667` sets the real IRC address when transport is `irc`
-- `SCUTTLEBOT_IRC_PASS=...` uses a fixed NickServ password instead of auto-registration
+- `SCUTTLEBOT_IRC_PASS=...` uses a fixed NickServ password instead of auto-registration; leave it unset for the default broker convention
 - `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=0` keeps auto-registered session nicks after clean exit
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1` interrupts the live Claude session when it appears busy
 - `SCUTTLEBOT_POLL_INTERVAL=2s` controls how often the broker checks for new addressed IRC messages
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s` controls HTTP presence touches; set `0` to disable
 - `SCUTTLEBOT_ACTIVITY_VIA_BROKER=1` tells `scuttlebot-post.sh` to stay quiet so broker-launched sessions do not duplicate activity posts
+
+Installer auth knobs:
+- default or `--auto-register`: scrub `SCUTTLEBOT_IRC_PASS` from the shared env file and let the broker auto-register ephemeral session nicks
+- `--irc-pass <passphrase>`: persist a fixed NickServ password in the shared env file
 
 ## Operator workflow
 

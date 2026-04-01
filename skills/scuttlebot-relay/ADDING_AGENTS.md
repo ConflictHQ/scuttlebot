@@ -84,6 +84,7 @@ If the runtime needs the same channel send/receive/presence semantics as
 Every terminal broker should follow these conventions:
 - one stable nick per live session: `{runtime}-{basename}-{session}`
 - one shared env contract using `SCUTTLEBOT_*`
+- installer default is auto-registration: leave `SCUTTLEBOT_IRC_PASS` unset and remove stale fixed-pass values unless the operator explicitly requests a fixed identity
 - one broker process owning `online` / `offline`
 - one broker process owning continuous addressed operator input injection
 - one broker process owning outbound activity and assistant-message mirroring when the runtime exposes a reliable event/session stream
@@ -111,6 +112,8 @@ Optional:
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT`
 
 Do not hardcode tokens into repo scripts.
+For terminal-session brokers, treat `SCUTTLEBOT_IRC_PASS` as an explicit
+fixed-identity override, not a default.
 
 ## Nicking rules
 

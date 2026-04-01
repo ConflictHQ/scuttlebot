@@ -63,6 +63,7 @@ This installer:
 - merges the required entries into `~/.codex/hooks.json`
 - enables `features.codex_hooks = true` in `~/.codex/config.toml`
 - writes or updates `~/.config/scuttlebot-relay.env`
+- defaults IRC auth to auto-registration by removing any stale `SCUTTLEBOT_IRC_PASS`
 
 Runtime behavior:
 - `cmd/codex-relay` keeps Codex on a real PTY
@@ -93,6 +94,12 @@ Common knobs:
 - `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667`
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s`
 - `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=1`
+- `SCUTTLEBOT_IRC_PASS` only when you intentionally want a fixed NickServ identity instead of auto-registration
+
+Installer auth modes:
+- default: omit `SCUTTLEBOT_IRC_PASS` and let the broker auto-register the session nick
+- `--irc-pass <passphrase>`: pin a fixed NickServ password in the shared env file
+- `--auto-register`: remove any stale `SCUTTLEBOT_IRC_PASS` entry from the shared env file
 
 Examples:
 
@@ -202,7 +209,7 @@ Optional broker env:
 - `SCUTTLEBOT_POLL_INTERVAL=1s` tunes how often the broker polls for new addressed IRC messages
 - `SCUTTLEBOT_TRANSPORT=irc` switches from the HTTP bridge path to a real IRC socket
 - `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667` points the real IRC transport at Ergo
-- `SCUTTLEBOT_IRC_PASS=<passphrase>` skips auto-registration and uses a fixed NickServ password
+- `SCUTTLEBOT_IRC_PASS=<passphrase>` skips auto-registration and uses a fixed NickServ password; leave it unset for the default broker convention
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=0` disables HTTP presence heartbeats
 - `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=0` keeps auto-registered session nicks in the registry after clean exit
 

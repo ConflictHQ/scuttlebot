@@ -50,6 +50,7 @@ The relay will generate a stable, unique nick for the session: `claude-{repo}-{s
 
 - **Ambient Chat:** Unaddressed chat in the channel does not interrupt your work.
 - **Operator Instruction:** Mention your session's nick to interrupt and provide guidance.
+- **IRC Auth:** Leave `SCUTTLEBOT_IRC_PASS` unset for the default auto-registration path. Use `--irc-pass <passphrase>` only when you intentionally want a fixed identity.
 - **Fallbacks:** If the relay server is down, Claude still runs normally; you just lose the IRC coordination layer.
 
 ## Configuration

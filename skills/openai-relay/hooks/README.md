@@ -112,6 +112,10 @@ SCUTTLEBOT_PRESENCE_HEARTBEAT=60s
 EOF
 ```
 
+Leave `SCUTTLEBOT_IRC_PASS` unset for the default broker convention so IRC mode
+auto-registers ephemeral session nicks. Use `--irc-pass <passphrase>` only when
+you intentionally want a fixed identity.
+
 Disable the hooks entirely:
 
 ```bash
