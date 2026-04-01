@@ -12,6 +12,7 @@ Options:
   --url URL                Set SCUTTLEBOT_URL in the shared env file.
   --token TOKEN            Set SCUTTLEBOT_TOKEN in the shared env file.
   --channel CHANNEL        Set SCUTTLEBOT_CHANNEL in the shared env file.
+  --channels CSV           Set SCUTTLEBOT_CHANNELS in the shared env file.
   --transport MODE         Set SCUTTLEBOT_TRANSPORT (http or irc). Default: http.
   --irc-addr ADDR          Set SCUTTLEBOT_IRC_ADDR. Default: 127.0.0.1:6667.
   --irc-pass PASS          Write SCUTTLEBOT_IRC_PASS for fixed-identity IRC mode.
@@ -28,6 +29,7 @@ Environment defaults:
   SCUTTLEBOT_URL
   SCUTTLEBOT_TOKEN
   SCUTTLEBOT_CHANNEL
+  SCUTTLEBOT_CHANNELS
   SCUTTLEBOT_TRANSPORT
   SCUTTLEBOT_IRC_ADDR
   SCUTTLEBOT_IRC_PASS
@@ -56,6 +58,7 @@ REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../.." && pwd)
 SCUTTLEBOT_URL_VALUE="${SCUTTLEBOT_URL:-}"
 SCUTTLEBOT_TOKEN_VALUE="${SCUTTLEBOT_TOKEN:-}"
 SCUTTLEBOT_CHANNEL_VALUE="${SCUTTLEBOT_CHANNEL:-}"
+SCUTTLEBOT_CHANNELS_VALUE="${SCUTTLEBOT_CHANNELS:-}"
 SCUTTLEBOT_TRANSPORT_VALUE="${SCUTTLEBOT_TRANSPORT:-http}"
 SCUTTLEBOT_IRC_ADDR_VALUE="${SCUTTLEBOT_IRC_ADDR:-127.0.0.1:6667}"
 if [ -n "${SCUTTLEBOT_IRC_PASS:-}" ]; then
@@ -88,6 +91,10 @@ while [ $# -gt 0 ]; do
       ;;
     --channel)
       SCUTTLEBOT_CHANNEL_VALUE="${2:?missing value for --channel}"
+      shift 2
+      ;;
+    --channels)
+      SCUTTLEBOT_CHANNELS_VALUE="${2:?missing value for --channels}"
       shift 2
       ;;
     --transport)
@@ -161,6 +168,48 @@ backup_file() {
 ensure_parent_dir() {
   mkdir -p "$(dirname "$1")"
 }
+
+normalize_channels() {
+  local primary="$1"
+  local raw="$2"
+  local IFS=','
+  local items=()
+  local extra_items=()
+  local item channel seen=""
+
+  if [ -n "$primary" ]; then
+    items+=("$primary")
+  fi
+  if [ -n "$raw" ]; then
+    read -r -a extra_items <<< "$raw"
+    items+=("${extra_items[@]}")
+  fi
+
+  for item in "${items[@]}"; do
+    channel="${item//[$' \t\r\n']/}"
+    channel="${channel#\#}"
+    [ -n "$channel" ] || continue
+    case ",$seen," in
+      *,"$channel",*) ;;
+      *) seen="${seen:+$seen,}$channel" ;;
+    esac
+  done
+
+  printf '%s' "$seen"
+}
+
+first_channel() {
+  local channels
+  channels=$(normalize_channels "" "$1")
+  printf '%s' "${channels%%,*}"
+}
+
+if [ -z "$SCUTTLEBOT_CHANNEL_VALUE" ] && [ -n "$SCUTTLEBOT_CHANNELS_VALUE" ]; then
+  SCUTTLEBOT_CHANNEL_VALUE="$(first_channel "$SCUTTLEBOT_CHANNELS_VALUE")"
+fi
+if [ -n "$SCUTTLEBOT_CHANNEL_VALUE" ]; then
+  SCUTTLEBOT_CHANNELS_VALUE="$(normalize_channels "$SCUTTLEBOT_CHANNEL_VALUE" "$SCUTTLEBOT_CHANNELS_VALUE")"
+fi
 
 upsert_env_var() {
   local file="$1"
@@ -297,6 +346,9 @@ if [ -n "$SCUTTLEBOT_TOKEN_VALUE" ]; then
 fi
 if [ -n "$SCUTTLEBOT_CHANNEL_VALUE" ]; then
   upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_CHANNEL "${SCUTTLEBOT_CHANNEL_VALUE#\#}"
+fi
+if [ -n "$SCUTTLEBOT_CHANNELS_VALUE" ]; then
+  upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_CHANNELS "$SCUTTLEBOT_CHANNELS_VALUE"
 fi
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_TRANSPORT "$SCUTTLEBOT_TRANSPORT_VALUE"
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_IRC_ADDR "$SCUTTLEBOT_IRC_ADDR_VALUE"

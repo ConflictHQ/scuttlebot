@@ -1,11 +1,15 @@
 #!/bin/bash
-# PostToolUse hook — posts what Claude Code just did to scuttlebot IRC.
-# Reads Claude Code's JSON event from stdin.
+# PostToolUse hook — posts what Claude just did to scuttlebot IRC.
 
 SCUTTLEBOT_CONFIG_FILE="${SCUTTLEBOT_CONFIG_FILE:-$HOME/.config/scuttlebot-relay.env}"
 if [ -f "$SCUTTLEBOT_CONFIG_FILE" ]; then
   set -a
   . "$SCUTTLEBOT_CONFIG_FILE"
+  set +a
+fi
+if [ -n "${SCUTTLEBOT_CHANNEL_STATE_FILE:-}" ] && [ -f "$SCUTTLEBOT_CHANNEL_STATE_FILE" ]; then
+  set -a
+  . "$SCUTTLEBOT_CHANNEL_STATE_FILE"
   set +a
 fi
 
@@ -14,6 +18,46 @@ SCUTTLEBOT_TOKEN="${SCUTTLEBOT_TOKEN}"
 SCUTTLEBOT_CHANNEL="${SCUTTLEBOT_CHANNEL:-general}"
 SCUTTLEBOT_HOOKS_ENABLED="${SCUTTLEBOT_HOOKS_ENABLED:-1}"
 SCUTTLEBOT_ACTIVITY_VIA_BROKER="${SCUTTLEBOT_ACTIVITY_VIA_BROKER:-0}"
+
+normalize_channel() {
+  local channel="$1"
+  channel="${channel//[$' \t\r\n']/}"
+  channel="${channel#\#}"
+  printf '%s' "$channel"
+}
+
+relay_channels() {
+  local raw="${SCUTTLEBOT_CHANNELS:-$SCUTTLEBOT_CHANNEL}"
+  local IFS=','
+  local item channel seen=""
+  read -r -a items <<< "$raw"
+  for item in "${items[@]}"; do
+    channel=$(normalize_channel "$item")
+    [ -n "$channel" ] || continue
+    case ",$seen," in
+      *,"$channel",*) ;;
+      *)
+        seen="${seen:+$seen,}$channel"
+        printf '%s\n' "$channel"
+        ;;
+    esac
+  done
+}
+
+post_message() {
+  local text="$1"
+  local payload
+  payload="{\"text\": $(printf '%s' "$text" | jq -Rs .), \"nick\": \"$SCUTTLEBOT_NICK\"}"
+  for channel in $(relay_channels); do
+    curl -sf -X POST "$SCUTTLEBOT_URL/v1/channels/$channel/messages" \
+      --connect-timeout 1 \
+      --max-time 2 \
+      -H "Authorization: Bearer $SCUTTLEBOT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "$payload" \
+      > /dev/null || true
+  done
+}
 
 input=$(cat)
 
@@ -75,12 +119,5 @@ esac
 
 [ -z "$msg" ] && exit 0
 
-curl -sf -X POST "$SCUTTLEBOT_URL/v1/channels/$SCUTTLEBOT_CHANNEL/messages" \
-  --connect-timeout 1 \
-  --max-time 2 \
-  -H "Authorization: Bearer $SCUTTLEBOT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"text\": $(echo "$msg" | jq -Rs .), \"nick\": \"$SCUTTLEBOT_NICK\"}" \
-  > /dev/null
-
+post_message "$msg"
 exit 0

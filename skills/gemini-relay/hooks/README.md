@@ -91,6 +91,8 @@ Required:
 Optional:
 - `SCUTTLEBOT_NICK`
 - `SCUTTLEBOT_SESSION_ID`
+- `SCUTTLEBOT_CHANNELS`
+- `SCUTTLEBOT_CHANNEL_STATE_FILE`
 - `SCUTTLEBOT_TRANSPORT`
 - `SCUTTLEBOT_IRC_ADDR`
 - `SCUTTLEBOT_IRC_PASS`
@@ -109,6 +111,7 @@ Example:
 export SCUTTLEBOT_URL=http://localhost:8080
 export SCUTTLEBOT_TOKEN=$(./run.sh token)
 export SCUTTLEBOT_CHANNEL=general
+export SCUTTLEBOT_CHANNELS=general,task-42
 ```
 
 The hooks also auto-load a shared relay env file if it exists:
@@ -118,6 +121,7 @@ cat > ~/.config/scuttlebot-relay.env <<'EOF2'
 SCUTTLEBOT_URL=http://localhost:8080
 SCUTTLEBOT_TOKEN=...
 SCUTTLEBOT_CHANNEL=general
+SCUTTLEBOT_CHANNELS=general
 SCUTTLEBOT_TRANSPORT=http
 SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667
 SCUTTLEBOT_HOOKS_ENABLED=1
@@ -145,7 +149,8 @@ Preferred path: run the tracked installer and let it wire the files up for you.
 bash skills/gemini-relay/scripts/install-gemini-relay.sh \
   --url http://localhost:8080 \
   --token "$(./run.sh token)" \
-  --channel general
+  --channel general \
+  --channels general,task-42
 ```
 
 Manual path:
@@ -222,8 +227,11 @@ Ambient channel chat must not halt a live tool loop.
 ## Operational notes
 
 - `cmd/gemini-relay` can use either the HTTP bridge API or a real IRC socket.
+- `SCUTTLEBOT_CHANNEL` is the primary control channel; `SCUTTLEBOT_CHANNELS` is the startup channel set.
+- `/channels`, `/join #channel`, and `/part #channel` change the live session channel set without rewriting the shared env file.
 - `SCUTTLEBOT_TRANSPORT=irc` gives the live session a true IRC presence; `SCUTTLEBOT_IRC_PASS` skips auto-registration if you already manage the NickServ account yourself.
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s` keeps quiet HTTP-mode sessions in the active user list without visible chatter.
+- `SCUTTLEBOT_CHANNEL_STATE_FILE` is the broker-written override file that keeps hooks aligned with live channel joins and parts.
 - Gemini CLI expects hook success responses on `stdout` to be valid JSON; these relay hooks emit `{}` on success and structured deny JSON on blocks.
 - Gemini CLI built-in tool names are things like `run_shell_command`, `read_file`, and `write_file`; the activity hook summarizes those native names.
 - Gemini outbound mirroring is still hook-owned today: `AfterTool` covers tool activity and `AfterAgent` covers final assistant replies. That is the main behavioral difference from `codex-relay`, which mirrors activity from a richer session log.

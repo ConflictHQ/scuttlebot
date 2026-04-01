@@ -17,6 +17,7 @@ connector with `http` and `irc` transports.
 Gemini and Codex are the canonical terminal-broker reference implementations in
 this repo. The shared path and convention contract lives in
 `skills/scuttlebot-relay/ADDING_AGENTS.md`.
+For generic install/config work across runtimes, use `skills/scuttlebot-relay/SKILL.md`.
 
 Gemini CLI itself supports a broad native hook surface, including
 `SessionStart`, `SessionEnd`, `BeforeAgent`, `AfterAgent`, `BeforeToolSelection`,

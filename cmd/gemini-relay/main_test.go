@@ -92,11 +92,11 @@ func TestInjectMessagesIdleSkipsCtrlCAndSubmits(t *testing.T) {
 		Text: "gemini-scuttlebot-1234: check README.md",
 	}}
 
-	if err := injectMessages(&writer, cfg, state, batch); err != nil {
+	if err := injectMessages(&writer, cfg, state, "#general", batch); err != nil {
 		t.Fatal(err)
 	}
 
-	want := bracketedPasteStart + "[IRC operator messages]\nglengoolie: check README.md\n" + bracketedPasteEnd + "\r"
+	want := bracketedPasteStart + "[IRC operator messages]\n[general] glengoolie: check README.md\n" + bracketedPasteEnd + "\r"
 	if writer.String() != want {
 		t.Fatalf("injectMessages idle = %q, want %q", writer.String(), want)
 	}
@@ -117,11 +117,11 @@ func TestInjectMessagesBusySendsCtrlCBeforeSubmit(t *testing.T) {
 		Text: "gemini-scuttlebot-1234: stop and re-read bridge.go",
 	}}
 
-	if err := injectMessages(&writer, cfg, state, batch); err != nil {
+	if err := injectMessages(&writer, cfg, state, "#general", batch); err != nil {
 		t.Fatal(err)
 	}
 
-	want := string([]byte{3}) + bracketedPasteStart + "[IRC operator messages]\nglengoolie: stop and re-read bridge.go\n" + bracketedPasteEnd + "\r"
+	want := string([]byte{3}) + bracketedPasteStart + "[IRC operator messages]\n[general] glengoolie: stop and re-read bridge.go\n" + bracketedPasteEnd + "\r"
 	if writer.String() != want {
 		t.Fatalf("injectMessages busy = %q, want %q", writer.String(), want)
 	}

@@ -85,11 +85,11 @@ func TestInjectMessagesIdleSkipsCtrlCAndSubmits(t *testing.T) {
 		Text: "codex-scuttlebot-1234: check README.md",
 	}}
 
-	if err := injectMessages(&writer, cfg, state, batch); err != nil {
+	if err := injectMessages(&writer, cfg, state, "#general", batch); err != nil {
 		t.Fatal(err)
 	}
 
-	want := "[IRC operator messages]\nglengoolie: check README.md\n\r"
+	want := "[IRC operator messages]\n[general] glengoolie: check README.md\n\r"
 	if writer.String() != want {
 		t.Fatalf("injectMessages idle = %q, want %q", writer.String(), want)
 	}
@@ -110,11 +110,11 @@ func TestInjectMessagesBusySendsCtrlCBeforeSubmit(t *testing.T) {
 		Text: "codex-scuttlebot-1234: stop and re-read bridge.go",
 	}}
 
-	if err := injectMessages(&writer, cfg, state, batch); err != nil {
+	if err := injectMessages(&writer, cfg, state, "#general", batch); err != nil {
 		t.Fatal(err)
 	}
 
-	want := string([]byte{3}) + "[IRC operator messages]\nglengoolie: stop and re-read bridge.go\n\r"
+	want := string([]byte{3}) + "[IRC operator messages]\n[general] glengoolie: stop and re-read bridge.go\n\r"
 	if writer.String() != want {
 		t.Fatalf("injectMessages busy = %q, want %q", writer.String(), want)
 	}

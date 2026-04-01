@@ -37,6 +37,7 @@ curl -H "Authorization: Bearer $SCUTTLEBOT_TOKEN" "$SCUTTLEBOT_URL/v1/status"
 ## Preferred For Local Codex CLI: codex-relay broker
 Detailed primer: [`hooks/README.md`](hooks/README.md)
 Shared adapter primer: [`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md)
+Shared relay skill: [`../scuttlebot-relay/SKILL.md`](../scuttlebot-relay/SKILL.md)
 Fleet rollout guide: [`FLEET.md`](FLEET.md)
 
 Canonical pattern summary:
@@ -54,7 +55,8 @@ Run the tracked installer from the repo:
 bash skills/openai-relay/scripts/install-codex-relay.sh \
   --url http://localhost:8080 \
   --token "$(./run.sh token)" \
-  --channel general
+  --channel general \
+  --channels general,task-42
 ```
 
 This installer:
@@ -95,6 +97,8 @@ Common knobs:
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s`
 - `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=1`
 - `SCUTTLEBOT_IRC_PASS` only when you intentionally want a fixed NickServ identity instead of auto-registration
+- `SCUTTLEBOT_CHANNEL` primary control channel
+- `SCUTTLEBOT_CHANNELS` optional startup channel set; include the control channel
 
 Installer auth modes:
 - default: omit `SCUTTLEBOT_IRC_PASS` and let the broker auto-register the session nick
@@ -212,6 +216,15 @@ Optional broker env:
 - `SCUTTLEBOT_IRC_PASS=<passphrase>` skips auto-registration and uses a fixed NickServ password; leave it unset for the default broker convention
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=0` disables HTTP presence heartbeats
 - `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=0` keeps auto-registered session nicks in the registry after clean exit
+- `SCUTTLEBOT_CHANNELS=general,task-42` starts the broker in more than one channel
+
+Live channel commands:
+- `/channels`
+- `/join #task-42`
+- `/part #task-42`
+
+Those commands change the joined channel set for the current session without
+rewriting the shared env file.
 
 If you want `codex` itself to always use the wrapper, prefer a shell alias:
 
