@@ -338,7 +338,7 @@ func cmdAdminPasswd(api *apiclient.Client, username string) {
 func promptPassword() string {
 	fmt.Fprint(os.Stderr, "password: ")
 	var pass string
-	fmt.Scanln(&pass)
+	_, _ = fmt.Scanln(&pass)
 	return pass
 }
 

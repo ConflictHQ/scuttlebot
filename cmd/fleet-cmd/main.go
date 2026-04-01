@@ -74,7 +74,7 @@ func mapFleet(url, token string) {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	fmt.Fprintln(w, "NICK\tTYPE\tLAST ACTIVITY\tTIME")
-	
+
 	// Sort nicks for stable output
 	var nicks []string
 	for n := range sessions {
@@ -122,7 +122,9 @@ func fetchAgents(url, token string) []Agent {
 	var data struct {
 		Agents []Agent `json:"agents"`
 	}
-	json.NewDecoder(resp.Body).Decode(&data)
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		log.Printf("fetchAgents: decode: %v", err)
+	}
 	return data.Agents
 }
 
@@ -137,7 +139,9 @@ func fetchMessages(url, token, channel string) []Message {
 			At   string `json:"at"`
 		} `json:"messages"`
 	}
-	json.NewDecoder(resp.Body).Decode(&data)
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		log.Printf("fetchMessages: decode: %v", err)
+	}
 
 	var out []Message
 	for _, m := range data.Messages {
