@@ -4,6 +4,9 @@ This repo now has two concrete operator-control implementations:
 - Claude hooks in `skills/scuttlebot-relay/hooks/`
 - Codex broker + hooks in `cmd/codex-relay/` and `skills/openai-relay/hooks/`
 
+Shared transport/runtime code now lives in `pkg/sessionrelay/`. Reuse that
+before writing another relay client by hand.
+
 If you add another agent runtime, do not invent a new relay model. Follow the
 same control contract so operators get one consistent experience.
 
@@ -36,6 +39,11 @@ launcher wrapper that:
 Hooks remain useful for pre-action fallback and for runtimes that do not have a
 broker yet, but hook-only telemetry is not the production pattern for
 interactive sessions.
+
+If the runtime needs the same channel send/receive/presence semantics as
+`codex-relay`, start from `pkg/sessionrelay`:
+- `TransportHTTP` for the bridge/API path
+- `TransportIRC` for true SASL IRC presence with optional auto-registration via `/v1/agents/register`
 
 ## Required environment contract
 

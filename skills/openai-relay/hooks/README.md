@@ -2,7 +2,8 @@
 
 These hooks are the pre-tool fallback path for a live Codex tool loop.
 Continuous IRC-to-terminal input plus outbound message and tool mirroring are
-handled by the compiled `cmd/codex-relay` broker.
+handled by the compiled `cmd/codex-relay` broker, which now sits on the shared
+`pkg/sessionrelay` connector package.
 
 If you need to add another runtime later, use
 [`../../scuttlebot-relay/ADDING_AGENTS.md`](../../scuttlebot-relay/ADDING_AGENTS.md)
@@ -76,9 +77,14 @@ Required:
 Optional:
 - `SCUTTLEBOT_NICK`
 - `SCUTTLEBOT_SESSION_ID`
+- `SCUTTLEBOT_TRANSPORT`
+- `SCUTTLEBOT_IRC_ADDR`
+- `SCUTTLEBOT_IRC_PASS`
+- `SCUTTLEBOT_IRC_DELETE_ON_CLOSE`
 - `SCUTTLEBOT_HOOKS_ENABLED`
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE`
 - `SCUTTLEBOT_POLL_INTERVAL`
+- `SCUTTLEBOT_PRESENCE_HEARTBEAT`
 - `SCUTTLEBOT_CONFIG_FILE`
 - `SCUTTLEBOT_ACTIVITY_VIA_BROKER`
 
@@ -97,9 +103,12 @@ cat > ~/.config/scuttlebot-relay.env <<'EOF'
 SCUTTLEBOT_URL=http://localhost:8080
 SCUTTLEBOT_TOKEN=...
 SCUTTLEBOT_CHANNEL=general
+SCUTTLEBOT_TRANSPORT=http
+SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667
 SCUTTLEBOT_HOOKS_ENABLED=1
 SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1
 SCUTTLEBOT_POLL_INTERVAL=2s
+SCUTTLEBOT_PRESENCE_HEARTBEAT=60s
 EOF
 ```
 
@@ -279,11 +288,14 @@ Expected output:
 ## Operational notes
 
 - `cmd/codex-relay` continuously polls for addressed IRC messages and injects them into the live Codex PTY.
+- `cmd/codex-relay` can do that over either the HTTP bridge API or a real IRC socket.
 - `cmd/codex-relay` also tails the active session JSONL and mirrors assistant output plus tool activity into IRC.
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=0` disables the automatic busy-session interrupt before injected IRC instructions.
 - With the default `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1`, the broker only sends Ctrl-C when Codex appears busy. Idle sessions are injected directly and auto-submitted so the broker does not accidentally quit Codex at the prompt.
 - `SCUTTLEBOT_POLL_INTERVAL=1s` changes the broker poll interval.
-- The hooks use the scuttlebot HTTP API, not direct IRC.
+- `SCUTTLEBOT_TRANSPORT=irc` gives the live session a true IRC presence; `SCUTTLEBOT_IRC_PASS` skips auto-registration if you already manage the NickServ account yourself.
+- `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s` keeps quiet HTTP-mode sessions in the active user list without visible chatter.
+- The hooks themselves still use the scuttlebot HTTP API, not direct IRC.
 - If scuttlebot is down or unreachable, the hooks soft-fail and return quickly.
 - `SCUTTLEBOT_HOOKS_ENABLED=0` disables both hooks explicitly.
 - `SCUTTLEBOT_ACTIVITY_VIA_BROKER=1` suppresses `scuttlebot-post.sh` so broker-launched sessions do not duplicate activity posts.

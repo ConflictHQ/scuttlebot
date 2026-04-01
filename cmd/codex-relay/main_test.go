@@ -16,11 +16,11 @@ func TestFilterMessages(t *testing.T) {
 	nick := "codex-scuttlebot-1234"
 
 	messages := []message{
-		{Nick: "bridge", Text: "[glengoolie] hello", Time: base},
-		{Nick: "glengoolie", Text: "ambient chat", Time: base.Add(time.Second)},
-		{Nick: "codex-otherrepo-9999", Text: "status post", Time: base.Add(2 * time.Second)},
-		{Nick: "glengoolie", Text: nick + ": check README.md", Time: base.Add(3 * time.Second)},
-		{Nick: "glengoolie", Text: nick + ": and inspect bridge.go", Time: base.Add(4 * time.Second)},
+		{Nick: "bridge", Text: "[glengoolie] hello", At: base},
+		{Nick: "glengoolie", Text: "ambient chat", At: base.Add(time.Second)},
+		{Nick: "codex-otherrepo-9999", Text: "status post", At: base.Add(2 * time.Second)},
+		{Nick: "glengoolie", Text: nick + ": check README.md", At: base.Add(3 * time.Second)},
+		{Nick: "glengoolie", Text: nick + ": and inspect bridge.go", At: base.Add(4 * time.Second)},
 	}
 
 	got, newest := filterMessages(messages, since, nick)
