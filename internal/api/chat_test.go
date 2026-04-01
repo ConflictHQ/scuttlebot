@@ -23,6 +23,7 @@ type stubChatBridge struct {
 
 func (b *stubChatBridge) Channels() []string               { return nil }
 func (b *stubChatBridge) JoinChannel(string)               {}
+func (b *stubChatBridge) LeaveChannel(string)              {}
 func (b *stubChatBridge) Messages(string) []bridge.Message { return nil }
 func (b *stubChatBridge) Subscribe(string) (<-chan bridge.Message, func()) {
 	return make(chan bridge.Message), func() {}

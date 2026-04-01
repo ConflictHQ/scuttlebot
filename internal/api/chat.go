@@ -14,6 +14,7 @@ import (
 type chatBridge interface {
 	Channels() []string
 	JoinChannel(channel string)
+	LeaveChannel(channel string)
 	Messages(channel string) []bridge.Message
 	Subscribe(channel string) (<-chan bridge.Message, func())
 	Send(ctx context.Context, channel, text, senderNick string) error
@@ -25,6 +26,12 @@ type chatBridge interface {
 func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
 	s.bridge.JoinChannel(channel)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	s.bridge.LeaveChannel(channel)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -5,543 +5,2474 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>scuttlebot</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace; background: #0d1117; color: #e6edf3; min-height: 100vh; }
-  header { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
-  header h1 { font-size: 16px; color: #58a6ff; letter-spacing: 0.05em; }
-  header .tagline { font-size: 12px; color: #8b949e; }
-  header .spacer { flex: 1; }
-  .token-badge { font-size: 12px; color: #8b949e; display: flex; align-items: center; gap: 8px; }
-  .token-badge code { background: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 2px 8px; color: #a5d6ff; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  button { cursor: pointer; border: 1px solid #30363d; border-radius: 6px; padding: 6px 12px; font-size: 13px; font-family: inherit; background: #21262d; color: #e6edf3; transition: background 0.1s; }
-  button:hover { background: #30363d; }
-  button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-  button.primary:hover { background: #388bfd; }
-  button.danger { background: #21262d; border-color: #f85149; color: #f85149; }
-  button.danger:hover { background: #3d1f1e; }
-  button.small { padding: 3px 8px; font-size: 12px; }
-  main { max-width: 960px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
-  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
-  .card-header { padding: 12px 16px; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 8px; }
-  .card-header h2 { font-size: 14px; color: #e6edf3; font-weight: 600; }
-  .card-header .badge { background: #1f6feb22; border: 1px solid #1f6feb44; color: #58a6ff; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
-  .card-body { padding: 16px; }
-  .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-  .stat { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 12px 16px; }
-  .stat .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
-  .stat .value { font-size: 20px; color: #58a6ff; font-weight: 600; }
-  .stat .sub { font-size: 11px; color: #8b949e; margin-top: 2px; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-  .dot.green { background: #3fb950; box-shadow: 0 0 6px #3fb950aa; }
-  .dot.red { background: #f85149; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; border-bottom: 1px solid #21262d; }
-  td { padding: 10px 12px; border-bottom: 1px solid #21262d; color: #e6edf3; vertical-align: top; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: #1c2128; }
-  .tag { display: inline-block; background: #1f6feb22; border: 1px solid #1f6feb44; color: #79c0ff; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin: 1px; }
-  .tag.type-operator { background: #db613622; border-color: #db613644; color: #ffa657; }
-  .tag.type-orchestrator { background: #8957e522; border-color: #8957e544; color: #d2a8ff; }
-  .tag.type-worker { background: #1f6feb22; border-color: #1f6feb44; color: #79c0ff; }
-  .tag.type-observer { background: #21262d; border-color: #30363d; color: #8b949e; }
-  .tag.revoked { background: #f8514922; border-color: #f8514944; color: #ff7b72; }
-  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .empty { color: #8b949e; font-size: 13px; text-align: center; padding: 24px; }
-  .chan-item { padding: 8px 12px; font-size: 13px; cursor: pointer; color: #8b949e; border-bottom: 1px solid #21262d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chan-item:hover { background: #1c2128; color: #e6edf3; }
-  .chan-item.active { background: #1f6feb22; color: #58a6ff; border-left: 2px solid #58a6ff; }
-  .msg-row { display: flex; gap: 8px; font-size: 13px; line-height: 1.6; padding: 1px 0; }
-  .msg-time { color: #8b949e; font-size: 11px; flex-shrink: 0; padding-top: 3px; min-width: 44px; }
-  .msg-nick { color: #58a6ff; font-weight: 600; flex-shrink: 0; min-width: 80px; text-align: right; }
-  .msg-nick.bridge-nick { color: #3fb950; }
-  .msg-text { color: #e6edf3; word-break: break-word; }
-  form { display: flex; flex-direction: column; gap: 14px; }
-  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 4px; }
-  input, select, textarea { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; color: #e6edf3; outline: none; transition: border-color 0.1s; }
-  input:focus, select:focus, textarea:focus { border-color: #58a6ff; }
-  select option { background: #161b22; }
-  textarea { resize: vertical; min-height: 60px; }
-  .hint { font-size: 11px; color: #8b949e; margin-top: 3px; }
-  .alert { border-radius: 6px; padding: 12px 14px; font-size: 13px; display: flex; gap: 10px; align-items: flex-start; }
-  .alert.info { background: #1f6feb1a; border: 1px solid #1f6feb44; color: #79c0ff; }
-  .alert.error { background: #f851491a; border: 1px solid #f8514944; color: #ff7b72; }
-  .alert.success { background: #3fb9501a; border: 1px solid #3fb95044; color: #7ee787; }
-  .alert .icon { flex-shrink: 0; font-size: 16px; line-height: 1.3; }
-  .cred-box { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-size: 12px; }
-  .cred-box .cred-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-  .cred-box .cred-row:last-child { margin-bottom: 0; }
-  .cred-box .cred-key { color: #8b949e; min-width: 90px; }
-  .cred-box .cred-val { color: #a5d6ff; word-break: break-all; flex: 1; }
-  .cred-box .copy-btn { flex-shrink: 0; }
-  .modal-overlay { display: none; position: fixed; inset: 0; background: #0d111788; z-index: 100; align-items: center; justify-content: center; }
-  .modal-overlay.open { display: flex; }
-  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 24px; width: 480px; max-width: 95vw; }
-  .modal h3 { font-size: 15px; margin-bottom: 16px; }
-  .modal .btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace,'Cascadia Code','Source Code Pro',monospace; background:#0d1117; color:#e6edf3; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+/* header */
+header { background:#161b22; border-bottom:1px solid #30363d; padding:0 20px; display:flex; align-items:stretch; flex-shrink:0; height:48px; }
+.brand { display:flex; align-items:center; gap:8px; padding-right:20px; border-right:1px solid #30363d; margin-right:4px; }
+.brand h1 { font-size:14px; color:#58a6ff; letter-spacing:.05em; }
+.brand span { font-size:11px; color:#8b949e; }
+nav { display:flex; align-items:stretch; flex:1; }
+.nav-tab { display:flex; align-items:center; gap:6px; padding:0 14px; font-size:13px; color:#8b949e; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .1s; white-space:nowrap; }
+.nav-tab:hover { color:#c9d1d9; }
+.nav-tab.active { color:#e6edf3; border-bottom-color:#58a6ff; }
+.header-right { display:flex; align-items:center; gap:8px; margin-left:auto; font-size:12px; color:#8b949e; }
+.header-right code { background:#21262d; border:1px solid #30363d; border-radius:4px; padding:2px 7px; color:#a5d6ff; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* tab panes */
+.tab-pane { display:none; flex:1; min-height:0; overflow-y:auto; }
+.tab-pane.active { display:flex; flex-direction:column; }
+.pane-scroll { flex:1; overflow-y:auto; }
+.pane-inner { max-width:1000px; margin:0 auto; padding:24px; display:flex; flex-direction:column; gap:20px; }
+
+/* cards */
+.card { background:#161b22; border:1px solid #30363d; border-radius:8px; overflow:hidden; }
+.card-header { padding:12px 16px; border-bottom:1px solid #30363d; display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
+.card-header:hover { background:#1c2128; }
+.card-header h2 { font-size:14px; font-weight:600; }
+.card-header .collapse-icon { font-size:11px; color:#8b949e; margin-left:2px; transition:transform .15s; }
+.card.collapsed .card-header { border-bottom:none; }
+.card.collapsed .card-body { display:none; }
+.card.collapsed .collapse-icon { transform:rotate(-90deg); }
+.card-body { padding:16px; }
+/* behavior config panel */
+.beh-config { background:#0d1117; border-top:1px solid #21262d; padding:14px 16px 14px 42px; display:none; }
+.beh-config.open { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+.beh-field label { display:block; font-size:11px; color:#8b949e; margin-bottom:3px; }
+.beh-field input[type=text],.beh-field input[type=number],.beh-field select { width:100%; }
+.beh-field .hint { font-size:10px; color:#6e7681; margin-top:2px; }
+.spacer { flex:1; }
+.badge { background:#1f6feb22; border:1px solid #1f6feb44; color:#58a6ff; border-radius:999px; padding:1px 8px; font-size:12px; }
+
+/* status */
+.stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+.stat { background:#0d1117; border:1px solid #21262d; border-radius:6px; padding:12px 16px; }
+.stat .lbl { font-size:11px; color:#8b949e; text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
+.stat .val { font-size:20px; color:#58a6ff; font-weight:600; }
+.stat .sub { font-size:11px; color:#8b949e; margin-top:2px; }
+.dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+.dot.green { background:#3fb950; box-shadow:0 0 6px #3fb950aa; }
+.dot.red { background:#f85149; }
+
+/* table */
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { text-align:left; padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#8b949e; border-bottom:1px solid #21262d; white-space:nowrap; }
+td { padding:9px 12px; border-bottom:1px solid #21262d; color:#e6edf3; vertical-align:middle; }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:#1c2128; }
+
+/* tags */
+.tag { display:inline-block; border-radius:4px; padding:1px 6px; font-size:11px; margin:1px; border:1px solid; }
+.tag.ch  { background:#1f6feb22; border-color:#1f6feb44; color:#79c0ff; }
+.tag.perm{ background:#21262d;   border-color:#30363d;   color:#8b949e; }
+.tag.type-operator     { background:#db613622; border-color:#db613644; color:#ffa657; }
+.tag.type-orchestrator { background:#8957e522; border-color:#8957e544; color:#d2a8ff; }
+.tag.type-worker       { background:#1f6feb22; border-color:#1f6feb44; color:#79c0ff; }
+.tag.type-observer     { background:#21262d;   border-color:#30363d;   color:#8b949e; }
+.tag.revoked           { background:#f8514922; border-color:#f8514944; color:#ff7b72; }
+
+/* buttons */
+button { cursor:pointer; border:1px solid #30363d; border-radius:6px; padding:6px 12px; font-size:13px; font-family:inherit; background:#21262d; color:#e6edf3; transition:background .1s; }
+button:hover:not(:disabled) { background:#30363d; }
+button:disabled { opacity:.5; cursor:default; }
+button.primary { background:#1f6feb; border-color:#1f6feb; color:#fff; }
+button.primary:hover:not(:disabled) { background:#388bfd; }
+button.danger  { border-color:#f85149; color:#f85149; }
+button.danger:hover:not(:disabled) { background:#3d1f1e; }
+button.sm { padding:3px 8px; font-size:12px; }
+.actions { display:flex; gap:6px; }
+
+/* forms */
+form { display:flex; flex-direction:column; gap:14px; }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+label { display:block; font-size:12px; color:#8b949e; margin-bottom:4px; }
+input,select,textarea { width:100%; background:#0d1117; border:1px solid #30363d; border-radius:6px; padding:8px 10px; font-size:13px; font-family:inherit; color:#e6edf3; outline:none; transition:border-color .1s; }
+input:focus,select:focus,textarea:focus { border-color:#58a6ff; }
+select option { background:#161b22; }
+.hint { font-size:11px; color:#8b949e; margin-top:3px; }
+
+/* alerts */
+.alert { border-radius:6px; padding:12px 14px; font-size:13px; display:flex; gap:10px; align-items:flex-start; }
+.alert.info    { background:#1f6feb1a; border:1px solid #1f6feb44; color:#79c0ff; }
+.alert.error   { background:#f851491a; border:1px solid #f8514944; color:#ff7b72; }
+.alert.success { background:#3fb9501a; border:1px solid #3fb95044; color:#7ee787; }
+.alert .icon   { flex-shrink:0; font-size:15px; line-height:1.4; }
+.cred-box { background:#0d1117; border:1px solid #30363d; border-radius:6px; padding:12px; font-size:12px; margin-top:10px; }
+.cred-row { display:flex; align-items:baseline; gap:8px; margin-bottom:6px; }
+.cred-row:last-child { margin-bottom:0; }
+.cred-key { color:#8b949e; min-width:90px; }
+.cred-val { color:#a5d6ff; word-break:break-all; flex:1; }
+
+/* search/filter bar */
+.filter-bar { display:flex; gap:8px; align-items:center; padding:10px 16px; border-bottom:1px solid #30363d; }
+.filter-bar input { max-width:280px; padding:5px 10px; }
+
+/* empty */
+.empty { color:#8b949e; font-size:13px; text-align:center; padding:28px; }
+
+/* drawer */
+.drawer-overlay { display:none; position:fixed; inset:0; background:#0d111760; z-index:50; }
+.drawer-overlay.open { display:block; }
+.drawer { position:fixed; top:48px; right:0; bottom:0; width:480px; max-width:95vw; background:#161b22; border-left:1px solid #30363d; transform:translateX(100%); transition:transform .2s; z-index:51; display:flex; flex-direction:column; }
+.drawer.open { transform:translateX(0); }
+.drawer-header { padding:16px 20px; border-bottom:1px solid #30363d; display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.drawer-header h3 { font-size:14px; font-weight:600; flex:1; }
+.drawer-body { flex:1; overflow-y:auto; padding:20px; }
+
+/* chat */
+#pane-chat { flex-direction:row; overflow:hidden; }
+.chat-sidebar { width:180px; min-width:0; flex-shrink:0; border-right:1px solid #30363d; display:flex; flex-direction:column; background:#161b22; overflow:hidden; transition:width .15s; }
+.chat-sidebar.collapsed { width:28px; }
+.chat-sidebar.collapsed .chan-join,.chat-sidebar.collapsed .chan-list { display:none; }
+.sidebar-head { padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#8b949e; border-bottom:1px solid #30363d; flex-shrink:0; display:flex; align-items:center; gap:4px; }
+.sidebar-toggle { margin-left:auto; background:none; border:none; color:#8b949e; cursor:pointer; font-size:14px; padding:0 2px; line-height:1; }
+.sidebar-toggle:hover { color:#e6edf3; }
+.sidebar-resize { width:4px; flex-shrink:0; cursor:col-resize; background:transparent; transition:background .1s; z-index:10; }
+.sidebar-resize:hover,.sidebar-resize.dragging { background:#58a6ff55; }
+.chan-join { display:flex; gap:5px; padding:7px 9px; border-bottom:1px solid #21262d; flex-shrink:0; }
+.chan-join input { flex:1; padding:4px 7px; font-size:12px; }
+.chan-list { flex:1; overflow-y:auto; }
+.chan-item { padding:7px 14px; font-size:13px; cursor:pointer; color:#8b949e; border-bottom:1px solid #21262d; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chan-item:hover { background:#1c2128; color:#e6edf3; }
+.chan-item.active { background:#1f6feb22; color:#58a6ff; border-left:2px solid #58a6ff; padding-left:12px; }
+.chat-main { flex:1; display:flex; flex-direction:column; min-width:0; }
+.chat-topbar { padding:9px 16px; border-bottom:1px solid #30363d; display:flex; align-items:center; gap:10px; flex-shrink:0; background:#161b22; font-size:13px; }
+.chat-ch-name { font-weight:600; color:#58a6ff; }
+.stream-badge { font-size:11px; color:#8b949e; margin-left:auto; }
+.chat-msgs { flex:1; overflow-y:auto; padding:10px 16px; display:flex; flex-direction:column; gap:1px; }
+.msg-row { display:flex; gap:10px; font-size:13px; line-height:1.6; padding:1px 0; }
+.msg-time { color:#8b949e; font-size:11px; flex-shrink:0; padding-top:3px; min-width:40px; }
+.msg-nick { font-weight:600; flex-shrink:0; min-width:90px; text-align:right; }
+.msg-grouped .msg-nick { visibility:hidden; }
+.msg-grouped .msg-time { color:transparent; }
+.msg-grouped:hover .msg-time { color:#8b949e; transition:color .1s; }
+.chat-nicklist { width:148px; min-width:0; flex-shrink:0; border-left:1px solid #30363d; display:flex; flex-direction:column; background:#161b22; overflow-y:auto; overflow-x:hidden; transition:width .15s; }
+.chat-nicklist.collapsed { width:28px; overflow:hidden; }
+.chat-nicklist.collapsed #nicklist-users { display:none; }
+.nicklist-head { padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#8b949e; border-bottom:1px solid #30363d; flex-shrink:0; display:flex; align-items:center; gap:4px; }
+.nicklist-nick { padding:5px 12px; font-size:12px; color:#8b949e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nicklist-nick.is-bot { color:#58a6ff; }
+.nicklist-nick::before { content:"● "; font-size:8px; vertical-align:middle; }
+.chat-new-banner { align-self:center; margin:4px auto 0; background:#1f6feb; color:#fff; border-radius:20px; padding:3px 14px; font-size:12px; cursor:pointer; display:inline-block; white-space:nowrap; }
+/* login screen */
+.login-screen { position:fixed; inset:0; background:#0d1117; z-index:200; display:flex; align-items:center; justify-content:center; flex-direction:column; }
+.login-box { width:340px; }
+.login-brand { text-align:center; margin-bottom:24px; }
+.login-brand h1 { font-size:22px; color:#58a6ff; letter-spacing:.05em; }
+.login-brand p { color:#8b949e; font-size:13px; margin-top:6px; }
+/* unread badge on chat tab */
+.nav-tab[data-unread]::after { content:attr(data-unread); background:#f85149; color:#fff; border-radius:999px; padding:1px 5px; font-size:10px; margin-left:5px; vertical-align:middle; }
+.msg-text { color:#e6edf3; word-break:break-word; }
+.chat-input { padding:9px 13px; border-top:1px solid #30363d; display:flex; gap:7px; flex-shrink:0; background:#161b22; }
+
+/* channels tab */
+.chan-card { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #21262d; }
+.chan-card:last-child { border-bottom:none; }
+.chan-card:hover { background:#1c2128; }
+.chan-name { font-size:14px; font-weight:600; color:#58a6ff; }
+.chan-meta { font-size:12px; color:#8b949e; }
+
+/* settings */
+.setting-row { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid #21262d; }
+.setting-row:last-child { border-bottom:none; }
+.setting-label { min-width:160px; font-size:13px; color:#c9d1d9; }
+.setting-desc  { font-size:12px; color:#8b949e; flex:1; }
+.setting-val   { font-size:12px; font-family:inherit; color:#a5d6ff; background:#0d1117; border:1px solid #30363d; border-radius:4px; padding:4px 10px; }
+
+/* modal */
+.modal-overlay { display:none; position:fixed; inset:0; background:#0d111788; z-index:100; align-items:center; justify-content:center; }
+.modal-overlay.open { display:flex; }
+.modal { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:24px; width:480px; max-width:95vw; }
+.modal h3 { font-size:15px; margin-bottom:16px; }
+.modal .btn-row { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+/* charts */
+.charts-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+.chart-card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px 16px; }
+.chart-label { font-size:11px; color:#8b949e; text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+.chart-label .val { margin-left:auto; font-size:13px; color:#e6edf3; font-weight:600; letter-spacing:0; text-transform:none; }
+canvas { display:block; width:100% !important; }
+.bridge-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
+<!-- login screen — shown when unauthenticated -->
+<div class="login-screen" id="login-screen" style="display:none">
+  <div class="login-box">
+    <div class="login-brand">
+      <h1>⬡ scuttlebot</h1>
+      <p>agent coordination backplane</p>
+    </div>
+    <div class="card">
+      <div class="card-body">
+        <form id="login-form" onsubmit="handleLogin(event)" style="gap:12px">
+          <div>
+            <label>username</label>
+            <input type="text" id="login-username" autocomplete="username">
+          </div>
+          <div>
+            <label>password</label>
+            <input type="password" id="login-password" autocomplete="current-password">
+          </div>
+          <div id="login-error" style="display:none"></div>
+          <button type="submit" class="primary" style="width:100%;margin-top:4px" id="login-btn">sign in</button>
+        </form>
+        <details style="margin-top:16px;border-top:1px solid #21262d;padding-top:14px">
+          <summary style="font-size:12px;color:#8b949e;cursor:pointer;user-select:none">use API token instead</summary>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <input type="text" id="token-login-input" placeholder="paste API token" style="flex:1;font-size:12px" autocomplete="off" spellcheck="false">
+            <button class="sm primary" onclick="saveTokenLogin()">apply</button>
+          </div>
+          <div class="hint" style="margin-top:4px">Token is printed to stderr at startup.</div>
+        </details>
+      </div>
+    </div>
+    <p style="text-align:center;font-size:11px;color:#6e7681;margin-top:14px">
+      <a href="https://scuttlebot.dev" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none">ScuttleBot</a> · Powered by <a href="https://weareconflict.com" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none">CONFLICT</a>
+    </p>
+  </div>
+</div>
+
 <header>
-  <h1>⬡ scuttlebot</h1>
-  <span class="tagline">agent coordination backplane</span>
-  <div class="spacer"></div>
-  <div class="token-badge">
-    <span>token:</span>
-    <code id="token-display">not set</code>
-    <button class="small" onclick="openTokenModal()">set</button>
+  <div class="brand">
+    <h1>⬡ scuttlebot</h1>
+    <span>agent coordination backplane</span>
+  </div>
+  <nav>
+    <div class="nav-tab active" id="tab-status"   onclick="switchTab('status')">◈ status</div>
+    <div class="nav-tab"        id="tab-users"    onclick="switchTab('users')">◉ users</div>
+    <div class="nav-tab"        id="tab-agents"   onclick="switchTab('agents')">◎ agents</div>
+    <div class="nav-tab"        id="tab-channels" onclick="switchTab('channels')">◎ channels</div>
+    <div class="nav-tab"        id="tab-chat"     onclick="switchTab('chat')">◌ chat</div>
+    <div class="nav-tab"        id="tab-ai"       onclick="switchTab('ai')">✦ ai</div>
+    <div class="nav-tab"        id="tab-settings" onclick="switchTab('settings')">⚙ settings</div>
+  </nav>
+  <div class="header-right">
+    <span id="header-user-display" style="font-size:12px;color:#8b949e"></span>
+    <button class="sm" onclick="logout()">sign out</button>
   </div>
 </header>
 
-<main>
-  <div id="no-token-banner" class="alert info" style="display:none">
-    <span class="icon">ℹ</span>
-    <span>Paste your API token to continue. It was printed to stderr when scuttlebot started:<br><code style="color:#a5d6ff">level=INFO msg="api token" token=...</code></span>
-  </div>
-
-  <!-- Status -->
-  <div class="card">
-    <div class="card-header">
-      <span class="dot green" id="status-dot"></span>
-      <h2>status</h2>
+<!-- STATUS -->
+<div class="tab-pane active" id="pane-status">
+  <div class="pane-inner">
+    <div id="no-token-banner" class="alert info" style="display:none">
+      <span class="icon">ℹ</span>
+      <span>Paste your API token to continue — printed to stderr at startup: <code style="color:#a5d6ff">level=INFO msg="api token" token=…</code></span>
     </div>
-    <div class="card-body">
-      <div class="status-grid" id="status-grid">
-        <div class="stat"><div class="label">state</div><div class="value" id="stat-status">—</div></div>
-        <div class="stat"><div class="label">uptime</div><div class="value" id="stat-uptime">—</div></div>
-        <div class="stat"><div class="label">agents</div><div class="value" id="stat-agents">—</div></div>
-        <div class="stat"><div class="label">started</div><div class="value" style="font-size:13px" id="stat-started">—</div><div class="sub" id="stat-started-rel"></div></div>
+
+    <!-- server status card -->
+    <div class="card" id="card-status">
+      <div class="card-header" onclick="toggleCard('card-status',event)">
+        <span class="dot green" id="status-dot"></span><h2>server status</h2>
+        <span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <span style="font-size:11px;color:#8b949e" id="metrics-updated"></span>
+        <button class="sm" onclick="loadStatus()" title="refresh">↻</button>
       </div>
-      <div id="status-error" style="margin-top:12px;display:none"></div>
+      <div class="card-body">
+        <div class="stat-grid">
+          <div class="stat"><div class="lbl">state</div><div class="val" id="stat-status">—</div></div>
+          <div class="stat"><div class="lbl">uptime</div><div class="val" id="stat-uptime">—</div></div>
+          <div class="stat"><div class="lbl">agents</div><div class="val" id="stat-agents">—</div></div>
+          <div class="stat"><div class="lbl">started</div><div class="val" style="font-size:13px" id="stat-started">—</div><div class="sub" id="stat-started-rel"></div></div>
+        </div>
+        <div id="status-error" style="margin-top:12px;display:none"></div>
+      </div>
     </div>
-  </div>
 
-  <!-- Agents -->
-  <div class="card">
-    <div class="card-header">
-      <h2>agents</h2>
-      <span class="badge" id="agent-count">0</span>
-      <div class="spacer"></div>
-      <button class="small" onclick="loadAgents()">↻ refresh</button>
-    </div>
-    <div class="card-body" style="padding:0">
-      <div id="agents-container"></div>
-    </div>
-  </div>
-
-  <!-- Register -->
-  <div class="card">
-    <div class="card-header"><h2>register agent</h2></div>
-    <div class="card-body">
-      <form id="register-form" onsubmit="handleRegister(event)">
-        <div class="form-row">
-          <div>
-            <label>nick *</label>
-            <input type="text" id="reg-nick" placeholder="my-agent-01" required>
+    <!-- runtime -->
+    <div class="card" id="card-runtime">
+      <div class="card-header" onclick="toggleCard('card-runtime',event)"><h2>runtime</h2><span class="collapse-icon">▾</span></div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:16px">
+        <div class="stat-grid">
+          <div class="stat"><div class="lbl">goroutines</div><div class="val" id="stat-goroutines">—</div></div>
+          <div class="stat"><div class="lbl">heap alloc</div><div class="val" id="stat-heap">—</div></div>
+          <div class="stat"><div class="lbl">heap sys</div><div class="val" id="stat-heapsys">—</div></div>
+          <div class="stat"><div class="lbl">GC runs</div><div class="val" id="stat-gc">—</div></div>
+        </div>
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-label">heap alloc <span class="val" id="chart-heap-val">—</span></div>
+            <canvas id="chart-heap" height="80"></canvas>
           </div>
-          <div>
-            <label>type</label>
-            <select id="reg-type">
-              <option value="operator">operator — human, +o + full permissions</option>
-              <option value="worker">worker — gets +v in channels</option>
-              <option value="orchestrator">orchestrator — gets +o in channels</option>
-              <option value="observer">observer — read-only</option>
-            </select>
+          <div class="chart-card">
+            <div class="chart-label">goroutines <span class="val" id="chart-goroutines-val">—</span></div>
+            <canvas id="chart-goroutines" height="80"></canvas>
+          </div>
+          <div class="chart-card">
+            <div class="chart-label">messages total <span class="val" id="chart-messages-val">—</span></div>
+            <canvas id="chart-messages" height="80"></canvas>
           </div>
         </div>
-        <div>
-          <label>channels</label>
-          <input type="text" id="reg-channels" placeholder="#fleet, #ops, #project.foo">
-          <div class="hint">comma-separated; must start with #</div>
-        </div>
-        <div>
-          <label>permissions</label>
-          <input type="text" id="reg-permissions" placeholder="task.create, task.update">
-          <div class="hint">comma-separated message types this agent is allowed to send</div>
-        </div>
-        <div id="register-result" style="display:none"></div>
-        <div style="display:flex;justify-content:flex-end">
-          <button type="submit" class="primary">register</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Chat -->
-  <div class="card" id="chat-card" style="display:none">
-    <div class="card-header">
-      <h2>chat</h2>
-      <span class="badge" id="chat-channel-badge" style="display:none"></span>
-      <div class="spacer"></div>
-      <span id="chat-stream-status" style="font-size:11px;color:#8b949e"></span>
-    </div>
-    <div style="display:flex;height:440px">
-      <div id="chat-channel-list" style="width:140px;border-right:1px solid #30363d;overflow-y:auto;flex-shrink:0;padding:8px 0;display:flex;flex-direction:column">
-        <div style="padding:6px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#8b949e">channels</div>
-        <div style="padding:6px 8px;border-bottom:1px solid #21262d;display:flex;gap:4px">
-          <input type="text" id="join-channel-input" placeholder="#channel" style="flex:1;font-size:11px;padding:3px 6px" autocomplete="off">
-          <button class="small" onclick="joinChannel()" style="padding:3px 6px;font-size:11px">+</button>
-        </div>
       </div>
-      <div style="display:flex;flex-direction:column;flex:1;min-width:0">
-        <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:2px">
-          <div class="empty" id="chat-placeholder">select a channel to view messages</div>
-        </div>
-        <div style="padding:10px 14px;border-top:1px solid #30363d;display:flex;gap:8px;align-items:center">
-          <input type="text" id="chat-nick-input" placeholder="your nick" style="width:110px;flex-shrink:0" autocomplete="off">
-          <input type="text" id="chat-text-input" placeholder="type a message…" style="flex:1" autocomplete="off">
-          <button class="primary small" id="chat-send-btn" onclick="sendChatMessage()">send</button>
+    </div>
+
+    <!-- bridge -->
+    <div class="card" id="bridge-card" style="display:none">
+      <div class="card-header" onclick="toggleCard('bridge-card',event)"><h2>bridge</h2><span class="collapse-icon">▾</span></div>
+      <div class="card-body">
+        <div class="bridge-grid">
+          <div class="stat"><div class="lbl">channels</div><div class="val" id="stat-bridge-channels">—</div></div>
+          <div class="stat"><div class="lbl">messages total</div><div class="val" id="stat-bridge-msgs">—</div></div>
+          <div class="stat"><div class="lbl">active streams</div><div class="val" id="stat-bridge-subs">—</div></div>
         </div>
       </div>
     </div>
-  </div>
-</main>
 
-<!-- Token modal -->
-<div class="modal-overlay" id="token-modal">
-  <div class="modal">
-    <h3>set API token</h3>
-    <p style="font-size:13px;color:#8b949e;margin-bottom:14px">The token is printed to stderr when scuttlebot starts:<br><code style="color:#a5d6ff">level=INFO msg="api token" token=&lt;value&gt;</code></p>
-    <label>token</label>
-    <input type="text" id="token-input" placeholder="paste token here" autocomplete="off" spellcheck="false">
-    <div class="btn-row">
-      <button onclick="closeTokenModal()">cancel</button>
-      <button class="primary" onclick="saveToken()">save</button>
+    <!-- registry -->
+    <div class="card" id="card-registry">
+      <div class="card-header" onclick="toggleCard('card-registry',event)"><h2>registry</h2><span class="collapse-icon">▾</span></div>
+      <div class="card-body">
+        <div class="stat-grid">
+          <div class="stat"><div class="lbl">total</div><div class="val" id="stat-reg-total">—</div></div>
+          <div class="stat"><div class="lbl">active</div><div class="val" id="stat-reg-active">—</div></div>
+          <div class="stat"><div class="lbl">revoked</div><div class="val" id="stat-reg-revoked">—</div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- USERS -->
+<div class="tab-pane" id="pane-users">
+  <div class="filter-bar">
+    <input type="text" id="user-search" placeholder="search by nick or channel…" oninput="renderUsersTable()" style="max-width:320px">
+    <div class="spacer"></div>
+    <span class="badge" id="user-count" style="margin-right:4px">0</span>
+    <button class="sm" onclick="loadAgents()">↻ refresh</button>
+    <button class="sm" onclick="openAdoptDrawer()">adopt existing user</button>
+    <button class="sm primary" onclick="openRegisterUserDrawer()">+ register user</button>
+  </div>
+  <div style="flex:1;overflow-y:auto">
+    <div id="users-container"></div>
+  </div>
+</div>
+
+<!-- AGENTS -->
+<div class="tab-pane" id="pane-agents">
+  <div class="filter-bar">
+    <input type="text" id="agent-search" placeholder="search by nick, type, channel…" oninput="renderAgentTable()" style="max-width:320px">
+    <div class="spacer"></div>
+    <span class="badge" id="agent-count" style="margin-right:4px">0</span>
+    <button class="sm" onclick="loadAgents()">↻ refresh</button>
+    <button class="sm primary" onclick="openDrawer()">+ register agent</button>
+  </div>
+  <div style="flex:1;overflow-y:auto">
+    <div id="agents-container"></div>
+  </div>
+</div>
+
+<!-- CHANNELS -->
+<div class="tab-pane" id="pane-channels">
+  <div class="pane-inner">
+    <div class="card">
+      <div class="card-header">
+        <h2>channels</h2>
+        <span class="badge" id="chan-count">0</span>
+        <div class="spacer"></div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="text" id="quick-join-input" placeholder="#channel" style="width:160px;padding:5px 8px;font-size:12px" autocomplete="off">
+          <button class="sm primary" onclick="quickJoin()">join</button>
+        </div>
+      </div>
+      <div id="channels-list"><div class="empty">no channels joined yet — type a channel name above</div></div>
     </div>
   </div>
 </div>
 
+<!-- CHAT -->
+<div class="tab-pane" id="pane-chat">
+  <div class="chat-sidebar" id="chat-sidebar-left">
+    <div class="sidebar-head">
+      <span id="sidebar-left-label">channels</span>
+      <button class="sidebar-toggle" id="sidebar-left-toggle" title="collapse" onclick="toggleSidebar('left')">‹</button>
+    </div>
+    <div class="chan-join">
+      <input type="text" id="join-channel-input" placeholder="#general" autocomplete="off">
+      <button class="sm" onclick="joinChannel()">+</button>
+    </div>
+    <div class="chan-list" id="chan-list"></div>
+  </div>
+  <div class="sidebar-resize" id="resize-left" title="drag to resize"></div>
+  <div class="chat-main">
+    <div class="chat-topbar">
+      <span class="chat-ch-name" id="chat-ch-name">select a channel</span>
+      <div class="spacer"></div>
+      <span style="font-size:11px;color:#8b949e;margin-right:6px">chatting as</span>
+      <select id="chat-identity" style="width:140px;padding:3px 6px;font-size:12px" onchange="saveChatIdentity()">
+        <option value="">— pick a user —</option>
+      </select>
+      <span class="stream-badge" id="chat-stream-status" style="margin-left:8px"></span>
+    </div>
+    <div class="chat-msgs" id="chat-msgs">
+      <div class="empty" id="chat-placeholder">join a channel to start chatting</div>
+    </div>
+    <div class="chat-input">
+      <input type="text" id="chat-text-input" placeholder="type a message…" style="flex:1" autocomplete="off">
+      <button class="primary sm" id="chat-send-btn" onclick="sendMsg()">send</button>
+    </div>
+  </div>
+  <div class="sidebar-resize" id="resize-right" title="drag to resize"></div>
+  <div class="chat-nicklist" id="chat-nicklist">
+    <div class="nicklist-head">
+      <button class="sidebar-toggle" id="sidebar-right-toggle" title="collapse" onclick="toggleSidebar('right')">›</button>
+      <span id="sidebar-right-label">users</span>
+    </div>
+    <div id="nicklist-users"></div>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div class="tab-pane" id="pane-settings">
+  <div class="pane-inner">
+
+    <!-- connection -->
+    <div class="card" id="card-connection">
+      <div class="card-header" style="cursor:default"><h2>connection</h2></div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-label">signed in as</div>
+          <div class="setting-desc">Current admin session.</div>
+          <code class="setting-val" id="settings-username-display">—</code>
+          <button class="sm danger" onclick="logout()">sign out</button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">API endpoint</div>
+          <div class="setting-desc">REST API base URL.</div>
+          <code class="setting-val" id="settings-api-url"></code>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">IRC network</div>
+          <div class="setting-desc">Ergo IRC server address.</div>
+          <code class="setting-val">localhost:6667</code>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">MCP server</div>
+          <div class="setting-desc">Model Context Protocol endpoint.</div>
+          <code class="setting-val">localhost:8081</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- admin accounts -->
+    <div class="card" id="card-admins">
+      <div class="card-header" onclick="toggleCard('card-admins',event)"><h2>admin accounts</h2><span class="collapse-icon">▾</span></div>
+      <div id="admins-list-container"></div>
+      <div class="card-body" style="border-top:1px solid #21262d">
+        <p style="font-size:12px;color:#8b949e;margin-bottom:12px">Add an admin account. Admins sign in at the login screen with username + password.</p>
+        <form id="add-admin-form" onsubmit="addAdmin(event)" style="flex-direction:row;align-items:flex-end;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:130px"><label>username</label><input type="text" id="new-admin-username" autocomplete="off"></div>
+          <div style="flex:1;min-width:130px"><label>password</label><input type="password" id="new-admin-password" autocomplete="new-password"></div>
+          <button type="submit" class="primary sm" style="margin-bottom:1px">add admin</button>
+        </form>
+        <div id="add-admin-result" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <!-- tls -->
+    <div class="card" id="card-tls">
+      <div class="card-header" onclick="toggleCard('card-tls',event)"><h2>TLS / SSL</h2><span class="collapse-icon">▾</span><div class="spacer"></div><span id="tls-badge" class="badge">loading…</span></div>
+      <div class="card-body">
+        <div id="tls-status-rows"></div>
+        <div class="alert info" style="margin-top:12px;font-size:12px">
+          <span class="icon">ℹ</span>
+          <span>TLS is configured in <code style="color:#a5d6ff">scuttlebot.yaml</code> under <code style="color:#a5d6ff">tls:</code>.
+          Set <code style="color:#a5d6ff">domain:</code> to enable Let's Encrypt. <code style="color:#a5d6ff">allow_insecure: true</code> keeps HTTP running alongside HTTPS.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- system behaviors -->
+    <div class="card" id="card-behaviors">
+      <div class="card-header" onclick="toggleCard('card-behaviors',event)">
+        <h2>system behaviors</h2><span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <button class="sm primary" onclick="savePolicies()">save</button>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div id="behaviors-list"></div>
+      </div>
+    </div>
+
+    <!-- agent policy -->
+    <div class="card" id="card-agentpolicy">
+      <div class="card-header" onclick="toggleCard('card-agentpolicy',event)"><h2>agent policy</h2><span class="collapse-icon">▾</span><div class="spacer"></div><button class="sm primary" onclick="savePolicies()">save</button></div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-label">require check-in</div>
+          <div class="setting-desc">Agents must join a coordination channel before others.</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="policy-checkin-enabled" onchange="toggleCheckinChannel()">
+            <span style="font-size:12px">enabled</span>
+          </label>
+        </div>
+        <div class="setting-row" id="policy-checkin-row" style="display:none">
+          <div class="setting-label">check-in channel</div>
+          <div class="setting-desc">Channel all agents must join first.</div>
+          <input type="text" id="policy-checkin-channel" placeholder="#coordination" style="width:180px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">required channels</div>
+          <div class="setting-desc">Channels every agent is added to automatically.</div>
+          <input type="text" id="policy-required-channels" placeholder="#fleet, #alerts" style="width:220px;padding:4px 8px;font-size:12px">
+        </div>
+      </div>
+    </div>
+
+    <!-- bridge -->
+    <div class="card" id="card-bridgepolicy">
+      <div class="card-header" onclick="toggleCard('card-bridgepolicy',event)"><h2>web bridge</h2><span class="collapse-icon">▾</span><div class="spacer"></div><button class="sm primary" onclick="savePolicies()">save</button></div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-label">web user TTL</div>
+          <div class="setting-desc">How long HTTP-posted nicks stay visible in the channel user list after their last message.</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="policy-bridge-web-user-ttl" placeholder="5" min="1" style="width:80px;padding:4px 8px;font-size:12px">
+            <span style="font-size:12px;color:#8b949e">minutes</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- logging -->
+    <div class="card" id="card-logging">
+      <div class="card-header" onclick="toggleCard('card-logging',event)"><h2>message logging</h2><span class="collapse-icon">▾</span><div class="spacer"></div><button class="sm primary" onclick="savePolicies()">save</button></div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-label">enabled</div>
+          <div class="setting-desc">Write every channel message to disk.</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="policy-logging-enabled" onchange="toggleLogOptions()">
+            <span style="font-size:12px">enabled</span>
+          </label>
+        </div>
+        <div id="policy-log-options" style="display:none">
+          <div class="setting-row">
+            <div class="setting-label">log directory</div>
+            <div class="setting-desc">Directory to write log files into.</div>
+            <input type="text" id="policy-log-dir" placeholder="./data/logs" style="width:280px;padding:4px 8px;font-size:12px">
+          </div>
+          <div class="setting-row">
+            <div class="setting-label">format</div>
+            <div class="setting-desc">Output format for log lines.</div>
+            <select id="policy-log-format" style="width:160px;padding:4px 8px;font-size:12px">
+              <option value="jsonl">JSON Lines (.jsonl)</option>
+              <option value="csv">CSV (.csv)</option>
+              <option value="text">Plain text (.log)</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label">rotation</div>
+            <div class="setting-desc">When to start a new log file.</div>
+            <select id="policy-log-rotation" style="width:160px;padding:4px 8px;font-size:12px" onchange="toggleRotationOptions()">
+              <option value="none">None</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+              <option value="size">By size</option>
+            </select>
+          </div>
+          <div class="setting-row" id="policy-log-size-row" style="display:none">
+            <div class="setting-label">max file size</div>
+            <div class="setting-desc">Rotate when file reaches this size.</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input type="number" id="policy-log-max-size" placeholder="100" min="1" style="width:80px;padding:4px 8px;font-size:12px">
+              <span style="font-size:12px;color:#8b949e">MiB</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label">per-channel files</div>
+            <div class="setting-desc">Write a separate file for each channel.</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="policy-log-per-channel">
+              <span style="font-size:12px">enabled</span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label">max age</div>
+            <div class="setting-desc">Delete rotated files older than N days. 0 = keep forever.</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input type="number" id="policy-log-max-age" placeholder="0" min="0" style="width:80px;padding:4px 8px;font-size:12px">
+              <span style="font-size:12px;color:#8b949e">days</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="policies-save-result" style="display:none"></div>
+
+    <!-- about -->
+    <div class="card">
+      <div class="card-header" style="cursor:default"><h2>about</h2></div>
+      <div class="card-body" style="font-size:13px;color:#8b949e;line-height:1.8">
+        <p><strong style="color:#e6edf3">ScuttleBot</strong> — agent coordination backplane over IRC.</p>
+        <p>Agents register, receive SASL credentials, and coordinate in IRC channels.</p>
+        <p>Everything is human observable: all activity is visible in the IRC channel log.</p>
+        <p style="margin-top:12px;font-size:11px;color:#6e7681">
+          Copyright &copy; 2026 CONFLICT LLC. All rights reserved.<br>
+          <a href="https://scuttlebot.dev" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none">ScuttleBot</a> — Powered by <a href="https://weareconflict.com" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none">CONFLICT</a>
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- AI -->
+<div class="tab-pane" id="pane-ai">
+  <div class="pane-inner">
+
+    <!-- LLM backends -->
+    <div class="card" id="card-ai-backends">
+      <div class="card-header" style="cursor:default">
+        <h2>LLM backends</h2>
+        <div class="spacer"></div>
+        <button class="sm" onclick="loadAI()">↺ refresh</button>
+        <button class="sm primary" onclick="openAddBackend()">+ add backend</button>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div id="ai-backends-list" style="padding:16px">
+          <div class="empty-state">loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- add/edit backend form (hidden until opened) -->
+    <div class="card" id="card-ai-form" style="display:none">
+      <div class="card-header" style="cursor:default">
+        <h2 id="ai-form-title">add backend</h2>
+        <div class="spacer"></div>
+        <button class="sm" onclick="closeBackendForm()">✕ cancel</button>
+      </div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
+          <div>
+            <label>name *</label>
+            <input type="text" id="bf-name" placeholder="openai-main" autocomplete="off">
+            <div class="hint">unique identifier — used in oracle's backend field</div>
+          </div>
+          <div>
+            <label>backend type *</label>
+            <select id="bf-backend" onchange="onBackendTypeChange()">
+              <option value="">— select type —</option>
+              <optgroup label="Native APIs">
+                <option value="anthropic">anthropic</option>
+                <option value="gemini">gemini</option>
+                <option value="bedrock">bedrock</option>
+                <option value="ollama">ollama</option>
+              </optgroup>
+              <optgroup label="OpenAI-compatible">
+                <option value="openai">openai</option>
+                <option value="openrouter">openrouter</option>
+                <option value="together">together</option>
+                <option value="groq">groq</option>
+                <option value="fireworks">fireworks</option>
+                <option value="mistral">mistral</option>
+                <option value="ai21">ai21</option>
+                <option value="huggingface">huggingface</option>
+                <option value="deepseek">deepseek</option>
+                <option value="cerebras">cerebras</option>
+                <option value="xai">xai</option>
+                <option value="litellm">litellm (local)</option>
+                <option value="lmstudio">lm studio (local)</option>
+                <option value="jan">jan (local)</option>
+                <option value="localai">localai (local)</option>
+                <option value="vllm">vllm (local)</option>
+                <option value="anythingllm">anythingllm (local)</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <!-- shown for non-bedrock backends -->
+          <div id="bf-apikey-row">
+            <label>API key</label>
+            <input type="password" id="bf-apikey" placeholder="sk-…" autocomplete="new-password">
+            <div class="hint" id="bf-apikey-hint">Leave blank to use env var or instance role</div>
+          </div>
+
+          <!-- shown for ollama and OpenAI-compat local backends -->
+          <div id="bf-baseurl-row">
+            <label>base URL</label>
+            <input type="text" id="bf-baseurl" placeholder="http://localhost:11434" autocomplete="off">
+            <div class="hint">Override default endpoint for self-hosted backends</div>
+          </div>
+
+          <div>
+            <label>model</label>
+            <div style="display:flex;gap:6px;align-items:flex-start">
+              <div style="flex:1">
+                <select id="bf-model-select" onchange="onModelSelectChange()" style="width:100%">
+                  <option value="">— select or load models —</option>
+                </select>
+                <input type="text" id="bf-model-custom" placeholder="model-id" autocomplete="off" style="display:none;margin-top:6px">
+              </div>
+              <button type="button" class="sm" id="bf-load-models-btn" onclick="loadLiveModels(this)" style="white-space:nowrap;margin-top:1px">↺ load models</button>
+            </div>
+            <div class="hint">Pick from list or load live from API. Leave blank to auto-select.</div>
+          </div>
+
+          <div style="display:flex;align-items:flex-end;gap:8px">
+            <label style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">
+              <input type="checkbox" id="bf-default"> mark as default backend
+            </label>
+          </div>
+
+          <!-- Bedrock-specific fields -->
+          <div id="bf-bedrock-group" style="display:none;grid-column:1/-1">
+            <div style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">AWS / Bedrock</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
+              <div>
+                <label>region *</label>
+                <input type="text" id="bf-region" placeholder="us-east-1" autocomplete="off">
+              </div>
+              <div>
+                <label>AWS key ID</label>
+                <input type="text" id="bf-aws-key-id" placeholder="AKIA… (or leave blank for IAM role)" autocomplete="off">
+                <div class="hint">Leave blank — scuttlebot will auto-detect IAM role (ECS/EC2/EKS)</div>
+              </div>
+              <div>
+                <label>AWS secret key</label>
+                <input type="password" id="bf-aws-secret" placeholder="(or leave blank for IAM role)" autocomplete="new-password">
+              </div>
+            </div>
+          </div>
+
+          <!-- allow/block filters -->
+          <div style="grid-column:1/-1">
+            <div style="font-size:12px;color:#8b949e;font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Model filters (regex, one per line)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
+              <div>
+                <label>allow list</label>
+                <textarea id="bf-allow" rows="3" placeholder="^gpt-4&#10;^claude-3" style="font-family:var(--font-mono);font-size:12px"></textarea>
+                <div class="hint">Only these models shown. Empty = all.</div>
+              </div>
+              <div>
+                <label>block list</label>
+                <textarea id="bf-block" rows="3" placeholder=".*-instruct$&#10;.*-preview$" style="font-family:var(--font-mono);font-size:12px"></textarea>
+                <div class="hint">Always hidden.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="ai-form-result" style="display:none;margin-top:12px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+          <button class="sm" onclick="closeBackendForm()">cancel</button>
+          <button class="sm primary" id="bf-submit-btn" onclick="submitBackendForm()">add backend</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- supported backends reference -->
+    <div class="card" id="card-ai-supported">
+      <div class="card-header" onclick="toggleCard('card-ai-supported',event)"><h2>supported backends</h2><span class="collapse-icon">▾</span></div>
+      <div class="card-body" id="ai-supported-list">
+        <div class="empty-state">loading…</div>
+      </div>
+    </div>
+
+    <!-- config example -->
+    <div class="card" id="card-ai-example" style="display:none">
+      <div class="card-header" onclick="toggleCard('card-ai-example',event)"><h2>YAML example</h2><span class="collapse-icon">▾</span></div>
+      <div class="card-body">
+        <pre style="font-size:12px;color:#a5d6ff;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px;overflow-x:auto;white-space:pre">llm:
+  backends:
+    - name: openai-main
+      backend: openai
+      api_key: sk-...
+      model: gpt-4o-mini
+      block: [".*-instruct$"]   # optional regex filter
+
+    - name: local-ollama
+      backend: ollama
+      base_url: http://localhost:11434
+      model: llama3.2
+      default: true
+
+    - name: anthropic-claude
+      backend: anthropic
+      api_key: sk-ant-...
+      model: claude-3-5-sonnet-20241022
+
+    - name: bedrock-us
+      backend: bedrock
+      region: us-east-1
+      aws_key_id: AKIA...
+      aws_secret_key: ...
+      allow: ["^anthropic\\."]  # only Anthropic models
+
+    - name: groq-fast
+      backend: groq
+      api_key: gsk_...</pre>
+        <p style="font-size:12px;color:#8b949e;margin-top:8px">
+          Reference a backend from oracle's behavior config using the <code>backend</code> key.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Register drawer -->
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="register-drawer">
+  <div class="drawer-header">
+    <h3>register agent</h3>
+    <div class="spacer"></div>
+    <button class="sm" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-body">
+    <form id="register-form" onsubmit="handleRegister(event)">
+      <div class="form-row">
+        <div>
+          <label>nick *</label>
+          <input type="text" id="reg-nick" placeholder="my-agent-01" required autocomplete="off">
+        </div>
+        <div>
+          <label>type</label>
+          <select id="reg-type">
+            <option value="worker" selected>worker — +v</option>
+            <option value="orchestrator">orchestrator — +o</option>
+            <option value="observer">observer — read only</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>channels</label>
+        <input type="text" id="reg-channels" placeholder="#fleet, #ops, #project.foo" autocomplete="off">
+        <div class="hint">comma-separated; must start with #</div>
+      </div>
+      <div>
+        <label>permissions</label>
+        <input type="text" id="reg-permissions" placeholder="task.create, task.update" autocomplete="off">
+        <div class="hint">comma-separated message types this agent may send</div>
+      </div>
+      <div id="register-result" style="display:none"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button type="button" onclick="closeDrawer()">cancel</button>
+        <button type="submit" class="primary">register</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Register user drawer (operator with fresh credentials) -->
+<div class="drawer-overlay" id="register-user-overlay" onclick="closeRegisterUserDrawer()"></div>
+<div class="drawer" id="register-user-drawer">
+  <div class="drawer-header">
+    <h3>register user</h3>
+    <div class="spacer"></div>
+    <button class="sm" onclick="closeRegisterUserDrawer()">✕</button>
+  </div>
+  <div class="drawer-body">
+    <form id="register-user-form" onsubmit="handleRegisterUser(event)">
+      <div>
+        <label>nick *</label>
+        <input type="text" id="regu-nick" placeholder="alice" required autocomplete="off">
+        <div class="hint">new NickServ account will be created; credentials returned once</div>
+      </div>
+      <div>
+        <label>channels</label>
+        <input type="text" id="regu-channels" placeholder="#ops, #general" autocomplete="off">
+        <div class="hint">comma-separated</div>
+      </div>
+      <div id="register-user-result" style="display:none"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button type="button" onclick="closeRegisterUserDrawer()">cancel</button>
+        <button type="submit" class="primary">register</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Adopt user drawer (claim pre-existing NickServ account) -->
+<div class="drawer-overlay" id="adopt-overlay" onclick="closeAdoptDrawer()"></div>
+<div class="drawer" id="adopt-drawer">
+  <div class="drawer-header">
+    <h3>adopt existing user</h3>
+    <div class="spacer"></div>
+    <button class="sm" onclick="closeAdoptDrawer()">✕</button>
+  </div>
+  <div class="drawer-body">
+    <p style="font-size:12px;color:#8b949e;margin-bottom:16px">Adds a pre-existing NickServ account to the registry without changing its password. Use this for accounts already connected to IRC.</p>
+    <form id="adopt-form" onsubmit="handleAdopt(event)">
+      <div>
+        <label>nick *</label>
+        <input type="text" id="adopt-nick" placeholder="existing-irc-nick" required autocomplete="off">
+      </div>
+      <div>
+        <label>channels</label>
+        <input type="text" id="adopt-channels" placeholder="#ops, #general" autocomplete="off">
+        <div class="hint">comma-separated</div>
+      </div>
+      <div id="adopt-result" style="display:none"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button type="button" onclick="closeAdoptDrawer()">cancel</button>
+        <button type="submit" class="primary">adopt</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
 <script>
-// --- token management ---
-function getToken() { return localStorage.getItem('scuttlebot_token') || ''; }
-function setToken(t) {
-  localStorage.setItem('scuttlebot_token', t);
-  updateTokenDisplay();
+// --- tabs ---
+const TAB_LOADERS = { status: loadStatus, users: loadAgents, agents: loadAgents, channels: loadChanTab, chat: () => { populateChatIdentity(); loadChannels(); }, ai: loadAI, settings: loadSettings };
+function switchTab(name) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('pane-' + name).classList.add('active');
+  if (name === 'chat') {
+    _chatUnread = 0;
+    delete document.getElementById('tab-chat').dataset.unread;
+  }
+  if (TAB_LOADERS[name]) TAB_LOADERS[name]();
 }
-function updateTokenDisplay() {
+
+// --- auth ---
+function getToken()    { return localStorage.getItem('sb_token') || ''; }
+function getUsername() { return localStorage.getItem('sb_username') || ''; }
+
+function showLoginScreen() {
+  document.getElementById('login-screen').style.display = 'flex';
+  setTimeout(() => document.getElementById('login-username')?.focus(), 80);
+}
+function hideLoginScreen() {
+  document.getElementById('login-screen').style.display = 'none';
+}
+
+function updateHeaderUser() {
+  const u = getUsername();
   const t = getToken();
-  const el = document.getElementById('token-display');
-  const banner = document.getElementById('no-token-banner');
-  if (t) {
-    el.textContent = t.slice(0, 8) + '…' + t.slice(-4);
-    banner.style.display = 'none';
-  } else {
-    el.textContent = 'not set';
-    banner.style.display = 'flex';
+  const label = u ? '@' + u : (t ? t.slice(0,8)+'…' : '');
+  document.getElementById('header-user-display').textContent = label;
+  const su = document.getElementById('settings-username-display');
+  if (su) su.textContent = u || 'token auth';
+  document.getElementById('settings-api-url').textContent = location.origin;
+  document.getElementById('no-token-banner').style.display = t ? 'none' : 'flex';
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const btn = document.getElementById('login-btn');
+  const errEl = document.getElementById('login-error');
+  if (!username || !password) return;
+  btn.disabled = true; btn.textContent = 'signing in…';
+  errEl.style.display = 'none';
+  try {
+    const resp = await fetch('/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({username, password}),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || 'Login failed');
+    localStorage.setItem('sb_token', data.token);
+    localStorage.setItem('sb_username', data.username || username);
+    hideLoginScreen();
+    updateHeaderUser();
+    loadAll();
+  } catch(err) {
+    errEl.style.display = 'block';
+    errEl.innerHTML = renderAlert('error', err.message);
+    btn.disabled = false; btn.textContent = 'sign in';
   }
 }
-function openTokenModal() {
-  document.getElementById('token-input').value = getToken();
-  document.getElementById('token-modal').classList.add('open');
-  setTimeout(() => document.getElementById('token-input').focus(), 50);
+
+function saveTokenLogin() {
+  const v = document.getElementById('token-login-input').value.trim();
+  if (!v) return;
+  localStorage.setItem('sb_token', v);
+  localStorage.removeItem('sb_username');
+  hideLoginScreen();
+  updateHeaderUser();
+  loadAll();
 }
-function closeTokenModal() { document.getElementById('token-modal').classList.remove('open'); }
-function saveToken() {
-  const v = document.getElementById('token-input').value.trim();
-  if (v) { setToken(v); closeTokenModal(); loadAll(); }
+
+function logout() {
+  localStorage.removeItem('sb_token');
+  localStorage.removeItem('sb_username');
+  location.reload();
 }
-document.getElementById('token-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeTokenModal();
-});
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') closeTokenModal();
-});
+
+function initAuth() {
+  if (!getToken()) { showLoginScreen(); return; }
+  hideLoginScreen();
+  updateHeaderUser();
+  loadAll();
+}
+
+document.addEventListener('keydown', e => { if(e.key==='Escape'){ closeDrawer(); closeRegisterUserDrawer(); closeAdoptDrawer(); } });
 
 // --- API ---
 async function api(method, path, body) {
-  const token = getToken();
-  const opts = { method, headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } };
+  const opts = { method, headers: { 'Authorization':'Bearer '+getToken(), 'Content-Type':'application/json' } };
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
+  if (res.status === 401) {
+    localStorage.removeItem('sb_token');
+    localStorage.removeItem('sb_username');
+    showLoginScreen();
+    throw new Error('Session expired — please sign in again');
+  }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({ error: res.statusText }));
   if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { status: res.status });
   return data;
 }
-
 function copyText(text, btn) {
-  navigator.clipboard.writeText(text).then(() => {
-    const orig = btn.textContent;
-    btn.textContent = '✓';
-    setTimeout(() => { btn.textContent = orig; }, 1200);
+  navigator.clipboard.writeText(text).then(() => { const o=btn.textContent; btn.textContent='✓'; setTimeout(()=>{btn.textContent=o;},1200); });
+}
+
+// --- charts ---
+const CHART_POINTS = 60; // 5 min at 5s intervals
+const chartData = {
+  labels:     Array(CHART_POINTS).fill(''),
+  heap:       Array(CHART_POINTS).fill(null),
+  goroutines: Array(CHART_POINTS).fill(null),
+  messages:   Array(CHART_POINTS).fill(null),
+};
+let charts = {};
+
+function mkChart(id, label, color) {
+  const ctx = document.getElementById(id).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: chartData.labels,
+      datasets: [{
+        label,
+        data: chartData[id.replace('chart-','')],
+        borderColor: color,
+        backgroundColor: color+'22',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: true,
+      }],
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: { display: true, grid: { color: '#21262d' }, ticks: { color: '#8b949e', font: { size: 10 }, maxTicksLimit: 4 } },
+      },
+    },
   });
+}
+
+function initCharts() {
+  if (charts.heap) return;
+  charts.heap       = mkChart('chart-heap',       'heap',       '#58a6ff');
+  charts.goroutines = mkChart('chart-goroutines',  'goroutines', '#3fb950');
+  charts.messages   = mkChart('chart-messages',    'messages',   '#d2a8ff');
+}
+
+function fmtBytes(b) {
+  if (b == null) return '—';
+  if (b < 1024) return b+'B';
+  if (b < 1048576) return (b/1024).toFixed(1)+'KB';
+  return (b/1048576).toFixed(1)+'MB';
+}
+
+function pushMetrics(m) {
+  chartData.heap.push(m.runtime.heap_alloc_bytes/1048576);
+  chartData.heap.shift();
+  chartData.goroutines.push(m.runtime.goroutines);
+  chartData.goroutines.shift();
+  const msgs = m.bridge ? m.bridge.messages_total : null;
+  chartData.messages.push(msgs);
+  chartData.messages.shift();
+
+  // Reassign dataset data arrays (shared reference, Chart.js reads them directly).
+  charts.heap.data.datasets[0].data       = chartData.heap;
+  charts.goroutines.data.datasets[0].data = chartData.goroutines;
+  charts.messages.data.datasets[0].data   = chartData.messages;
+  charts.heap.update('none');
+  charts.goroutines.update('none');
+  charts.messages.update('none');
 }
 
 // --- status ---
 async function loadStatus() {
   try {
-    const s = await api('GET', '/v1/status');
-    document.getElementById('stat-status').innerHTML = '<span class="dot green"></span>' + s.status;
+    const [s, m] = await Promise.all([
+      api('GET', '/v1/status'),
+      api('GET', '/v1/metrics'),
+    ]);
+
+    // Status card.
+    document.getElementById('stat-status').innerHTML = '<span class="dot green"></span>'+s.status;
     document.getElementById('stat-uptime').textContent = s.uptime;
     document.getElementById('stat-agents').textContent = s.agents;
-    const started = new Date(s.started);
-    document.getElementById('stat-started').textContent = started.toLocaleTimeString();
-    document.getElementById('stat-started-rel').textContent = started.toLocaleDateString();
+    const d = new Date(s.started);
+    document.getElementById('stat-started').textContent = d.toLocaleTimeString();
+    document.getElementById('stat-started-rel').textContent = d.toLocaleDateString();
     document.getElementById('status-error').style.display = 'none';
-  } catch (e) {
+    document.getElementById('metrics-updated').textContent = 'updated '+new Date().toLocaleTimeString();
+
+    // Runtime card.
+    document.getElementById('stat-goroutines').textContent = m.runtime.goroutines;
+    document.getElementById('stat-heap').textContent       = fmtBytes(m.runtime.heap_alloc_bytes);
+    document.getElementById('stat-heapsys').textContent    = fmtBytes(m.runtime.heap_sys_bytes);
+    document.getElementById('stat-gc').textContent         = m.runtime.gc_runs;
+    document.getElementById('chart-heap-val').textContent       = fmtBytes(m.runtime.heap_alloc_bytes);
+    document.getElementById('chart-goroutines-val').textContent = m.runtime.goroutines;
+    document.getElementById('chart-messages-val').textContent   = m.bridge ? m.bridge.messages_total : '—';
+
+    // Bridge card.
+    if (m.bridge) {
+      document.getElementById('bridge-card').style.display = '';
+      document.getElementById('stat-bridge-channels').textContent = m.bridge.channels;
+      document.getElementById('stat-bridge-msgs').textContent     = m.bridge.messages_total;
+      document.getElementById('stat-bridge-subs').textContent     = m.bridge.active_subscribers;
+    }
+
+    // Registry card.
+    document.getElementById('stat-reg-total').textContent   = m.registry.total;
+    document.getElementById('stat-reg-active').textContent  = m.registry.active;
+    document.getElementById('stat-reg-revoked').textContent = m.registry.revoked;
+
+    // Push to charts.
+    initCharts();
+    pushMetrics(m);
+  } catch(e) {
     document.getElementById('stat-status').innerHTML = '<span class="dot red"></span>error';
-    const err = document.getElementById('status-error');
-    err.style.display = 'block';
-    err.innerHTML = renderAlert('error', e.message);
+    const el = document.getElementById('status-error');
+    el.style.display = 'block';
+    el.innerHTML = renderAlert('error', e.message);
   }
 }
 
-// --- agents ---
+let metricsTimer = null;
+function startMetricsPoll() {
+  if (metricsTimer) return;
+  metricsTimer = setInterval(() => {
+    if (document.getElementById('pane-status').classList.contains('active')) loadStatus();
+  }, 5000);
+}
+
+// --- agents + users (shared data) ---
+let allAgents = [];
 async function loadAgents() {
-  const container = document.getElementById('agents-container');
   try {
     const data = await api('GET', '/v1/agents');
-    const agents = data.agents || [];
-    document.getElementById('agent-count').textContent = agents.length;
-    if (agents.length === 0) {
-      container.innerHTML = '<div class="empty">no agents registered yet</div>';
-      return;
-    }
-    let rows = agents.map(a => {
-      const channels = (a.config?.channels || []).map(c => `<span class="tag">${esc(c)}</span>`).join('');
-      const perms = (a.config?.permissions || []).map(p => `<span class="tag">${esc(p)}</span>`).join('');
-      const revoked = a.revoked_at ? '<span class="tag revoked">revoked</span>' : '';
-      return `<tr>
-        <td><strong>${esc(a.nick)}</strong></td>
-        <td><span class="tag type-${a.type}">${esc(a.type)}</span>${revoked}</td>
-        <td>${channels || '<span style="color:#8b949e">—</span>'}</td>
-        <td>${perms || '<span style="color:#8b949e">—</span>'}</td>
-        <td>${fmtTime(a.created_at)}</td>
-        <td>
-          <div class="actions">
-            ${!a.revoked_at ? `<button class="small" onclick="rotateAgent('${esc(a.nick)}')">rotate</button>
-            <button class="small danger" onclick="revokeAgent('${esc(a.nick)}')">revoke</button>` : ''}
-          </div>
-        </td>
-      </tr>`;
-    }).join('');
-    container.innerHTML = `<table>
-      <thead><tr><th>nick</th><th>type</th><th>channels</th><th>permissions</th><th>registered</th><th>actions</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-  } catch (e) {
-    container.innerHTML = renderAlert('error', e.message);
+    allAgents = data.agents || [];
+    renderUsersTable();
+    renderAgentTable();
+    populateChatIdentity();
+  } catch(e) {
+    const msg = '<div style="padding:16px">'+renderAlert('error', e.message)+'</div>';
+    document.getElementById('agents-container').innerHTML = msg;
+    document.getElementById('users-container').innerHTML  = msg;
   }
+}
+
+function renderTable(container, countEl, rows, emptyMsg, cols) {
+  if (rows.length === 0) {
+    document.getElementById(container).innerHTML = '<div class="empty">'+emptyMsg+'</div>';
+  } else {
+    const ths = cols.map(c=>`<th>${c}</th>`).join('');
+    document.getElementById(container).innerHTML =
+      `<table><thead><tr>${ths}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  }
+  if (countEl) document.getElementById(countEl).textContent = rows.length;
+}
+
+function renderUsersTable() {
+  const q = (document.getElementById('user-search').value||'').toLowerCase();
+  const users = allAgents.filter(a => a.type === 'operator' && (!q ||
+    a.nick.toLowerCase().includes(q) ||
+    (a.config?.channels||[]).some(c => c.toLowerCase().includes(q))));
+  const rows = users.map(a => {
+    const chs = (a.config?.channels||[]).map(c=>`<span class="tag ch">${esc(c)}</span>`).join('');
+    const rev = a.revoked ? '<span class="tag revoked">revoked</span>' : '';
+    return `<tr>
+      <td><strong>${esc(a.nick)}</strong></td>
+      <td><span class="tag type-operator">operator</span>${rev}</td>
+      <td>${chs||'<span style="color:#8b949e">—</span>'}</td>
+      <td style="white-space:nowrap">${fmtTime(a.created_at)}</td>
+      <td><div class="actions">${!a.revoked?`
+        <button class="sm" onclick="rotateAgent('${esc(a.nick)}')">rotate</button>
+        <button class="sm danger" onclick="revokeAgent('${esc(a.nick)}')">revoke</button>`:``}
+        <button class="sm danger" onclick="deleteAgent('${esc(a.nick)}')">delete</button></div></td>
+    </tr>`;
+  });
+  const all = allAgents.filter(a => a.type === 'operator');
+  const countTxt = all.length + (rows.length !== all.length ? ' / '+rows.length+' shown' : '');
+  document.getElementById('user-count').textContent = countTxt;
+  renderTable('users-container', null, rows,
+    all.length ? 'no users match the filter' : 'no users registered yet',
+    ['nick','type','channels','registered','']);
+}
+
+function renderAgentTable() {
+  const q = (document.getElementById('agent-search').value||'').toLowerCase();
+  const bots = allAgents.filter(a => a.type !== 'operator');
+  const agents = bots.filter(a => !q ||
+    a.nick.toLowerCase().includes(q) ||
+    a.type.toLowerCase().includes(q) ||
+    (a.config?.channels||[]).some(c => c.toLowerCase().includes(q)) ||
+    (a.config?.permissions||[]).some(p => p.toLowerCase().includes(q)));
+  document.getElementById('agent-count').textContent = bots.length + (agents.length !== bots.length ? ' / '+agents.length+' shown' : '');
+  const rows = agents.map(a => {
+    const chs   = (a.config?.channels||[]).map(c=>`<span class="tag ch">${esc(c)}</span>`).join('');
+    const perms = (a.config?.permissions||[]).map(p=>`<span class="tag perm">${esc(p)}</span>`).join('');
+    const rev   = a.revoked ? '<span class="tag revoked">revoked</span>' : '';
+    return `<tr>
+      <td><strong>${esc(a.nick)}</strong></td>
+      <td><span class="tag type-${a.type}">${esc(a.type)}</span>${rev}</td>
+      <td>${chs||'<span style="color:#8b949e">—</span>'}</td>
+      <td>${perms||'<span style="color:#8b949e">—</span>'}</td>
+      <td style="white-space:nowrap">${fmtTime(a.created_at)}</td>
+      <td><div class="actions">${!a.revoked?`
+        <button class="sm" onclick="rotateAgent('${esc(a.nick)}')">rotate</button>
+        <button class="sm danger" onclick="revokeAgent('${esc(a.nick)}')">revoke</button>`:``}
+        <button class="sm danger" onclick="deleteAgent('${esc(a.nick)}')">delete</button></div></td>
+    </tr>`;
+  });
+  renderTable('agents-container', null, rows,
+    bots.length ? 'no agents match the filter' : 'no agents registered yet',
+    ['nick','type','channels','permissions','registered','']);
 }
 
 async function revokeAgent(nick) {
-  if (!confirm(`Revoke agent "${nick}"? This cannot be undone.`)) return;
-  try {
-    await api('POST', `/v1/agents/${nick}/revoke`);
-    await loadAgents();
-    await loadStatus();
-  } catch(e) {
-    alert('Revoke failed: ' + e.message);
-  }
+  if (!confirm(`Revoke "${nick}"? This cannot be undone.`)) return;
+  try { await api('POST', `/v1/agents/${nick}/revoke`); await loadAgents(); await loadStatus(); }
+  catch(e) { alert('Revoke failed: '+e.message); }
 }
-
+async function deleteAgent(nick) {
+  if (!confirm(`Delete "${nick}"? This permanently removes the agent from the registry.`)) return;
+  try { await api('DELETE', `/v1/agents/${nick}`); await loadAgents(); await loadStatus(); }
+  catch(e) { alert('Delete failed: '+e.message); }
+}
 async function rotateAgent(nick) {
   try {
     const creds = await api('POST', `/v1/agents/${nick}/rotate`);
+    // Show result in whichever drawer is relevant.
     showCredentials(nick, creds, null, 'rotate');
-  } catch(e) {
-    alert('Rotate failed: ' + e.message);
+    openDrawer();
   }
+  catch(e) { alert('Rotate failed: '+e.message); }
+}
+
+// --- users drawers ---
+function openRegisterUserDrawer() {
+  document.getElementById('register-user-overlay').classList.add('open');
+  document.getElementById('register-user-drawer').classList.add('open');
+  setTimeout(() => document.getElementById('regu-nick').focus(), 100);
+}
+function closeRegisterUserDrawer() {
+  document.getElementById('register-user-overlay').classList.remove('open');
+  document.getElementById('register-user-drawer').classList.remove('open');
+}
+function openAdoptDrawer() {
+  document.getElementById('adopt-overlay').classList.add('open');
+  document.getElementById('adopt-drawer').classList.add('open');
+  setTimeout(() => document.getElementById('adopt-nick').focus(), 100);
+}
+function closeAdoptDrawer() {
+  document.getElementById('adopt-overlay').classList.remove('open');
+  document.getElementById('adopt-drawer').classList.remove('open');
+}
+
+async function handleRegisterUser(e) {
+  e.preventDefault();
+  const nick     = document.getElementById('regu-nick').value.trim();
+  const channels = document.getElementById('regu-channels').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const resultEl = document.getElementById('register-user-result');
+  resultEl.style.display = 'none';
+  try {
+    const res = await api('POST', '/v1/agents/register', { nick, type: 'operator', channels, permissions: [] });
+    resultEl.style.display = 'block';
+    const pass = res.credentials?.passphrase || '';
+    resultEl.innerHTML = renderAlert('success',
+      `<div><strong>Registered: ${esc(nick)}</strong>
+      <div class="cred-box">
+        <div class="cred-row"><span class="cred-key">nick</span><span class="cred-val">${esc(nick)}</span><button class="sm" onclick="copyText('${esc(nick)}',this)">copy</button></div>
+        <div class="cred-row"><span class="cred-key">passphrase</span><span class="cred-val">${esc(pass)}</span><button class="sm" onclick="copyText('${esc(pass)}',this)">copy</button></div>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:#7ee787">⚠ Save the passphrase — shown once only.</div></div>`);
+    document.getElementById('register-user-form').reset();
+    await loadAgents(); await loadStatus();
+  } catch(e) { resultEl.style.display='block'; resultEl.innerHTML=renderAlert('error', e.message); }
+}
+
+async function handleAdopt(e) {
+  e.preventDefault();
+  const nick     = document.getElementById('adopt-nick').value.trim();
+  const channels = document.getElementById('adopt-channels').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const resultEl = document.getElementById('adopt-result');
+  resultEl.style.display = 'none';
+  try {
+    await api('POST', `/v1/agents/${nick}/adopt`, { type: 'operator', channels, permissions: [] });
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = renderAlert('success',
+      `<strong>${esc(nick)}</strong> adopted as operator — existing IRC session and passphrase unchanged.`);
+    document.getElementById('adopt-form').reset();
+    await loadAgents(); await loadStatus();
+  } catch(e) { resultEl.style.display='block'; resultEl.innerHTML=renderAlert('error', e.message); }
+}
+
+// --- drawer ---
+function openDrawer() {
+  document.getElementById('drawer-overlay').classList.add('open');
+  document.getElementById('register-drawer').classList.add('open');
+  setTimeout(() => document.getElementById('reg-nick').focus(), 100);
+}
+function closeDrawer() {
+  document.getElementById('drawer-overlay').classList.remove('open');
+  document.getElementById('register-drawer').classList.remove('open');
 }
 
 // --- register ---
 async function handleRegister(e) {
   e.preventDefault();
-  const nick = document.getElementById('reg-nick').value.trim();
-  const type = document.getElementById('reg-type').value;
-  const channelsRaw = document.getElementById('reg-channels').value;
-  const permsRaw = document.getElementById('reg-permissions').value;
-
-  const channels = channelsRaw.split(',').map(s => s.trim()).filter(Boolean);
-  const permissions = permsRaw.split(',').map(s => s.trim()).filter(Boolean);
-
-  const resultEl = document.getElementById('register-result');
+  const nick        = document.getElementById('reg-nick').value.trim();
+  const type        = document.getElementById('reg-type').value;
+  const channels    = document.getElementById('reg-channels').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const permissions = document.getElementById('reg-permissions').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const resultEl    = document.getElementById('register-result');
   resultEl.style.display = 'none';
-
   try {
     const res = await api('POST', '/v1/agents/register', { nick, type, channels, permissions });
     showCredentials(nick, res.credentials, res.payload, 'register');
     document.getElementById('register-form').reset();
-    await loadAgents();
-    await loadStatus();
+    await loadAgents(); await loadStatus();
+  } catch(e) { resultEl.style.display='block'; resultEl.innerHTML=renderAlert('error', e.message); }
+}
+function showCredentials(nick, creds, payload, mode) {
+  const resultEl = document.getElementById('register-result');
+  resultEl.style.display = 'block';
+  const pass = creds?.passphrase || creds?.Passphrase || '';
+  const sig  = payload?.signature || '';
+  resultEl.innerHTML = renderAlert('success',
+    `<div><strong>${mode==='register'?'Registered':'Rotated'}: ${esc(nick)}</strong>
+    <div class="cred-box">
+      <div class="cred-row"><span class="cred-key">nick</span><span class="cred-val">${esc(creds?.nick||nick)}</span><button class="sm" onclick="copyText('${esc(creds?.nick||nick)}',this)">copy</button></div>
+      <div class="cred-row"><span class="cred-key">passphrase</span><span class="cred-val">${esc(pass)}</span><button class="sm" onclick="copyText('${esc(pass)}',this)">copy</button></div>
+      ${sig?`<div class="cred-row"><span class="cred-key">sig</span><span class="cred-val" style="font-size:11px">${esc(sig)}</span></div>`:''}
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:#7ee787">⚠ Save the passphrase — shown once only.</div></div>`
+  );
+}
+
+// --- channels tab ---
+async function loadChanTab() {
+  if (!getToken()) return;
+  try {
+    const data = await api('GET', '/v1/channels');
+    const channels = data.channels || [];
+    document.getElementById('chan-count').textContent = channels.length;
+    if (channels.length === 0) {
+      document.getElementById('channels-list').innerHTML = '<div class="empty">no channels joined yet — type a channel name above and click join</div>';
+      return;
+    }
+    document.getElementById('channels-list').innerHTML = channels.sort().map(ch =>
+      `<div class="chan-card">
+        <div>
+          <div class="chan-name">${esc(ch)}</div>
+          <div class="chan-meta">joined</div>
+        </div>
+        <div class="spacer"></div>
+        <button class="sm" onclick="switchTab('chat');setTimeout(()=>selectChannel('${esc(ch)}'),50)">open chat →</button>
+      </div>`
+    ).join('');
+  } catch(e) {
+    document.getElementById('channels-list').innerHTML = '<div style="padding:16px">'+renderAlert('error', e.message)+'</div>';
+  }
+}
+async function quickJoin() {
+  let ch = document.getElementById('quick-join-input').value.trim();
+  if (!ch) return;
+  if (!ch.startsWith('#')) ch = '#' + ch;
+  const slug = ch.replace(/^#/,'');
+  try {
+    await api('POST', `/v1/channels/${slug}/join`);
+    document.getElementById('quick-join-input').value = '';
+    await loadChanTab();
+    renderChanSidebar((await api('GET','/v1/channels')).channels||[]);
+  } catch(e) { alert('Join failed: '+e.message); }
+}
+document.getElementById('quick-join-input').addEventListener('keydown', e => { if(e.key==='Enter')quickJoin(); });
+
+// --- chat ---
+let chatChannel = null, chatSSE = null;
+
+async function loadChannels() {
+  if (!getToken()) return;
+  try {
+    const data = await api('GET', '/v1/channels');
+    renderChanSidebar(data.channels || []);
+  } catch(e) {}
+}
+function renderChanSidebar(channels) {
+  const list = document.getElementById('chan-list');
+  list.innerHTML = '';
+  channels.sort().forEach(ch => {
+    const el = document.createElement('div');
+    el.className = 'chan-item' + (ch===chatChannel?' active':'');
+    el.textContent = ch;
+    el.onclick = () => selectChannel(ch);
+    list.appendChild(el);
+  });
+}
+async function joinChannel() {
+  let ch = document.getElementById('join-channel-input').value.trim();
+  if (!ch) return;
+  if (!ch.startsWith('#')) ch = '#' + ch;
+  const slug = ch.replace(/^#/,'');
+  try {
+    await api('POST', `/v1/channels/${slug}/join`);
+    document.getElementById('join-channel-input').value = '';
+    const data = await api('GET', '/v1/channels');
+    renderChanSidebar(data.channels||[]);
+    selectChannel(ch);
+  } catch(e) { alert('Join failed: '+e.message); }
+}
+document.getElementById('join-channel-input').addEventListener('keydown', e => { if(e.key==='Enter')joinChannel(); });
+
+async function selectChannel(ch) {
+  _lastMsgNick = null; _lastMsgAt = 0; _hideChatBanner(); _chatUnread = 0;
+  chatChannel = ch;
+  document.getElementById('chat-ch-name').textContent = ch;
+  document.getElementById('chat-placeholder').style.display = 'none';
+  document.querySelectorAll('.chan-item').forEach(el => el.classList.toggle('active', el.textContent===ch));
+
+  const area = document.getElementById('chat-msgs');
+  Array.from(area.children).forEach(el => { if(!el.id) el.remove(); });
+
+  try {
+    const slug = ch.replace(/^#/,'');
+    const data = await api('GET', `/v1/channels/${slug}/messages`);
+    (data.messages||[]).forEach(m => appendMsg(m, true));
+    area.scrollTop = area.scrollHeight;
+  } catch(e) {}
+
+  if (chatSSE) { chatSSE.close(); chatSSE = null; }
+  const slug = ch.replace(/^#/,'');
+  const es = new EventSource(`/v1/channels/${slug}/stream?token=${encodeURIComponent(getToken())}`);
+  chatSSE = es;
+  const badge = document.getElementById('chat-stream-status');
+  es.onopen    = () => { badge.textContent='● live'; badge.style.color='#3fb950'; };
+  es.onmessage = ev => { try { appendMsg(JSON.parse(ev.data)); area.scrollTop=area.scrollHeight; } catch(_){} };
+  es.onerror   = () => { badge.textContent='○ reconnecting…'; badge.style.color='#8b949e'; };
+
+  loadNicklist(ch);
+  if (_nicklistTimer) clearInterval(_nicklistTimer);
+  _nicklistTimer = setInterval(() => loadNicklist(chatChannel), 10000);
+}
+
+let _nicklistTimer = null;
+async function loadNicklist(ch) {
+  if (!ch) return;
+  try {
+    const slug = ch.replace(/^#/,'');
+    const data = await api('GET', `/v1/channels/${slug}/users`);
+    renderNicklist(data.users || []);
+  } catch(e) {}
+}
+function renderNicklist(users) {
+  const el = document.getElementById('nicklist-users');
+  const knownBots = new Set(['bridge','oracle','sentinel','steward','scribe','warden','snitch','herald','scroll','systembot','auditbot','claude']);
+  el.innerHTML = users.sort((a,b) => a.localeCompare(b)).map(nick => {
+    const isBot = knownBots.has(nick.toLowerCase());
+    return `<div class="nicklist-nick${isBot?' is-bot':''}" title="${esc(nick)}">${esc(nick)}</div>`;
+  }).join('');
+}
+// Nick colors — deterministic hash over a palette
+const NICK_PALETTE = ['#58a6ff','#3fb950','#ffa657','#d2a8ff','#56d364','#79c0ff','#ff7b72','#a5d6ff','#f0883e','#39d353'];
+function nickColor(nick) {
+  let h = 0;
+  for (let i = 0; i < nick.length; i++) h = (h * 31 + nick.charCodeAt(i)) & 0xffff;
+  return NICK_PALETTE[h % NICK_PALETTE.length];
+}
+
+let _lastMsgNick = null, _lastMsgAt = 0;
+const GROUP_MS = 5 * 60 * 1000;
+let _chatNewBanner = null;
+let _chatUnread = 0;
+
+function appendMsg(msg, isHistory) {
+  const area = document.getElementById('chat-msgs');
+
+  // Parse "[nick] text" sent by the bridge bot on behalf of a web user
+  let displayNick = msg.nick;
+  let displayText = msg.text;
+  if (msg.nick === 'bridge') {
+    const m = msg.text.match(/^\[([^\]]+)\] ([\s\S]*)$/);
+    if (m) { displayNick = m[1]; displayText = m[2]; }
+  }
+
+  const atMs = new Date(msg.at).getTime();
+  const grouped = !isHistory && displayNick === _lastMsgNick && (atMs - _lastMsgAt) < GROUP_MS;
+  _lastMsgNick = displayNick;
+  _lastMsgAt   = atMs;
+
+  const timeStr = new Date(msg.at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const color = nickColor(displayNick);
+
+  const row = document.createElement('div');
+  row.className = 'msg-row' + (grouped ? ' msg-grouped' : '');
+  row.innerHTML =
+    `<span class="msg-time" title="${esc(new Date(msg.at).toLocaleString())}">${esc(timeStr)}</span>` +
+    `<span class="msg-nick" style="color:${color}">${esc(displayNick)}</span>` +
+    `<span class="msg-text">${esc(displayText)}</span>`;
+  area.appendChild(row);
+
+  // Unread badge when chat tab not active
+  if (!isHistory && !document.getElementById('tab-chat').classList.contains('active')) {
+    _chatUnread++;
+    document.getElementById('tab-chat').dataset.unread = _chatUnread > 9 ? '9+' : _chatUnread;
+  }
+
+  if (isHistory) {
+    area.scrollTop = area.scrollHeight;
+  } else {
+    const nearBottom = area.scrollHeight - area.clientHeight - area.scrollTop < 100;
+    if (nearBottom) {
+      area.scrollTop = area.scrollHeight;
+      _hideChatBanner();
+    } else {
+      _showChatBanner(area);
+    }
+  }
+}
+
+function _showChatBanner(area) {
+  if (_chatNewBanner) return;
+  _chatNewBanner = document.createElement('div');
+  _chatNewBanner.className = 'chat-new-banner';
+  _chatNewBanner.textContent = '↓ new messages';
+  _chatNewBanner.onclick = () => { area.scrollTop = area.scrollHeight; _hideChatBanner(); };
+  area.appendChild(_chatNewBanner);
+}
+function _hideChatBanner() {
+  if (_chatNewBanner) { _chatNewBanner.remove(); _chatNewBanner = null; }
+}
+function saveChatIdentity() {
+  localStorage.setItem('sb_chat_nick', document.getElementById('chat-identity').value);
+}
+function getChatNick() {
+  return localStorage.getItem('sb_chat_nick') || '';
+}
+function populateChatIdentity() {
+  const sel = document.getElementById('chat-identity');
+  const current = getChatNick();
+  // Operators + any registered nick can send (all types visible, operators first)
+  const operators = allAgents.filter(a => a.type === 'operator' && !a.revoked);
+  const bots      = allAgents.filter(a => a.type !== 'operator' && !a.revoked);
+  const options   = [...operators, ...bots];
+  sel.innerHTML = '<option value="">— pick a user —</option>' +
+    options.map(a => `<option value="${esc(a.nick)}"${a.nick===current?' selected':''}>${esc(a.nick)} (${esc(a.type)})</option>`).join('');
+  // Restore saved selection.
+  if (current) sel.value = current;
+}
+
+async function sendMsg() {
+  if (!chatChannel) return;
+  const input = document.getElementById('chat-text-input');
+  const nick  = document.getElementById('chat-identity').value.trim() || 'web';
+  const text  = input.value.trim();
+  if (!text) return;
+  input.disabled = true;
+  document.getElementById('chat-send-btn').disabled = true;
+  try {
+    const slug = chatChannel.replace(/^#/,'');
+    await api('POST', `/v1/channels/${slug}/messages`, { text, nick });
+    input.value = '';
+  } catch(e) { alert('Send failed: '+e.message); }
+  finally { input.disabled=false; document.getElementById('chat-send-btn').disabled=false; input.focus(); }
+}
+// --- chat input: Enter to send, Tab for nick completion ---
+(function() {
+  const input = document.getElementById('chat-text-input');
+  let _tabCandidates = [];
+  let _tabIdx = -1;
+  let _tabPrefix = '';
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); sendMsg(); return; }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const val = input.value;
+      const cursor = input.selectionStart;
+      // Find the word being typed up to cursor
+      const before = val.slice(0, cursor);
+      const wordStart = before.search(/\S+$/);
+      const word = wordStart === -1 ? '' : before.slice(wordStart);
+      if (!word) return;
+
+      // On first Tab press with this prefix, build candidate list
+      if (_tabIdx === -1 || word.toLowerCase() !== _tabPrefix.toLowerCase()) {
+        _tabPrefix = word;
+        const nicks = Array.from(document.querySelectorAll('#nicklist-users .nicklist-nick'))
+          .map(el => el.textContent.replace(/^●\s*/, '').trim())
+          .filter(n => n.toLowerCase().startsWith(word.toLowerCase()));
+        if (!nicks.length) return;
+        _tabCandidates = nicks;
+        _tabIdx = 0;
+      } else {
+        _tabIdx = (_tabIdx + 1) % _tabCandidates.length;
+      }
+
+      const chosen = _tabCandidates[_tabIdx];
+      // If at start of message, append ': '
+      const suffix = (wordStart === 0 && before.slice(0, wordStart) === '') ? ': ' : ' ';
+      const newVal = val.slice(0, wordStart === -1 ? 0 : wordStart) + chosen + suffix + val.slice(cursor);
+      input.value = newVal;
+      const newPos = (wordStart === -1 ? 0 : wordStart) + chosen.length + suffix.length;
+      input.setSelectionRange(newPos, newPos);
+      return;
+    }
+    // Any other key resets tab state
+    _tabIdx = -1;
+    _tabPrefix = '';
+  });
+})();
+
+// --- sidebar collapse toggles ---
+function toggleSidebar(side) {
+  if (side === 'left') {
+    const el = document.getElementById('chat-sidebar-left');
+    const btn = document.getElementById('sidebar-left-toggle');
+    const collapsed = el.classList.toggle('collapsed');
+    btn.textContent = collapsed ? '›' : '‹';
+    btn.title = collapsed ? 'expand' : 'collapse';
+  } else {
+    const el = document.getElementById('chat-nicklist');
+    const btn = document.getElementById('sidebar-right-toggle');
+    const collapsed = el.classList.toggle('collapsed');
+    btn.textContent = collapsed ? '‹' : '›';
+    btn.title = collapsed ? 'expand' : 'collapse';
+  }
+}
+
+// --- sidebar drag-to-resize ---
+(function() {
+  function makeResizable(handleId, sidebarId, side) {
+    const handle = document.getElementById(handleId);
+    const sidebar = document.getElementById(sidebarId);
+    if (!handle || !sidebar) return;
+    let startX, startW;
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = sidebar.offsetWidth;
+      handle.classList.add('dragging');
+      const onMove = mv => {
+        const delta = side === 'left' ? mv.clientX - startX : startX - mv.clientX;
+        const w = Math.max(28, Math.min(400, startW + delta));
+        sidebar.style.width = w + 'px';
+        if (w <= 30) sidebar.classList.add('collapsed');
+        else sidebar.classList.remove('collapsed');
+      };
+      const onUp = () => {
+        handle.classList.remove('dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+  makeResizable('resize-left', 'chat-sidebar-left', 'left');
+  makeResizable('resize-right', 'chat-nicklist', 'right');
+})();
+
+// --- helpers ---
+function renderAlert(type, msg) {
+  return `<div class="alert ${type}"><span class="icon">${{info:'ℹ',error:'✕',success:'✓'}[type]}</span><div>${msg}</div></div>`;
+}
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+}
+
+// --- collapsible cards ---
+function toggleCard(id, e) {
+  // Don't collapse when clicking buttons inside the header.
+  if (e && e.target.tagName === 'BUTTON') return;
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+// --- per-bot config schemas ---
+const BEHAVIOR_SCHEMAS = {
+  snitch: [
+    { key:'alert_channel',     label:'Alert channel',       type:'text',   placeholder:'#ops',       hint:'Channel to post alerts in' },
+    { key:'alert_nicks',       label:'Alert nicks',         type:'text',   placeholder:'alice, bob',  hint:'Operators to DM (comma-separated)' },
+    { key:'flood_messages',    label:'Flood threshold',     type:'number', placeholder:'10',          hint:'Messages in window that triggers alert' },
+    { key:'flood_window_s',    label:'Flood window (s)',    type:'number', placeholder:'5',           hint:'Rolling window duration in seconds' },
+    { key:'joinpart_threshold',label:'Join/part threshold', type:'number', placeholder:'5',           hint:'Join+part events before cycling alert' },
+    { key:'joinpart_window_s', label:'Join/part window (s)',type:'number', placeholder:'30' },
+  ],
+  warden: [
+    { key:'flood_threshold',   label:'Flood threshold',    type:'number', placeholder:'10',  hint:'Messages/window before action' },
+    { key:'window_s',          label:'Window (s)',         type:'number', placeholder:'5' },
+    { key:'warn_before_mute',  label:'Warn before mute',  type:'checkbox' },
+    { key:'mute_duration_s',   label:'Mute duration (s)', type:'number', placeholder:'300' },
+    { key:'kick_after_mutes',  label:'Kick after N mutes',type:'number', placeholder:'3' },
+  ],
+  oracle: [
+    { key:'backend',      label:'LLM backend',     type:'llm-backend',                                              hint:'Backend configured in the AI tab' },
+    { key:'model',        label:'Model override',  type:'model-override', backendKey:'backend',                      hint:'Override the backend default model (optional)' },
+    { key:'scribe_dir',   label:'Scribe log dir',  type:'text',   placeholder:'./data/logs/scribe',        hint:'Directory scribe writes to — oracle reads history from here' },
+    { key:'max_messages', label:'Max messages',    type:'number', placeholder:'50',                        hint:'Default message count for summaries' },
+  ],
+  scribe: [
+    { key:'dir',          label:'Log directory',    type:'text',   placeholder:'./data/logs',              hint:'Directory to write log files into' },
+    { key:'format',       label:'Format',           type:'select', options:['jsonl','csv','text'],         hint:'jsonl=structured, csv=spreadsheet, text=human-readable' },
+    { key:'rotation',     label:'Rotation',         type:'select', options:['none','daily','weekly','monthly','yearly','size'], hint:'When to start a new log file' },
+    { key:'max_size_mb',  label:'Max size (MiB)',   type:'number', placeholder:'100',                     hint:'Only applies when rotation = size' },
+    { key:'per_channel',  label:'Per-channel files',type:'checkbox',                                       hint:'Separate file per channel' },
+    { key:'max_age_days', label:'Max age (days)',   type:'number', placeholder:'0',                       hint:'Prune old rotated files; 0 = keep all' },
+  ],
+  herald: [
+    { key:'webhook_path', label:'Webhook path', type:'text', placeholder:'/webhooks/herald', hint:'HTTP path that receives inbound events' },
+    { key:'rate_limit',   label:'Rate limit (msg/min)', type:'number', placeholder:'60' },
+  ],
+  scroll: [
+    { key:'max_replay',   label:'Max replay',    type:'number',   placeholder:'100', hint:'Max messages per request' },
+    { key:'require_auth', label:'Require auth',  type:'checkbox', hint:'Only registered agents can query history' },
+  ],
+  systembot: [
+    { key:'log_joins',  label:'Log joins',        type:'checkbox' },
+    { key:'log_parts',  label:'Log parts/quits',  type:'checkbox' },
+    { key:'log_modes',  label:'Log mode changes', type:'checkbox' },
+    { key:'log_kicks',  label:'Log kicks',        type:'checkbox' },
+  ],
+  auditbot: [
+    { key:'retention_days', label:'Retention (days)', type:'number', placeholder:'90', hint:'0 = keep forever' },
+    { key:'log_path',       label:'Log path',         type:'text',   placeholder:'/var/log/scuttlebot/audit.log' },
+  ],
+  sentinel: [
+    { key:'backend',        label:'LLM backend',      type:'llm-backend',                                             hint:'Backend configured in the AI tab' },
+    { key:'model',          label:'Model override',   type:'model-override', backendKey:'backend',                     hint:'Override the backend default model (optional)' },
+    { key:'mod_channel',    label:'Mod channel',      type:'text',   placeholder:'#moderation',                  hint:'Channel where incident reports are posted' },
+    { key:'dm_operators',   label:'DM operators',     type:'checkbox',                                            hint:'Also send incident reports as DMs to operator nicks' },
+    { key:'alert_nicks',    label:'Operator nicks',   type:'text',   placeholder:'alice,bob',                    hint:'Comma-separated nicks to DM on incidents (requires DM operators)' },
+    { key:'policy',         label:'Policy',           type:'text',   placeholder:'Flag harassment, hate speech, spam and threats.', hint:'Plain-English description of what to flag' },
+    { key:'min_severity',   label:'Min severity',     type:'select', options:['low','medium','high'],            hint:'Minimum severity level to report' },
+    { key:'window_size',    label:'Window size',      type:'number', placeholder:'20',                           hint:'Messages to buffer per channel before analysis' },
+    { key:'window_age_sec', label:'Window age (s)',   type:'number', placeholder:'300',                          hint:'Max seconds before a stale buffer is force-scanned' },
+    { key:'cooldown_sec',   label:'Cooldown (s)',     type:'number', placeholder:'600',                          hint:'Min seconds between reports about the same nick' },
+  ],
+  steward: [
+    { key:'mod_channel',       label:'Mod channel',      type:'text',     placeholder:'#moderation',  hint:'Channel steward watches for sentinel reports and posts action logs' },
+    { key:'operator_nicks',    label:'Operator nicks',   type:'text',     placeholder:'alice,bob',    hint:'Comma-separated nicks allowed to issue direct commands via DM' },
+    { key:'dm_on_action',      label:'DM operators',     type:'checkbox',                              hint:'Send a DM to operator nicks when steward takes action' },
+    { key:'auto_act',          label:'Auto-act',         type:'checkbox',                              hint:'Automatically act on sentinel incident reports' },
+    { key:'warn_on_low',       label:'Warn on low',      type:'checkbox',                              hint:'Send a warning notice for low-severity incidents' },
+    { key:'mute_duration_sec', label:'Mute duration (s)',type:'number',   placeholder:'600',           hint:'How long medium-severity mutes last' },
+    { key:'cooldown_sec',      label:'Cooldown (s)',     type:'number',   placeholder:'300',           hint:'Min seconds between automated actions on the same nick' },
+  ],
+};
+
+function renderBehConfig(b) {
+  const schema = BEHAVIOR_SCHEMAS[b.id];
+  if (!schema) return '';
+  const cfg = b.config || {};
+  const fields = schema.map(f => {
+    const val = cfg[f.key];
+    let input = '';
+    if (f.type === 'checkbox') {
+      input = `<input type="checkbox" ${val?'checked':''} style="accent-color:#58a6ff" onchange="onBehCfg('${esc(b.id)}','${f.key}',this.checked)">`;
+    } else if (f.type === 'select') {
+      input = `<select onchange="onBehCfg('${esc(b.id)}','${f.key}',this.value)">${(f.options||[]).map(o=>`<option ${val===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
+    } else if (f.type === 'llm-backend') {
+      const opts = _llmBackendNames.map(n => `<option value="${esc(n)}" ${val===n?'selected':''}>${esc(n)}</option>`).join('');
+      const noMatch = val && !_llmBackendNames.includes(val);
+      input = `<select onchange="onBehCfg('${esc(b.id)}','${f.key}',this.value)">
+        <option value="">— select backend —</option>
+        ${opts}
+        ${noMatch ? `<option value="${esc(val)}" selected>${esc(val)}</option>` : ''}
+      </select>`;
+    } else if (f.type === 'model-override') {
+      const selId = `beh-msel-${esc(b.id)}`;
+      const customId = `beh-mcustom-${esc(b.id)}`;
+      const backendKey = f.backendKey || 'backend';
+      const currentVal = val || '';
+      input = `<div style="display:flex;gap:6px;align-items:flex-start">
+        <div style="flex:1">
+          <select id="${selId}" style="width:100%" onchange="onBehModelSelect('${esc(b.id)}','${f.key}','${selId}','${customId}')">
+            <option value="">— none / auto-select —</option>
+            ${currentVal ? `<option value="${esc(currentVal)}" selected>${esc(currentVal)}</option>` : ''}
+            <option value="__other__">— other (type below) —</option>
+          </select>
+          <input type="text" id="${customId}" placeholder="model-id" autocomplete="off"
+            style="display:none;margin-top:6px"
+            onchange="onBehCfg('${esc(b.id)}','${f.key}',this.value)">
+        </div>
+        <button type="button" class="sm" style="white-space:nowrap;margin-top:1px"
+          onclick="loadBehModels(this,'${esc(b.id)}','${backendKey}','${f.key}','${selId}','${customId}')">↺</button>
+      </div>`;
+    } else {
+      input = `<input type="${f.type}" placeholder="${esc(f.placeholder||'')}" value="${esc(String(val??''))}" onchange="onBehCfg('${esc(b.id)}','${f.key}',this.value${f.type==='number'?'*1':''})">`;
+    }
+    return `<div class="beh-field"><label>${esc(f.label)}</label>${input}${f.hint?`<div class="hint">${esc(f.hint)}</div>`:''}</div>`;
+  }).join('');
+  return `<div class="beh-config" id="beh-cfg-${esc(b.id)}">${fields}</div>`;
+}
+
+function toggleBehConfig(id) {
+  const el = document.getElementById('beh-cfg-' + id);
+  if (!el) return;
+  el.classList.toggle('open');
+  const btn = document.getElementById('beh-cfg-btn-' + id);
+  if (btn) btn.textContent = el.classList.contains('open') ? 'configure ▴' : 'configure ▾';
+}
+
+function onBehCfg(id, key, val) {
+  const b = currentPolicies.behaviors.find(x => x.id === id);
+  if (!b) return;
+  if (!b.config) b.config = {};
+  b.config[key] = val;
+}
+
+function onBehModelSelect(botId, key, selId, customId) {
+  const sel = document.getElementById(selId);
+  const custom = document.getElementById(customId);
+  if (!sel) return;
+  custom.style.display = sel.value === '__other__' ? '' : 'none';
+  if (sel.value !== '__other__') onBehCfg(botId, key, sel.value);
+}
+
+async function loadBehModels(btn, botId, backendKey, modelKey, selId, customId) {
+  const b = currentPolicies && currentPolicies.behaviors.find(x => x.id === botId);
+  const backendName = b && b.config && b.config[backendKey];
+  if (!backendName) {
+    alert('Select a backend first, then click ↺ to load its models.');
+    return;
+  }
+  const origText = btn.textContent;
+  btn.textContent = '…';
+  btn.disabled = true;
+  try {
+    const models = await api('GET', `/v1/llm/backends/${encodeURIComponent(backendName)}/models`);
+    const sel = document.getElementById(selId);
+    const custom = document.getElementById(customId);
+    if (!sel) return;
+    const current = (b.config && b.config[modelKey]) || '';
+    sel.innerHTML = '<option value="">— none / auto-select —</option>';
+    for (const m of (models || [])) {
+      const id = typeof m === 'string' ? m : m.id;
+      const label = (typeof m === 'object' && m.name && m.name !== id) ? `${id} — ${m.name}` : id;
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = label;
+      if (id === current) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    const other = document.createElement('option');
+    other.value = '__other__';
+    other.textContent = '— other (type below) —';
+    const matched = (models || []).some(m => (typeof m === 'string' ? m : m.id) === current);
+    if (current && !matched) {
+      other.selected = true;
+      if (custom) { custom.value = current; custom.style.display = ''; }
+    }
+    sel.appendChild(other);
+  } catch(e) {
+    alert('Model discovery failed: ' + e.message);
+  } finally {
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
+}
+
+// --- admin accounts ---
+async function loadAdmins() {
+  try {
+    const data = await api('GET', '/v1/admins');
+    renderAdmins(data.admins || []);
+  } catch(e) {
+    // admins endpoint may not exist on token-only setups
+    document.getElementById('admins-list-container').innerHTML = '';
+  }
+}
+
+function renderAdmins(admins) {
+  const el = document.getElementById('admins-list-container');
+  if (!admins.length) { el.innerHTML = ''; return; }
+  const rows = admins.map(a => `<tr>
+    <td><strong>${esc(a.username)}</strong></td>
+    <td style="color:#8b949e;font-size:12px">${fmtTime(a.created)}</td>
+    <td><div class="actions">
+      <button class="sm" onclick="promptAdminPassword('${esc(a.username)}')">change password</button>
+      <button class="sm danger" onclick="removeAdmin('${esc(a.username)}')">remove</button>
+    </div></td>
+  </tr>`).join('');
+  el.innerHTML = `<table><thead><tr><th>username</th><th>created</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function addAdmin(e) {
+  e.preventDefault();
+  const username = document.getElementById('new-admin-username').value.trim();
+  const password = document.getElementById('new-admin-password').value;
+  const resultEl = document.getElementById('add-admin-result');
+  if (!username || !password) return;
+  try {
+    await api('POST', '/v1/admins', { username, password });
+    resultEl.innerHTML = renderAlert('success', `Admin <strong>${esc(username)}</strong> added.`);
+    resultEl.style.display = 'block';
+    document.getElementById('add-admin-form').reset();
+    await loadAdmins();
+    setTimeout(() => { resultEl.style.display = 'none'; }, 3000);
+  } catch(e) {
+    resultEl.innerHTML = renderAlert('error', e.message);
+    resultEl.style.display = 'block';
+  }
+}
+
+async function removeAdmin(username) {
+  if (!confirm(`Remove admin "${username}"?`)) return;
+  try {
+    await api('DELETE', `/v1/admins/${encodeURIComponent(username)}`);
+    await loadAdmins();
+  } catch(e) { alert('Remove failed: ' + e.message); }
+}
+
+async function promptAdminPassword(username) {
+  const pw = prompt(`New password for ${username}:`);
+  if (!pw) return;
+  try {
+    await api('PUT', `/v1/admins/${encodeURIComponent(username)}/password`, { password: pw });
+    alert('Password updated.');
+  } catch(e) { alert('Failed: ' + e.message); }
+}
+
+// --- AI / LLM tab ---
+async function loadAI() {
+  await Promise.all([loadAIBackends(), loadAIKnown()]);
+}
+
+async function loadAIBackends() {
+  const el = document.getElementById('ai-backends-list');
+  try {
+    const backends = await api('GET', '/v1/llm/backends');
+    if (!backends || backends.length === 0) {
+      el.innerHTML = '<div class="empty-state">No LLM backends configured yet. Click <strong>+ add backend</strong> above or add them to <code>scuttlebot.yaml</code>.</div>';
+      return;
+    }
+    el.innerHTML = backends.map(b => {
+      const sid = CSS.escape(b.name);
+      const editable = b.source === 'policy';
+      const srcBadge = b.source === 'config'
+        ? '<span class="badge" style="background:#21262d;color:#8b949e;border:1px solid #30363d">yaml</span>'
+        : '<span class="badge" style="background:#21262d;color:#58a6ff;border:1px solid #1f6feb">ui</span>';
+      return `<div class="setting-row" style="flex-wrap:wrap;gap:8px;align-items:center">
+        <div style="flex:1;min-width:140px">
+          <div style="font-weight:500;color:#e6edf3">${esc(b.name)} ${srcBadge}${b.default ? ' <span class="badge" style="background:#1f6feb">default</span>' : ''}</div>
+          <div style="font-size:11px;color:#8b949e;margin-top:2px">${esc(b.backend)}${b.region ? ' · ' + esc(b.region) : ''}${b.base_url ? ' · ' + esc(b.base_url) : ''}</div>
+        </div>
+        <div style="min-width:100px;font-size:12px;color:#8b949e">${b.model ? 'model: <code style="color:#a5d6ff">' + esc(b.model) + '</code>' : '<span style="color:#6e7681">model: auto</span>'}</div>
+        <div id="ai-models-${sid}" style="width:100%;display:none"></div>
+        <button class="sm" onclick="discoverModels('${esc(b.name)}', this)">discover models</button>
+        ${editable ? `<button class="sm" onclick="openEditBackend('${esc(b.name)}')">edit</button>
+        <button class="sm danger" onclick="deleteBackend('${esc(b.name)}', this)">delete</button>` : ''}
+      </div>`;
+    }).join('<div style="height:1px;background:#21262d;margin:4px 0"></div>');
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state" style="color:#f85149">${esc(String(e))}</div>`;
+  }
+}
+
+// --- backend form ---
+
+let _editingBackend = null; // null = adding, string = name being edited
+let _backendList = [];      // cached for edit lookups
+
+async function openAddBackend() {
+  _editingBackend = null;
+  document.getElementById('ai-form-title').textContent = 'add backend';
+  document.getElementById('bf-submit-btn').textContent = 'add backend';
+  document.getElementById('bf-name').value = '';
+  document.getElementById('bf-name').disabled = false;
+  document.getElementById('bf-backend').value = '';
+  document.getElementById('bf-apikey').value = '';
+  document.getElementById('bf-baseurl').value = '';
+  populateModelSelect([], '');
+  document.getElementById('bf-model-custom').value = '';
+  document.getElementById('bf-model-custom').style.display = 'none';
+  document.getElementById('bf-load-models-btn').textContent = '↺ load models';
+  document.getElementById('bf-default').checked = false;
+  document.getElementById('bf-region').value = '';
+  document.getElementById('bf-aws-key-id').value = '';
+  document.getElementById('bf-aws-secret').value = '';
+  document.getElementById('bf-allow').value = '';
+  document.getElementById('bf-block').value = '';
+  document.getElementById('ai-form-result').style.display = 'none';
+  onBackendTypeChange();
+  const card = document.getElementById('card-ai-form');
+  card.style.display = '';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function openEditBackend(name) {
+  let b;
+  try {
+    const backends = await api('GET', '/v1/llm/backends');
+    b = backends.find(x => x.name === name);
+  } catch(e) { return; }
+  if (!b) return;
+
+  _editingBackend = name;
+  document.getElementById('ai-form-title').textContent = 'edit backend — ' + esc(name);
+  document.getElementById('bf-submit-btn').textContent = 'save changes';
+  document.getElementById('bf-name').value = name;
+  document.getElementById('bf-name').disabled = true; // name is immutable
+  document.getElementById('bf-backend').value = b.backend || '';
+  document.getElementById('bf-apikey').value = ''; // never pre-fill secrets
+  document.getElementById('bf-baseurl').value = b.base_url || '';
+  const curated = KNOWN_MODELS[b.backend] || [];
+  populateModelSelect(curated, b.model || '');
+  document.getElementById('bf-model-custom').style.display = 'none';
+  document.getElementById('bf-load-models-btn').textContent = '↺ load models';
+  document.getElementById('bf-default').checked = !!b.default;
+  document.getElementById('bf-region').value = b.region || '';
+  document.getElementById('bf-aws-key-id').value = ''; // never pre-fill
+  document.getElementById('bf-aws-secret').value = '';
+  document.getElementById('bf-allow').value = (b.allow || []).join('\n');
+  document.getElementById('bf-block').value = (b.block || []).join('\n');
+  document.getElementById('ai-form-result').style.display = 'none';
+  onBackendTypeChange();
+  const card = document.getElementById('card-ai-form');
+  card.style.display = '';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeBackendForm() {
+  document.getElementById('card-ai-form').style.display = 'none';
+  _editingBackend = null;
+}
+
+// Curated model lists per backend — shown before live discovery.
+const KNOWN_MODELS = {
+  anthropic: [
+    'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001',
+    'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229',
+  ],
+  gemini: [
+    'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash',
+    'gemini-1.5-flash-8b', 'gemini-1.5-pro',
+  ],
+  openai: [
+    'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini', 'o3-mini', 'gpt-3.5-turbo',
+  ],
+  bedrock: [
+    'anthropic.claude-3-5-sonnet-20241022-v2:0', 'anthropic.claude-3-5-haiku-20241022-v1:0',
+    'anthropic.claude-3-opus-20240229-v1:0',
+    'amazon.nova-pro-v1:0', 'amazon.nova-lite-v1:0', 'amazon.nova-micro-v1:0',
+    'meta.llama3-70b-instruct-v1:0', 'meta.llama3-8b-instruct-v1:0',
+    'mistral.mistral-large-2402-v1:0',
+  ],
+  ollama: ['llama3.2', 'llama3.1', 'mistral', 'codellama', 'gemma2', 'qwen2.5', 'phi3'],
+  groq: [
+    'llama-3.3-70b-versatile', 'llama-3.1-8b-instant',
+    'mixtral-8x7b-32768', 'gemma2-9b-it',
+  ],
+  mistral: ['mistral-large-latest', 'mistral-small-latest', 'codestral-latest', 'open-mistral-nemo'],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  xai: ['grok-2', 'grok-2-mini', 'grok-beta'],
+  cerebras: ['llama3.1-8b', 'llama3.1-70b', 'llama3.3-70b'],
+  together: [
+    'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    'meta-llama/Llama-3.1-8B-Instruct-Turbo',
+    'mistralai/Mixtral-8x7B-Instruct-v0.1',
+    'Qwen/Qwen2.5-72B-Instruct-Turbo',
+  ],
+  fireworks: [
+    'accounts/fireworks/models/llama-v3p3-70b-instruct',
+    'accounts/fireworks/models/mixtral-8x7b-instruct',
+  ],
+  openrouter: [], // too varied — always load live
+  huggingface: [
+    'meta-llama/Llama-3.3-70B-Instruct',
+    'mistralai/Mistral-7B-Instruct-v0.3',
+    'Qwen/Qwen2.5-72B-Instruct',
+  ],
+};
+
+function populateModelSelect(models, currentVal) {
+  const sel = document.getElementById('bf-model-select');
+  sel.innerHTML = '<option value="">— none / auto-select —</option>';
+  for (const m of models) {
+    const id = typeof m === 'string' ? m : m.id;
+    const label = (typeof m === 'object' && m.name && m.name !== id) ? `${id} — ${m.name}` : id;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label;
+    if (id === currentVal) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  const other = document.createElement('option');
+  other.value = '__other__';
+  other.textContent = '— other (type below) —';
+  if (currentVal && !models.find(m => (typeof m === 'string' ? m : m.id) === currentVal)) {
+    other.selected = true;
+    document.getElementById('bf-model-custom').value = currentVal;
+    document.getElementById('bf-model-custom').style.display = '';
+  }
+  sel.appendChild(other);
+}
+
+function onModelSelectChange() {
+  const sel = document.getElementById('bf-model-select');
+  const custom = document.getElementById('bf-model-custom');
+  custom.style.display = sel.value === '__other__' ? '' : 'none';
+}
+
+function getModelValue() {
+  const sel = document.getElementById('bf-model-select');
+  if (sel.value === '__other__') return document.getElementById('bf-model-custom').value.trim();
+  return sel.value || '';
+}
+
+function onBackendTypeChange() {
+  const t = document.getElementById('bf-backend').value;
+  const isBedrock = t === 'bedrock';
+  const isLocal = ['ollama','litellm','lmstudio','jan','localai','vllm','anythingllm'].includes(t);
+  const hasKey = !isBedrock;
+
+  document.getElementById('bf-bedrock-group').style.display = isBedrock ? '' : 'none';
+  document.getElementById('bf-apikey-row').style.display = hasKey ? '' : 'none';
+  document.getElementById('bf-baseurl-row').style.display = (isLocal || isBedrock) ? 'none' : '';
+
+  const curated = KNOWN_MODELS[t] || [];
+  populateModelSelect(curated, '');
+}
+
+async function loadLiveModels(btn) {
+  const t = document.getElementById('bf-backend').value;
+  if (!t) { alert('Select a backend type first.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'loading…';
+  try {
+    const payload = {
+      backend:        t,
+      api_key:        document.getElementById('bf-apikey')?.value || '',
+      base_url:       document.getElementById('bf-baseurl')?.value.trim() || '',
+      region:         document.getElementById('bf-region')?.value.trim() || '',
+      aws_key_id:     document.getElementById('bf-aws-key-id')?.value.trim() || '',
+      aws_secret_key: document.getElementById('bf-aws-secret')?.value || '',
+    };
+    const models = await api('POST', '/v1/llm/discover', payload);
+    const current = getModelValue();
+    populateModelSelect(models, current);
+    btn.textContent = `↺ ${models.length} loaded`;
+  } catch(e) {
+    btn.textContent = '✕ failed';
+    setTimeout(() => { btn.textContent = '↺ load models'; }, 2000);
+    alert('Discovery failed: ' + String(e));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function submitBackendForm() {
+  const name = document.getElementById('bf-name').value.trim();
+  const backend = document.getElementById('bf-backend').value;
+  if (!name || !backend) {
+    showFormResult('name and backend type are required', 'error');
+    return;
+  }
+
+  const allow = document.getElementById('bf-allow').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+  const block  = document.getElementById('bf-block').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+
+  const payload = {
+    name, backend,
+    api_key:       document.getElementById('bf-apikey').value || undefined,
+    base_url:      document.getElementById('bf-baseurl').value.trim() || undefined,
+    model:         getModelValue() || undefined,
+    default:       document.getElementById('bf-default').checked || undefined,
+    region:        document.getElementById('bf-region').value.trim() || undefined,
+    aws_key_id:    document.getElementById('bf-aws-key-id').value.trim() || undefined,
+    aws_secret_key: document.getElementById('bf-aws-secret').value || undefined,
+    allow: allow.length ? allow : undefined,
+    block: block.length ? block : undefined,
+  };
+
+  const btn = document.getElementById('bf-submit-btn');
+  btn.disabled = true;
+  try {
+    if (_editingBackend) {
+      await api('PUT', `/v1/llm/backends/${encodeURIComponent(_editingBackend)}`, payload);
+    } else {
+      await api('POST', '/v1/llm/backends', payload);
+    }
+    closeBackendForm();
+    await loadAIBackends();
+  } catch(e) {
+    showFormResult(String(e), 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteBackend(name, btn) {
+  btn.disabled = true;
+  try {
+    await api('DELETE', `/v1/llm/backends/${encodeURIComponent(name)}`);
+    await loadAIBackends();
+  } catch(e) {
+    btn.disabled = false;
+    alert('Delete failed: ' + String(e));
+  }
+}
+
+function showFormResult(msg, type) {
+  const el = document.getElementById('ai-form-result');
+  el.style.display = '';
+  el.className = 'alert ' + (type === 'error' ? 'danger' : 'info');
+  el.innerHTML = `<span class="icon">${type === 'error' ? '✕' : 'ℹ'}</span><span>${esc(msg)}</span>`;
+}
+
+async function discoverModels(name, btn) {
+  const el = document.getElementById('ai-models-' + name);
+  if (!el) return;
+  btn.disabled = true;
+  btn.textContent = 'discovering…';
+  try {
+    const models = await api('GET', `/v1/llm/backends/${encodeURIComponent(name)}/models`);
+    el.style.display = 'block';
+    if (!models || models.length === 0) {
+      el.innerHTML = '<div style="font-size:12px;color:#8b949e;padding:6px 0">No models found (check filters).</div>';
+    } else {
+      el.innerHTML = `<div style="font-size:12px;color:#8b949e;margin-bottom:6px">${models.length} model${models.length !== 1 ? 's' : ''} available:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${models.map(m =>
+          `<code style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:2px 6px;font-size:11px;color:#a5d6ff">${esc(m.id)}${m.name && m.name !== m.id ? ' <span style="color:#6e7681">(' + esc(m.name) + ')</span>' : ''}</code>`
+        ).join('')}</div>`;
+    }
+    btn.textContent = '↺ refresh';
+  } catch(e) {
+    el.style.display = 'block';
+    el.innerHTML = `<div style="font-size:12px;color:#f85149">Error: ${esc(String(e))}</div>`;
+    btn.textContent = 'retry';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadAIKnown() {
+  const el = document.getElementById('ai-supported-list');
+  try {
+    const known = await api('GET', '/v1/llm/known');
+    const native = known.filter(b => b.native);
+    const compat = known.filter(b => !b.native);
+    native.sort((a,b) => a.name.localeCompare(b.name));
+    compat.sort((a,b) => a.name.localeCompare(b.name));
+    el.innerHTML = `
+      <div style="margin-bottom:12px">
+        <div style="font-size:12px;color:#8b949e;font-weight:500;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">native APIs</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${native.map(b =>
+          `<span style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:3px 8px;font-size:12px;color:#e6edf3">${esc(b.name)}</span>`
+        ).join('')}</div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#8b949e;font-weight:500;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">OpenAI-compatible</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${compat.map(b =>
+          `<span style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:3px 8px;font-size:12px;color:#e6edf3" title="${esc(b.base_url)}">${esc(b.name)}</span>`
+        ).join('')}</div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state" style="color:#f85149">${esc(String(e))}</div>`;
+  }
+}
+
+function showAIExample(e) {
+  e.preventDefault();
+  const card = document.getElementById('card-ai-example');
+  card.style.display = '';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Expand it if collapsed.
+  const body = card.querySelector('.card-body');
+  if (body) body.style.display = '';
+}
+
+// --- settings / policies ---
+let currentPolicies = null;
+let _llmBackendNames = []; // cached backend names for oracle dropdown
+
+async function loadSettings() {
+  try {
+    const [s, backends] = await Promise.all([
+      api('GET', '/v1/settings'),
+      api('GET', '/v1/llm/backends').catch(() => []),
+    ]);
+    _llmBackendNames = (backends || []).map(b => b.name);
+    renderTLSStatus(s.tls);
+    currentPolicies = s.policies;
+    renderBehaviors(s.policies.behaviors || []);
+    renderAgentPolicy(s.policies.agent_policy || {});
+    renderBridgePolicy(s.policies.bridge || {});
+    renderLoggingPolicy(s.policies.logging || {});
+    loadAdmins();
+  } catch(e) {
+    document.getElementById('tls-badge').textContent = 'error';
+  }
+}
+
+function renderTLSStatus(tls) {
+  const badge = document.getElementById('tls-badge');
+  if (tls.enabled) {
+    badge.textContent = 'TLS active';
+    badge.style.background = '#3fb95022'; badge.style.color = '#3fb950'; badge.style.borderColor = '#3fb95044';
+  } else {
+    badge.textContent = 'HTTP only';
+  }
+  document.getElementById('tls-status-rows').innerHTML = `
+    <div class="setting-row">
+      <div class="setting-label">mode</div>
+      <div class="setting-desc"></div>
+      <code class="setting-val">${tls.enabled ? 'HTTPS (Let\'s Encrypt)' : 'HTTP'}</code>
+    </div>
+    ${tls.enabled ? `
+    <div class="setting-row">
+      <div class="setting-label">domain</div>
+      <div class="setting-desc"></div>
+      <code class="setting-val">${esc(tls.domain)}</code>
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">allow insecure</div>
+      <div class="setting-desc">Plain HTTP also accepted.</div>
+      <code class="setting-val">${tls.allow_insecure ? 'yes' : 'no'}</code>
+    </div>` : ''}
+  `;
+}
+
+function renderBehaviors(behaviors) {
+  const hasSchema = id => !!BEHAVIOR_SCHEMAS[id];
+  document.getElementById('behaviors-list').innerHTML = behaviors.map(b => `
+    <div>
+      <div style="display:grid;grid-template-columns:20px 90px 1fr auto;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid #21262d">
+        <input type="checkbox" ${b.enabled?'checked':''} onchange="onBehaviorToggle('${esc(b.id)}',this.checked)" style="width:14px;height:14px;cursor:pointer;accent-color:#58a6ff">
+        <strong style="font-size:13px;white-space:nowrap">${esc(b.name)}</strong>
+        <span style="font-size:12px;color:#8b949e">${esc(b.description)}</span>
+        <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
+          ${b.enabled ? `
+            <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#8b949e;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" ${b.join_all_channels?'checked':''} onchange="onBehaviorJoinAll('${esc(b.id)}',this.checked)" style="accent-color:#58a6ff">
+              all channels
+            </label>
+            ${b.join_all_channels
+              ? `<input type="text" placeholder="exclude #private, /regex/" style="width:160px;padding:3px 7px;font-size:11px" title="Exclude: comma-separated names or /regex/" value="${esc((b.exclude_channels||[]).join(', '))}" onchange="onBehaviorExclude('${esc(b.id)}',this.value)">`
+              : `<input type="text" placeholder="#ops, /^#proj-.*/" style="width:160px;padding:3px 7px;font-size:11px" title="Join: comma-separated names or /regex/ patterns" value="${esc((b.required_channels||[]).join(', '))}" onchange="onBehaviorChannels('${esc(b.id)}',this.value)">`
+            }
+            ${hasSchema(b.id) ? `<button class="sm" id="beh-cfg-btn-${esc(b.id)}" onclick="toggleBehConfig('${esc(b.id)}')" style="font-size:11px;white-space:nowrap">configure ▾</button>` : ''}
+          ` : ''}
+          <span class="tag type-observer" style="font-size:11px;min-width:64px;text-align:center">${esc(b.nick)}</span>
+        </div>
+      </div>
+      ${b.enabled && hasSchema(b.id) ? renderBehConfig(b) : ''}
+    </div>
+  `).join('');
+}
+
+function onBehaviorToggle(id, enabled) {
+  const b = currentPolicies.behaviors.find(x => x.id === id);
+  if (b) b.enabled = enabled;
+  renderBehaviors(currentPolicies.behaviors);
+}
+function onBehaviorJoinAll(id, val) {
+  const b = currentPolicies.behaviors.find(x => x.id === id);
+  if (b) b.join_all_channels = val;
+  renderBehaviors(currentPolicies.behaviors);
+}
+function onBehaviorExclude(id, val) {
+  const b = currentPolicies.behaviors.find(x => x.id === id);
+  if (b) b.exclude_channels = val.split(',').map(s=>s.trim()).filter(Boolean);
+}
+function onBehaviorChannels(id, val) {
+  const b = currentPolicies.behaviors.find(x => x.id === id);
+  if (b) b.required_channels = val.split(',').map(s=>s.trim()).filter(Boolean);
+}
+
+function renderAgentPolicy(p) {
+  document.getElementById('policy-checkin-enabled').checked = !!p.require_checkin;
+  document.getElementById('policy-checkin-channel').value   = p.checkin_channel || '';
+  document.getElementById('policy-required-channels').value = (p.required_channels||[]).join(', ');
+  toggleCheckinChannel();
+}
+function toggleCheckinChannel() {
+  const on = document.getElementById('policy-checkin-enabled').checked;
+  document.getElementById('policy-checkin-row').style.display = on ? '' : 'none';
+}
+
+function renderBridgePolicy(p) {
+  document.getElementById('policy-bridge-web-user-ttl').value = p.web_user_ttl_minutes || 5;
+}
+
+function renderLoggingPolicy(l) {
+  document.getElementById('policy-logging-enabled').checked  = !!l.enabled;
+  document.getElementById('policy-log-dir').value            = l.dir || '';
+  document.getElementById('policy-log-format').value         = l.format || 'jsonl';
+  document.getElementById('policy-log-rotation').value       = l.rotation || 'none';
+  document.getElementById('policy-log-max-size').value       = l.max_size_mb || '';
+  document.getElementById('policy-log-per-channel').checked  = !!l.per_channel;
+  document.getElementById('policy-log-max-age').value        = l.max_age_days || '';
+  toggleLogOptions();
+  toggleRotationOptions();
+}
+function toggleLogOptions() {
+  const on = document.getElementById('policy-logging-enabled').checked;
+  document.getElementById('policy-log-options').style.display = on ? '' : 'none';
+}
+function toggleRotationOptions() {
+  const rot = document.getElementById('policy-log-rotation').value;
+  document.getElementById('policy-log-size-row').style.display = rot === 'size' ? '' : 'none';
+}
+
+async function savePolicies() {
+  if (!currentPolicies) return;
+  const p = JSON.parse(JSON.stringify(currentPolicies)); // deep copy
+  p.agent_policy = {
+    require_checkin:   document.getElementById('policy-checkin-enabled').checked,
+    checkin_channel:   document.getElementById('policy-checkin-channel').value.trim(),
+    required_channels: document.getElementById('policy-required-channels').value.split(',').map(s=>s.trim()).filter(Boolean),
+  };
+  p.bridge = {
+    web_user_ttl_minutes: parseInt(document.getElementById('policy-bridge-web-user-ttl').value, 10) || 5,
+  };
+  p.logging = {
+    enabled:      document.getElementById('policy-logging-enabled').checked,
+    dir:          document.getElementById('policy-log-dir').value.trim(),
+    format:       document.getElementById('policy-log-format').value,
+    rotation:     document.getElementById('policy-log-rotation').value,
+    max_size_mb:  parseInt(document.getElementById('policy-log-max-size').value, 10) || 0,
+    per_channel:  document.getElementById('policy-log-per-channel').checked,
+    max_age_days: parseInt(document.getElementById('policy-log-max-age').value, 10) || 0,
+  };
+  const resultEl = document.getElementById('policies-save-result');
+  try {
+    currentPolicies = await api('PUT', '/v1/settings/policies', p);
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = renderAlert('success', 'Settings saved.');
+    setTimeout(() => { resultEl.style.display = 'none'; }, 3000);
   } catch(e) {
     resultEl.style.display = 'block';
     resultEl.innerHTML = renderAlert('error', e.message);
   }
 }
 
-function showCredentials(nick, creds, payload, mode) {
-  const resultEl = document.getElementById('register-result');
-  resultEl.style.display = 'block';
-
-  const passphrase = creds?.passphrase || creds?.Passphrase || '';
-  const payloadSig = payload?.signature || '';
-  const payloadEnc = payload ? JSON.stringify(payload.payload || payload, null, 2) : '';
-
-  resultEl.innerHTML = renderAlert('success',
-    `<strong>${mode === 'register' ? 'Agent registered' : 'Credentials rotated'}: ${esc(nick)}</strong>
-    <div style="margin-top:10px" class="cred-box">
-      <div class="cred-row">
-        <span class="cred-key">nick</span>
-        <span class="cred-val">${esc(creds?.nick || nick)}</span>
-        <button class="small copy-btn" onclick="copyText('${esc(creds?.nick || nick)}', this)">copy</button>
-      </div>
-      <div class="cred-row">
-        <span class="cred-key">passphrase</span>
-        <span class="cred-val">${esc(passphrase)}</span>
-        <button class="small copy-btn" onclick="copyText('${esc(passphrase)}', this)">copy</button>
-      </div>
-      ${payloadSig ? `<div class="cred-row">
-        <span class="cred-key">sig</span>
-        <span class="cred-val" style="font-size:11px">${esc(payloadSig)}</span>
-      </div>` : ''}
-    </div>
-    <div style="margin-top:8px;font-size:11px;color:#7ee787">⚠ Save the passphrase now — it will not be shown again.</div>`
-  );
-}
-
-// --- helpers ---
-function renderAlert(type, msg) {
-  const icons = { info: 'ℹ', error: '✕', success: '✓' };
-  return `<div class="alert ${type}"><span class="icon">${icons[type]}</span><div>${msg}</div></div>`;
-}
-function esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-function fmtTime(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
-}
-
-// --- chat ---
-let chatChannel = null;
-let chatSSE = null;
-
-async function loadChannels() {
-  if (!getToken()) return;
-  try {
-    const data = await api('GET', '/v1/channels');
-    renderChannelList(data.channels || []);
-    document.getElementById('chat-card').style.display = '';
-  } catch(e) {
-    // bridge disabled or error — keep chat card hidden
-  }
-}
-
-function renderChannelList(channels) {
-  const list = document.getElementById('chat-channel-list');
-  // Remove old channel items (keep header div and join input div)
-  Array.from(list.querySelectorAll('.chan-item')).forEach(el => el.remove());
-  channels.sort().forEach(ch => {
-    const el = document.createElement('div');
-    el.className = 'chan-item' + (ch === chatChannel ? ' active' : '');
-    el.textContent = ch;
-    el.onclick = () => selectChannel(ch);
-    list.appendChild(el);
-  });
-}
-
-async function joinChannel() {
-  let ch = document.getElementById('join-channel-input').value.trim();
-  if (!ch) return;
-  if (!ch.startsWith('#')) ch = '#' + ch;
-  const slug = ch.replace(/^#/, '');
-  try {
-    await api('POST', `/v1/channels/${slug}/join`);
-    document.getElementById('join-channel-input').value = '';
-    await loadChannels();
-    selectChannel(ch);
-  } catch(e) {
-    alert('Join failed: ' + e.message);
-  }
-}
-
-document.getElementById('join-channel-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') joinChannel();
-});
-
-async function selectChannel(ch) {
-  chatChannel = ch;
-  document.getElementById('chat-channel-badge').textContent = ch;
-  document.getElementById('chat-channel-badge').style.display = '';
-  document.getElementById('chat-placeholder').style.display = 'none';
-  document.querySelectorAll('.chan-item').forEach(el => {
-    el.classList.toggle('active', el.textContent === ch);
-  });
-
-  const area = document.getElementById('chat-messages');
-  // clear previous messages (keep placeholder)
-  Array.from(area.children).forEach(el => { if (!el.id) el.remove(); });
-
-  try {
-    const slug = ch.replace(/^#/, '');
-    const data = await api('GET', `/v1/channels/${slug}/messages`);
-    (data.messages || []).forEach(appendMessage);
-    area.scrollTop = area.scrollHeight;
-  } catch(e) {}
-
-  if (chatSSE) { chatSSE.close(); chatSSE = null; }
-  const slug = ch.replace(/^#/, '');
-  const url = `/v1/channels/${slug}/stream?token=${encodeURIComponent(getToken())}`;
-  const es = new EventSource(url);
-  chatSSE = es;
-  const status = document.getElementById('chat-stream-status');
-  es.onopen = () => { status.textContent = '● live'; status.style.color = '#3fb950'; };
-  es.onmessage = (e) => {
-    try {
-      const msg = JSON.parse(e.data);
-      appendMessage(msg);
-      area.scrollTop = area.scrollHeight;
-    } catch(_) {}
-  };
-  es.onerror = () => { status.textContent = '○ reconnecting…'; status.style.color = '#8b949e'; };
-}
-
-function appendMessage(msg) {
-  const area = document.getElementById('chat-messages');
-  const t = new Date(msg.at);
-  const timeStr = t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-  const isBridge = msg.nick === 'bridge';
-  const row = document.createElement('div');
-  row.className = 'msg-row';
-  row.innerHTML = `<span class="msg-time">${esc(timeStr)}</span>`
-    + `<span class="msg-nick${isBridge ? ' bridge-nick' : ''}">${esc(msg.nick)}</span>`
-    + `<span class="msg-text">${esc(msg.text)}</span>`;
-  area.appendChild(row);
-}
-
-async function sendChatMessage() {
-  if (!chatChannel) return;
-  const input = document.getElementById('chat-text-input');
-  const nick = document.getElementById('chat-nick-input').value.trim() || 'web';
-  const text = input.value.trim();
-  if (!text) return;
-  input.disabled = true;
-  document.getElementById('chat-send-btn').disabled = true;
-  try {
-    const slug = chatChannel.replace(/^#/, '');
-    await api('POST', `/v1/channels/${slug}/messages`, { text, nick });
-    input.value = '';
-  } catch(e) {
-    alert('Send failed: ' + e.message);
-  } finally {
-    input.disabled = false;
-    document.getElementById('chat-send-btn').disabled = false;
-    input.focus();
-  }
-}
-
-document.getElementById('chat-text-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') sendChatMessage();
-});
-
 // --- init ---
-function loadAll() { loadStatus(); loadAgents(); loadChannels(); }
-updateTokenDisplay();
-loadAll();
-setInterval(loadStatus, 15000);
+function loadAll() { loadStatus(); loadAgents(); loadSettings(); startMetricsPoll(); }
+initAuth();
 </script>
 </body>
 </html>
