@@ -47,6 +47,19 @@ func (s *Server) handleChannelMessages(w http.ResponseWriter, r *http.Request) {
 	if msgs == nil {
 		msgs = []bridge.Message{}
 	}
+	// Filter by ?since=<RFC3339> when provided (avoids sending full history on each poll).
+	if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
+		since, err := time.Parse(time.RFC3339Nano, sinceStr)
+		if err == nil {
+			filtered := msgs[:0]
+			for _, m := range msgs {
+				if m.At.After(since) {
+					filtered = append(filtered, m)
+				}
+			}
+			msgs = filtered
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
 }
 

@@ -74,7 +74,11 @@ func (c *httpConnector) PostTo(ctx context.Context, channel, text string) error 
 func (c *httpConnector) MessagesSince(ctx context.Context, since time.Time) ([]Message, error) {
 	out := make([]Message, 0, 32)
 	for _, channel := range c.Channels() {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/channels/"+channelSlug(channel)+"/messages", nil)
+		url := c.baseURL + "/v1/channels/" + channelSlug(channel) + "/messages"
+		if !since.IsZero() {
+			url += "?since=" + since.UTC().Format(time.RFC3339Nano)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -101,9 +105,6 @@ func (c *httpConnector) MessagesSince(ctx context.Context, since time.Time) ([]M
 		for _, msg := range payload.Messages {
 			at, err := time.Parse(time.RFC3339Nano, msg.At)
 			if err != nil {
-				continue
-			}
-			if !at.After(since) {
 				continue
 			}
 			out = append(out, Message{At: at, Channel: channel, Nick: msg.Nick, Text: msg.Text})
