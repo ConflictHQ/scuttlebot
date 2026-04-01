@@ -137,6 +137,27 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
+	nick := r.PathValue("nick")
+	var req struct {
+		Channels []string `json:"channels"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := s.registry.UpdateChannels(nick, req.Channels); err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.log.Error("update agent channels", "nick", nick, "err", err)
+		writeError(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	agents := s.registry.List()
 	writeJSON(w, http.StatusOK, map[string]any{"agents": agents})

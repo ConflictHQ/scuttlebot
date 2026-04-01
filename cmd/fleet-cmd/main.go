@@ -39,30 +39,50 @@ func main() {
 		usage()
 	}
 
-	switch os.Args[1] {
+	// Parse optional --channel flag before the subcommand.
+	channel := "general"
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--channel" && i+1 < len(args) {
+			channel = strings.TrimPrefix(args[i+1], "#")
+			args = append(args[:i], args[i+2:]...)
+			break
+		}
+		if strings.HasPrefix(args[i], "--channel=") {
+			channel = strings.TrimPrefix(strings.TrimPrefix(args[i], "--channel="), "#")
+			args = append(args[:i], args[i+1:]...)
+			break
+		}
+	}
+
+	if len(args) == 0 {
+		usage()
+	}
+
+	switch args[0] {
 	case "map":
-		mapFleet(url, token)
+		mapFleet(url, token, channel)
 	case "broadcast":
-		if len(os.Args) < 3 {
+		if len(args) < 2 {
 			log.Fatal("usage: fleet-cmd broadcast <message>")
 		}
-		broadcast(url, token, strings.Join(os.Args[2:], " "))
+		broadcast(url, token, channel, strings.Join(args[1:], " "))
 	default:
 		usage()
 	}
 }
 
 func usage() {
-	fmt.Println("Usage: fleet-cmd <command> [args]")
+	fmt.Println("Usage: fleet-cmd [--channel <channel>] <command> [args]")
 	fmt.Println("Commands:")
 	fmt.Println("  map          Show all agents and their last activity")
-	fmt.Println("  broadcast    Send a message to all agents in #general")
+	fmt.Println("  broadcast    Send a message to the channel")
 	os.Exit(1)
 }
 
-func mapFleet(url, token string) {
+func mapFleet(url, token, channel string) {
 	agents := fetchAgents(url, token)
-	messages := fetchMessages(url, token, "general")
+	messages := fetchMessages(url, token, channel)
 
 	// Filter for actual session nicks (ones with suffixes)
 	sessions := make(map[string]Message)
@@ -96,12 +116,12 @@ func mapFleet(url, token string) {
 	w.Flush()
 }
 
-func broadcast(url, token, msg string) {
+func broadcast(url, token, channel, msg string) {
 	body, _ := json.Marshal(map[string]string{
 		"nick": "commander",
 		"text": msg,
 	})
-	req, _ := http.NewRequest("POST", url+"/v1/channels/general/messages", strings.NewReader(string(body)))
+	req, _ := http.NewRequest("POST", url+"/v1/channels/"+channel+"/messages", strings.NewReader(string(body)))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -109,10 +129,11 @@ func broadcast(url, token, msg string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if resp.StatusCode != http.StatusOK {
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		log.Fatalf("broadcast failed: %s", resp.Status)
 	}
-	fmt.Printf("Broadcast sent: %s\n", msg)
+	fmt.Printf("Broadcast sent to #%s: %s\n", channel, msg)
 }
 
 func fetchAgents(url, token string) []Agent {
