@@ -13,14 +13,90 @@ type Config struct {
 	Ergo      ErgoConfig      `yaml:"ergo"`
 	Datastore DatastoreConfig `yaml:"datastore"`
 	Bridge    BridgeConfig    `yaml:"bridge"`
+	TLS       TLSConfig       `yaml:"tls"`
+	LLM       LLMConfig       `yaml:"llm"`
 
 	// APIAddr is the address for scuttlebot's own HTTP management API.
+	// Ignored when TLS.Domain is set (HTTPS runs on :443, HTTP on :80).
 	// Default: ":8080"
 	APIAddr string `yaml:"api_addr"`
 
 	// MCPAddr is the address for the MCP server.
 	// Default: ":8081"
 	MCPAddr string `yaml:"mcp_addr"`
+}
+
+// LLMConfig configures the omnibus LLM gateway used by oracle and any other
+// bot or service that needs language model access.
+type LLMConfig struct {
+	// Backends is the list of configured LLM backends.
+	// Each backend has a unique Name used to reference it from bot configs.
+	Backends []LLMBackendConfig `yaml:"backends"`
+}
+
+// LLMBackendConfig configures a single LLM backend instance.
+type LLMBackendConfig struct {
+	// Name is a unique identifier for this backend (e.g. "openai-main", "local-ollama").
+	// Used when referencing the backend from bot configs.
+	Name string `yaml:"name"`
+
+	// Backend is the provider type. Supported values:
+	//   Native: anthropic, gemini, bedrock, ollama
+	//   OpenAI-compatible: openai, openrouter, together, groq, fireworks, mistral,
+	//     ai21, huggingface, deepseek, cerebras, xai,
+	//     litellm, lmstudio, jan, localai, vllm, anythingllm
+	Backend string `yaml:"backend"`
+
+	// APIKey is the authentication key for cloud backends.
+	APIKey string `yaml:"api_key"`
+
+	// BaseURL overrides the default base URL for OpenAI-compatible backends.
+	// Required for custom self-hosted endpoints without a known default.
+	BaseURL string `yaml:"base_url"`
+
+	// Model is the default model ID. If empty, the first discovered model
+	// that passes the allow/block filter is used.
+	Model string `yaml:"model"`
+
+	// Region is the AWS region (e.g. "us-east-1"). Bedrock only.
+	Region string `yaml:"region"`
+
+	// AWSKeyID is the AWS access key ID. Bedrock only.
+	AWSKeyID string `yaml:"aws_key_id"`
+
+	// AWSSecretKey is the AWS secret access key. Bedrock only.
+	AWSSecretKey string `yaml:"aws_secret_key"`
+
+	// Allow is a list of regex patterns. If non-empty, only model IDs matching
+	// at least one pattern are returned by model discovery.
+	Allow []string `yaml:"allow"`
+
+	// Block is a list of regex patterns. Matching model IDs are excluded
+	// from model discovery results.
+	Block []string `yaml:"block"`
+
+	// Default marks this backend as the one used when no backend is specified
+	// in a bot's config. Only one backend should have Default: true.
+	Default bool `yaml:"default"`
+}
+
+// TLSConfig configures automatic HTTPS via Let's Encrypt.
+type TLSConfig struct {
+	// Domain enables TLS. When set, scuttlebot obtains a certificate from
+	// Let's Encrypt for this domain and serves HTTPS on :443.
+	Domain string `yaml:"domain"`
+
+	// Email is sent to Let's Encrypt for certificate expiry notifications.
+	Email string `yaml:"email"`
+
+	// CertDir is the directory for the certificate cache.
+	// Default: {Ergo.DataDir}/certs
+	CertDir string `yaml:"cert_dir"`
+
+	// AllowInsecure keeps plain HTTP running on :80 alongside HTTPS.
+	// The ACME HTTP-01 challenge always runs on :80 regardless.
+	// Default: true
+	AllowInsecure bool `yaml:"allow_insecure"`
 }
 
 // ErgoConfig holds settings for the managed Ergo IRC server.
@@ -99,6 +175,10 @@ type BridgeConfig struct {
 
 	// BufferSize is the number of messages to keep per channel. Default: 200.
 	BufferSize int `yaml:"buffer_size"`
+
+	// WebUserTTLMinutes controls how long HTTP bridge sender nicks remain visible
+	// in the channel user list after their last post. Default: 5.
+	WebUserTTLMinutes int `yaml:"web_user_ttl_minutes"`
 }
 
 // DatastoreConfig configures scuttlebot's own state store (separate from Ergo).
@@ -147,11 +227,17 @@ func (c *Config) Defaults() {
 	if !c.Bridge.Enabled && c.Bridge.Nick == "" {
 		c.Bridge.Enabled = true // enabled by default
 	}
+	if c.TLS.Domain != "" && !c.TLS.AllowInsecure {
+		c.TLS.AllowInsecure = true // HTTP always on by default
+	}
 	if c.Bridge.Nick == "" {
 		c.Bridge.Nick = "bridge"
 	}
 	if c.Bridge.BufferSize == 0 {
 		c.Bridge.BufferSize = 200
+	}
+	if c.Bridge.WebUserTTLMinutes == 0 {
+		c.Bridge.WebUserTTLMinutes = 5
 	}
 }
 

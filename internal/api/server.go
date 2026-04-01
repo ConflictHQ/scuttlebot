@@ -68,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	if s.bridge != nil {
 		apiMux.HandleFunc("GET /v1/channels", s.handleListChannels)
 		apiMux.HandleFunc("POST /v1/channels/{channel}/join", s.handleJoinChannel)
+		apiMux.HandleFunc("DELETE /v1/channels/{channel}", s.handleDeleteChannel)
 		apiMux.HandleFunc("GET /v1/channels/{channel}/messages", s.handleChannelMessages)
 		apiMux.HandleFunc("POST /v1/channels/{channel}/messages", s.handleSendMessage)
 		apiMux.HandleFunc("POST /v1/channels/{channel}/presence", s.handleChannelPresence)

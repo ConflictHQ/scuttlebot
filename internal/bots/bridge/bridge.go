@@ -243,6 +243,18 @@ func (b *Bot) JoinChannel(channel string) {
 	}
 }
 
+// LeaveChannel parts the bridge from a channel and removes its buffers.
+func (b *Bot) LeaveChannel(channel string) {
+	if b.client != nil {
+		b.client.Cmd.Part(channel)
+	}
+	b.mu.Lock()
+	delete(b.joined, channel)
+	delete(b.buffers, channel)
+	delete(b.subs, channel)
+	b.mu.Unlock()
+}
+
 // Channels returns the list of channels currently joined.
 func (b *Bot) Channels() []string {
 	b.mu.RLock()

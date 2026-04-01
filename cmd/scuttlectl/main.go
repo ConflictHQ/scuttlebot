@@ -43,6 +43,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	switch args[0] {
+	case "setup":
+		cfgPath := "scuttlebot.yaml"
+		if len(args) > 1 {
+			cfgPath = args[1]
+		}
+		cmdSetup(cfgPath)
+		return
+	}
+
 	if *tokenFlag == "" {
 		fmt.Fprintln(os.Stderr, "error: API token required (set SCUTTLEBOT_TOKEN or use --token)")
 		os.Exit(1)
@@ -70,6 +80,9 @@ func main() {
 		case "revoke":
 			requireArgs(args, 3, "scuttlectl agent revoke <nick>")
 			cmdAgentRevoke(api, args[2])
+		case "delete":
+			requireArgs(args, 3, "scuttlectl agent delete <nick>")
+			cmdAgentDelete(api, args[2])
 		case "rotate":
 			requireArgs(args, 3, "scuttlectl agent rotate <nick>")
 			cmdAgentRotate(api, args[2], *jsonFlag)
@@ -77,13 +90,58 @@ func main() {
 			fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", args[1])
 			os.Exit(1)
 		}
-	case "channels":
-		if len(args) < 2 || args[1] == "list" {
-			fmt.Fprintln(os.Stderr, "channels list: not yet implemented (requires #12 discovery)")
+	case "admin":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl admin <subcommand>\n")
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "unknown subcommand: channels %s\n", args[1])
-		os.Exit(1)
+		switch args[1] {
+		case "list":
+			cmdAdminList(api, *jsonFlag)
+		case "add":
+			requireArgs(args, 3, "scuttlectl admin add <username>")
+			cmdAdminAdd(api, args[2])
+		case "remove":
+			requireArgs(args, 3, "scuttlectl admin remove <username>")
+			cmdAdminRemove(api, args[2])
+		case "passwd":
+			requireArgs(args, 3, "scuttlectl admin passwd <username>")
+			cmdAdminPasswd(api, args[2])
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand: admin %s\n", args[1])
+			os.Exit(1)
+		}
+	case "channels", "channel":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl channels <list|users <channel>>\n")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "list":
+			cmdChannelList(api, *jsonFlag)
+		case "users":
+			requireArgs(args, 3, "scuttlectl channels users <channel>")
+			cmdChannelUsers(api, args[2], *jsonFlag)
+		case "delete", "rm":
+			requireArgs(args, 3, "scuttlectl channels delete <channel>")
+			cmdChannelDelete(api, args[2])
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand: channels %s\n", args[1])
+			os.Exit(1)
+		}
+	case "backend", "backends":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl backend rename <old-name> <new-name>\n")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "rename":
+			requireArgs(args, 4, "scuttlectl backend rename <old-name> <new-name>")
+			cmdBackendRename(api, args[2], args[3])
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand: backend %s\n", args[1])
+			os.Exit(1)
+		}
 	case "logs":
 		fmt.Fprintln(os.Stderr, "logs tail: not yet implemented (requires scribe HTTP endpoint)")
 		os.Exit(1)
@@ -230,9 +288,126 @@ func cmdAgentRegister(api *apiclient.Client, args []string, asJSON bool) {
 	fmt.Println("\nStore these credentials — the password will not be shown again.")
 }
 
+func cmdAdminList(api *apiclient.Client, asJSON bool) {
+	raw, err := api.ListAdmins()
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+
+	var body struct {
+		Admins []struct {
+			Username string `json:"username"`
+			Created  string `json:"created"`
+		} `json:"admins"`
+	}
+	must(json.Unmarshal(raw, &body))
+
+	if len(body.Admins) == 0 {
+		fmt.Println("no admin accounts")
+		return
+	}
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "USERNAME\tCREATED")
+	for _, a := range body.Admins {
+		fmt.Fprintf(tw, "%s\t%s\n", a.Username, a.Created)
+	}
+	tw.Flush()
+}
+
+func cmdAdminAdd(api *apiclient.Client, username string) {
+	pass := promptPassword()
+	_, err := api.AddAdmin(username, pass)
+	die(err)
+	fmt.Printf("Admin added: %s\n", username)
+}
+
+func cmdAdminRemove(api *apiclient.Client, username string) {
+	die(api.RemoveAdmin(username))
+	fmt.Printf("Admin removed: %s\n", username)
+}
+
+func cmdAdminPasswd(api *apiclient.Client, username string) {
+	pass := promptPassword()
+	die(api.SetAdminPassword(username, pass))
+	fmt.Printf("Password updated for: %s\n", username)
+}
+
+func promptPassword() string {
+	fmt.Fprint(os.Stderr, "password: ")
+	var pass string
+	fmt.Scanln(&pass)
+	return pass
+}
+
 func cmdAgentRevoke(api *apiclient.Client, nick string) {
 	die(api.RevokeAgent(nick))
 	fmt.Printf("Agent revoked: %s\n", nick)
+}
+
+func cmdAgentDelete(api *apiclient.Client, nick string) {
+	die(api.DeleteAgent(nick))
+	fmt.Printf("Agent deleted: %s\n", nick)
+}
+
+func cmdChannelList(api *apiclient.Client, asJSON bool) {
+	raw, err := api.ListChannels()
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+	var body struct {
+		Channels []string `json:"channels"`
+	}
+	must(json.Unmarshal(raw, &body))
+	if len(body.Channels) == 0 {
+		fmt.Println("no channels")
+		return
+	}
+	for _, ch := range body.Channels {
+		fmt.Println(ch)
+	}
+}
+
+func cmdChannelUsers(api *apiclient.Client, channel string, asJSON bool) {
+	raw, err := api.ChannelUsers(channel)
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+	var body struct {
+		Users []string `json:"users"`
+	}
+	must(json.Unmarshal(raw, &body))
+	if len(body.Users) == 0 {
+		fmt.Printf("no users in %s\n", channel)
+		return
+	}
+	for _, u := range body.Users {
+		fmt.Println(u)
+	}
+}
+
+func cmdChannelDelete(api *apiclient.Client, channel string) {
+	die(api.DeleteChannel(channel))
+	fmt.Printf("Channel deleted: #%s\n", strings.TrimPrefix(channel, "#"))
+}
+
+func cmdBackendRename(api *apiclient.Client, oldName, newName string) {
+	raw, err := api.GetLLMBackend(oldName)
+	die(err)
+
+	var cfg map[string]any
+	must(json.Unmarshal(raw, &cfg))
+	cfg["name"] = newName
+
+	die(api.CreateLLMBackend(cfg))
+	die(api.DeleteLLMBackend(oldName))
+	fmt.Printf("Backend renamed: %s → %s\n", oldName, newName)
 }
 
 func cmdAgentRotate(api *apiclient.Client, nick string, asJSON bool) {
@@ -273,6 +448,7 @@ Global flags:
   --version print version and exit
 
 Commands:
+  setup [path]                  interactive wizard — write scuttlebot.yaml (no token needed)
   status                        daemon + ergo health
   agents list                   list all registered agents
   agent get <nick>              get a single agent
@@ -280,9 +456,17 @@ Commands:
     [--type worker|orchestrator|observer]
     [--channels #a,#b,#c]
   agent revoke <nick>           revoke agent credentials
+  agent delete <nick>           permanently remove agent from registry
   agent rotate <nick>           rotate agent password
-  channels list                 list provisioned channels (requires #12)
+  channels list                 list active channels
+  channels users <channel>      list users in a channel
+  channels delete <channel>     part bridge from channel (closes when empty)
+  backend rename <old> <new>    rename an LLM backend
   logs tail                     tail scribe log (coming soon)
+  admin list                    list admin accounts
+  admin add <username>          add admin (prompts for password)
+  admin remove <username>       remove admin
+  admin passwd <username>       change admin password (prompts)
 `, version)
 }
 

@@ -57,31 +57,45 @@ An agent coordination backplane built on IRC. Agents connect as IRC users, coord
 
 ```
 cmd/
-  scuttlebot/     # daemon binary
-  scuttlectl/     # CLI/REPL binary
+  scuttlebot/           # daemon binary
+  scuttlectl/           # admin CLI
+    internal/apiclient/ # typed API client used by scuttlectl
 internal/
-  ergo/           # ergo lifecycle + config generation
-  registry/       # agent registration + credential issuance
-  topology/       # channel provisioning + mode/topic management
-  bots/           # built-in bots (scribe, scroll, herald, oracle, warden)
-  mcp/            # MCP server for AI agent connectivity
-internal/config/  # config loading + validation
+  api/                  # HTTP API server (Bearer auth) + embedded web UI at /ui/
+    ui/index.html       # single-file operator web UI
+  auth/                 # admin account store — bcrypt hashed, persisted to JSON
+  bots/
+    manager/            # bot lifecycle — starts/stops bots on policy change
+    auditbot/           # immutable append-only audit trail
+    herald/             # external event → channel routing (webhooks)
+    oracle/             # on-demand channel summarization via LLM (PM only)
+    scribe/             # structured logging to rotating files
+    scroll/             # history replay to PM on request
+    snitch/             # flood + join/part cycling detection → operator alerts
+    systembot/          # IRC system events (joins, parts, modes, kicks)
+    warden/             # channel moderation — warn → mute → kick
+  config/               # YAML config loading + validation
+  ergo/                 # Ergo IRC server lifecycle + config generation
+  mcp/                  # MCP server for AI agent connectivity
+  registry/             # agent registration + SASL credential issuance
+  topology/             # channel provisioning + mode/topic management
 pkg/
-  client/         # Go SDK (public)
-  protocol/       # wire format (message envelope)
-apps/
-  web/            # operator UI — separate app, own stack
-sdk/              # future: python, ruby, rust client SDKs
+  client/               # Go agent SDK (public)
+  protocol/             # JSON envelope wire format
 deploy/
-  docker/         # Dockerfile(s)
-  compose/        # docker compose (local dev + single-host)
-  k8s/            # Kubernetes manifests
-  standalone/     # single binary, no container required
+  docker/               # Dockerfile(s)
+  compose/              # Docker Compose (local dev + single-host)
+  k8s/                  # Kubernetes manifests
+  standalone/           # single binary, no container required
+tests/
+  e2e/                  # Playwright end-to-end tests (require scuttlebot running)
 go.mod
 go.sum
+bootstrap.md
+CLAUDE.md               # Claude Code shim — points here
 ```
 
-Single Go module for everything under `cmd/`, `internal/`, `pkg/`. `apps/web/` and `sdk/*` are their own modules.
+Single Go module. All state persisted as JSON files under `data/` (no database required).
 
 ---
 
@@ -145,15 +159,20 @@ IRC ops model maps directly:
 
 ### Built-in bots
 
-| Bot | Role |
-|-----|------|
-| `scribe` | Structured logging to persistent store |
-| `scroll` | History replay to PM on request (never floods channels) |
-| `herald` | Alerts + notifications |
-| `oracle` | Summarization — packages context as TOON for agent consumption |
-| `warden` | Moderation + rate limiting |
+All 8 bots are implemented. Enabled/configured via the web UI or `scuttlectl`. The manager (`internal/bots/manager/`) starts/stops them dynamically when policies change.
 
-v0 ships `scribe` only. Pattern proven, others follow.
+| Bot | Nick | Role |
+|-----|------|------|
+| `auditbot` | auditbot | Immutable append-only audit trail of agent actions and credential events |
+| `herald` | herald | Routes inbound webhook events to IRC channels |
+| `oracle` | oracle | On-demand channel summarization via DM — calls any OpenAI-compatible LLM |
+| `scribe` | scribe | Structured message logging to rotating files (jsonl/csv/text) |
+| `scroll` | scroll | History replay to PM on request |
+| `snitch` | snitch | Flood and join/part cycling detection — alerts operators via DM or channel |
+| `systembot` | systembot | Logs IRC system events (joins, parts, quits, mode changes) |
+| `warden` | warden | Channel moderation — warn → mute → kick on flood |
+
+Oracle reads history from scribe's log files (pointed at the same dir). Configure `api_key_env` to the name of the env var holding the API key (e.g. `ORACLE_OPENAI_API_KEY`), and `base_url` for non-OpenAI providers.
 
 ### Scale
 
@@ -161,14 +180,19 @@ Target: 100s to low 1000s of agents on a private network. Single Ergo instance h
 
 ### Persistence
 
-| What | Standalone | Docker Compose / K8s |
-|------|-----------|----------------------|
-| Ergo state (accounts, channels, topics) | `ircd.db` local file | PersistentVolume (K8s) or named volume (Compose) |
-| Ergo message history | in-memory buffer | MySQL (Ergo-native, unlimited history) |
-| scuttlebot state (agent registry, config) | SQLite | Postgres |
-| scribe bot (chat/event logs) | SQLite | Postgres or S3 |
+No database required. All state is persisted as JSON files under `data/` by default.
 
-K8s HA: single Ergo pod with PVC for `ircd.db`. Not multi-replica — Ergo is single-instance. HA = fast pod restart with durable storage.
+| What | File | Notes |
+|------|------|-------|
+| Agent registry | `data/ergo/registry.json` | Agent records + SASL credentials |
+| Admin accounts | `data/ergo/admins.json` | bcrypt-hashed; created by `scuttlectl admin add` |
+| Policies | `data/ergo/policies.json` | Bot config, agent policy, logging settings |
+| Bot passwords | `data/ergo/bot_passwords.json` | Auto-generated SASL passwords for system bots |
+| API token | `data/ergo/api_token` | Bearer token for API auth; stable across restarts |
+| Ergo state | `data/ergo/ircd.db` | Ergo-native: accounts, channels, topics, history |
+| scribe logs | `data/logs/scribe/` | Rotating log files (jsonl/csv/text); configurable |
+
+K8s / Docker: mount a PersistentVolume at `data/`. Ergo is single-instance — HA = fast pod restart with durable storage, not horizontal scaling.
 
 ---
 
@@ -199,14 +223,59 @@ K8s HA: single Ergo pod with PVC for `ircd.db`. Not multi-replica — Ergo is si
 
 ---
 
+## HTTP API
+
+`internal/api/` — two-mux pattern:
+
+- **Outer mux** (unauthenticated): `POST /login`, `GET /` (redirect), `GET /ui/` (web UI)
+- **Inner mux** (`/v1/` routes): require `Authorization: Bearer <token>` header
+
+The API token is a random hex string generated once at startup, persisted to `data/ergo/api_token`.
+
+### Auth
+
+`POST /login` accepts `{username, password}` and returns `{token, username}`. The token is the shared server API token. Rate limited to 10 attempts per minute per IP.
+
+Admin accounts are managed via `scuttlectl admin` or the web UI settings → admin accounts card. First run auto-creates an `admin` account with a random password printed to the log.
+
+### Key endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/login` | Username/password login (unauthenticated) |
+| `GET` | `/v1/status` | Server status |
+| `GET` | `/v1/metrics` | Runtime metrics + bridge stats |
+| `GET/PUT` | `/v1/settings/policies` | Bot config, agent policy, logging |
+| `GET` | `/v1/agents` | List all registered agents |
+| `POST` | `/v1/agents/register` | Register an agent |
+| `POST` | `/v1/agents/{nick}/rotate` | Rotate credentials |
+| `POST` | `/v1/agents/{nick}/revoke` | Revoke agent |
+| `GET` | `/v1/channels` | List joined channels |
+| `GET` | `/v1/channels/{ch}/stream` | SSE stream of channel messages |
+| `GET/POST` | `/v1/admins` | List / add admin accounts |
+| `DELETE` | `/v1/admins/{username}` | Remove admin |
+| `PUT` | `/v1/admins/{username}/password` | Change password |
+
+---
+
 ## Adding a New Bot
 
-1. Create `internal/bots/{name}/` package
-2. Implement the `Bot` interface (defined in `internal/bots/bot.go`)
-3. Register in `internal/bots/registry.go`
-4. Add config struct to `internal/config/`
-5. Write tests: bot handles valid message, ignores malformed message, handles disconnect/reconnect
+1. Create `internal/bots/{name}/` package with a `Bot` struct and `Start(ctx context.Context) error` method
+2. Add a `BotSpec` config struct if the bot needs user-configurable settings
+3. Register in `internal/bots/manager/manager.go`:
+   - Add a case to `buildBot()` that constructs your bot from the spec config
+   - Add a `BehaviorConfig` entry to `defaultBehaviors` in `internal/api/policies.go`
+4. Add the UI config schema to `BEHAVIOR_SCHEMAS` in `internal/api/ui/index.html`
+5. Write tests: bot logic, config parsing, edge cases. IRC connection can be skipped in unit tests.
 6. Update this bootstrap
+
+No separate registration file or global registry. The manager builds bots by ID from the `BotSpec`. Bots satisfy the `bot` interface (unexported in manager package):
+
+```go
+type bot interface {
+    Start(ctx context.Context) error
+}
+```
 
 ---
 
@@ -232,9 +301,27 @@ K8s HA: single Ergo pod with PVC for `ircd.db`. Not multi-replica — Ergo is si
 ## Common Commands
 
 ```bash
+# Dev helper (recommended)
+./run.sh                       # build + start
+./run.sh restart               # rebuild + restart
+./run.sh stop                  # stop
+./run.sh token                 # print current API token
+./run.sh log                   # tail the log
+./run.sh test                  # go test ./...
+./run.sh e2e                   # Playwright e2e (requires scuttlebot running)
+
+# Direct Go commands
 go build ./cmd/scuttlebot      # build daemon
 go build ./cmd/scuttlectl      # build CLI
 go test ./...                  # run all tests
 golangci-lint run              # lint
-docker compose up              # boot ergo + scuttlebot locally
+
+# Admin CLI
+scuttlectl admin list          # list admin accounts
+scuttlectl admin add alice     # add admin (prompts for password)
+scuttlectl admin passwd alice  # change password
+scuttlectl admin remove alice  # remove admin
+
+# Docker
+docker compose -f deploy/compose/docker-compose.yml up
 ```

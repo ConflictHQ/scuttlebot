@@ -12,6 +12,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -72,15 +74,59 @@ type Registry struct {
 	agents      map[string]*Agent // keyed by nick
 	provisioner AccountProvisioner
 	signingKey  []byte
+	dataPath    string // path to persist agents JSON; empty = no persistence
 }
 
 // New creates a new Registry with the given provisioner and HMAC signing key.
+// Call SetDataPath to enable persistence before registering any agents.
 func New(provisioner AccountProvisioner, signingKey []byte) *Registry {
 	return &Registry{
 		agents:      make(map[string]*Agent),
 		provisioner: provisioner,
 		signingKey:  signingKey,
 	}
+}
+
+// SetDataPath enables persistence. The registry is loaded from path immediately
+// (non-fatal if the file doesn't exist yet) and saved there after every mutation.
+func (r *Registry) SetDataPath(path string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dataPath = path
+	return r.load()
+}
+
+func (r *Registry) load() error {
+	data, err := os.ReadFile(r.dataPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("registry: load: %w", err)
+	}
+	var agents []*Agent
+	if err := json.Unmarshal(data, &agents); err != nil {
+		return fmt.Errorf("registry: load: %w", err)
+	}
+	for _, a := range agents {
+		r.agents[a.Nick] = a
+	}
+	return nil
+}
+
+func (r *Registry) save() {
+	if r.dataPath == "" {
+		return
+	}
+	agents := make([]*Agent, 0, len(r.agents))
+	for _, a := range r.agents {
+		agents = append(agents, a)
+	}
+	data, err := json.MarshalIndent(agents, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(r.dataPath, data, 0600)
 }
 
 // Register creates a new agent, provisions its Ergo account, and returns
@@ -104,7 +150,14 @@ func (r *Registry) Register(nick string, agentType AgentType, cfg EngagementConf
 	}
 
 	if err := r.provisioner.RegisterAccount(nick, passphrase); err != nil {
-		return nil, nil, fmt.Errorf("registry: provision account: %w", err)
+		// Account exists in NickServ from a previous run — sync the password.
+		if strings.Contains(err.Error(), "ACCOUNT_EXISTS") {
+			if err2 := r.provisioner.ChangePassword(nick, passphrase); err2 != nil {
+				return nil, nil, fmt.Errorf("registry: provision account: %w", err2)
+			}
+		} else {
+			return nil, nil, fmt.Errorf("registry: provision account: %w", err)
+		}
 	}
 
 	agent := &Agent{
@@ -116,6 +169,7 @@ func (r *Registry) Register(nick string, agentType AgentType, cfg EngagementConf
 		CreatedAt:   time.Now(),
 	}
 	r.agents[nick] = agent
+	r.save()
 
 	payload, err := r.signPayload(agent)
 	if err != nil {
@@ -125,13 +179,42 @@ func (r *Registry) Register(nick string, agentType AgentType, cfg EngagementConf
 	return &Credentials{Nick: nick, Passphrase: passphrase}, payload, nil
 }
 
+// Adopt adds a pre-existing NickServ account to the registry without touching
+// its password. The caller is responsible for knowing their own passphrase.
+// Returns a signed payload; no Credentials are returned since the password
+// is not changed.
+func (r *Registry) Adopt(nick string, agentType AgentType, cfg EngagementConfig) (*SignedPayload, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("registry: invalid engagement config: %w", err)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if existing, ok := r.agents[nick]; ok && !existing.Revoked {
+		return nil, fmt.Errorf("registry: agent %q already registered", nick)
+	}
+
+	agent := &Agent{
+		Nick:        nick,
+		Type:        agentType,
+		Channels:    cfg.Channels,
+		Permissions: cfg.Permissions,
+		Config:      cfg,
+		CreatedAt:   time.Now(),
+	}
+	r.agents[nick] = agent
+	r.save()
+
+	return r.signPayload(agent)
+}
+
 // Rotate generates a new passphrase for an agent and updates Ergo.
 func (r *Registry) Rotate(nick string) (*Credentials, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	agent, err := r.get(nick)
-	if err != nil {
+	if _, err := r.get(nick); err != nil {
 		return nil, err
 	}
 
@@ -144,7 +227,7 @@ func (r *Registry) Rotate(nick string) (*Credentials, error) {
 		return nil, fmt.Errorf("registry: rotate credentials: %w", err)
 	}
 
-	_ = agent // agent exists, credentials rotated
+	r.save()
 	return &Credentials{Nick: nick, Passphrase: passphrase}, nil
 }
 
@@ -169,6 +252,35 @@ func (r *Registry) Revoke(nick string) error {
 	}
 
 	agent.Revoked = true
+	r.save()
+	return nil
+}
+
+// Delete fully removes an agent from the registry. The Ergo NickServ account
+// is locked out first (password rotated to an unguessable value) so the agent
+// can no longer connect, then the entry is removed from the registry. If the
+// agent is already revoked the lockout step is skipped.
+func (r *Registry) Delete(nick string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	agent, ok := r.agents[nick]
+	if !ok {
+		return fmt.Errorf("registry: agent %q not found", nick)
+	}
+
+	if !agent.Revoked {
+		lockout, err := generatePassphrase()
+		if err != nil {
+			return fmt.Errorf("registry: generate lockout passphrase: %w", err)
+		}
+		if err := r.provisioner.ChangePassword(nick, lockout); err != nil {
+			return fmt.Errorf("registry: delete lockout: %w", err)
+		}
+	}
+
+	delete(r.agents, nick)
+	r.save()
 	return nil
 }
 
