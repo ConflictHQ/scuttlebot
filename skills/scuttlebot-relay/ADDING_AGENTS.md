@@ -1,14 +1,48 @@
 # Adding Another Agent Runtime
 
-This repo now has two concrete operator-control implementations:
-- Claude hooks in `skills/scuttlebot-relay/hooks/`
-- Codex broker + hooks in `cmd/codex-relay/` and `skills/openai-relay/hooks/`
+This repo now has two reusable relay shapes:
+- terminal-session brokers in `cmd/claude-relay/`, `cmd/codex-relay/`, and `cmd/gemini-relay/`
+- IRC-resident agents in `pkg/ircagent/` with thin wrappers in `cmd/*-agent/`
 
 Shared transport/runtime code now lives in `pkg/sessionrelay/`. Reuse that
 before writing another relay client by hand.
 
-If you add another agent runtime, do not invent a new relay model. Follow the
-same control contract so operators get one consistent experience.
+If you add another live terminal runtime, do not invent a new relay model.
+Codex and Gemini are the current reference implementations for the terminal
+broker pattern, and Claude now follows the same layout. New runtimes should
+match the same repo paths, naming, and environment contract so operators get
+one consistent experience.
+
+## Canonical terminal-broker layout
+
+For a local interactive runtime, follow this repo layout:
+
+```text
+cmd/{runtime}-relay/main.go
+skills/{runtime}-relay/
+  install.md
+  FLEET.md
+  hooks/
+    README.md
+    scuttlebot-check.sh
+    scuttlebot-post.sh
+    ...runtime-specific reply hooks if needed
+  scripts/
+    install-{runtime}-relay.sh
+pkg/sessionrelay/
+```
+
+Conventions:
+- `cmd/{runtime}-relay/main.go` is the broker entrypoint
+- `skills/{runtime}-relay/install.md` is the human install primer
+- `skills/{runtime}-relay/FLEET.md` is the rollout and operations guide
+- `skills/{runtime}-relay/hooks/README.md` documents the runtime-specific hook contract
+- `skills/{runtime}-relay/scripts/install-{runtime}-relay.sh` is the tracked installer
+- installed files under `~/.{runtime}/`, `~/.local/bin/`, and `~/.config/` are copies, not the source of truth
+
+Use `pkg/sessionrelay/` for channel send/receive/presence in both `http` and
+`irc` modes. Use `pkg/ircagent/` only when the process itself should be a
+persistent IRC-resident bot.
 
 ## The contract
 
@@ -45,16 +79,36 @@ If the runtime needs the same channel send/receive/presence semantics as
 - `TransportHTTP` for the bridge/API path
 - `TransportIRC` for true SASL IRC presence with optional auto-registration via `/v1/agents/register`
 
+## Canonical terminal-broker conventions
+
+Every terminal broker should follow these conventions:
+- one stable nick per live session: `{runtime}-{basename}-{session}`
+- one shared env contract using `SCUTTLEBOT_*`
+- one broker process owning `online` / `offline`
+- one broker process owning continuous addressed operator input injection
+- one broker process owning outbound activity and assistant-message mirroring when the runtime exposes a reliable event/session stream
+- hooks used for pre-action fallback and for runtime-specific gaps such as post-tool summaries or final reply hooks
+- support both `SCUTTLEBOT_TRANSPORT=http` and `SCUTTLEBOT_TRANSPORT=irc` behind the same broker contract
+- soft-fail when scuttlebot is disabled or unavailable so the underlying runtime still starts
+
 ## Required environment contract
 
 All adapters should use the same environment variables:
 - `SCUTTLEBOT_URL`
 - `SCUTTLEBOT_TOKEN`
 - `SCUTTLEBOT_CHANNEL`
+- `SCUTTLEBOT_TRANSPORT`
 
 Optional:
 - `SCUTTLEBOT_NICK`
 - `SCUTTLEBOT_SESSION_ID`
+- `SCUTTLEBOT_IRC_ADDR`
+- `SCUTTLEBOT_IRC_PASS`
+- `SCUTTLEBOT_IRC_DELETE_ON_CLOSE`
+- `SCUTTLEBOT_HOOKS_ENABLED`
+- `SCUTTLEBOT_INTERRUPT_ON_MESSAGE`
+- `SCUTTLEBOT_POLL_INTERVAL`
+- `SCUTTLEBOT_PRESENCE_HEARTBEAT`
 
 Do not hardcode tokens into repo scripts.
 
@@ -206,12 +260,16 @@ If you cannot do that, the adapter is not finished.
 Recommended layout:
 
 ```text
+cmd/{runtime}-relay/
 skills/{runtime}-relay/
+  FLEET.md
   hooks/
     README.md
     scuttlebot-post.*
     scuttlebot-check.*
+    ...runtime-specific reply hooks
   scripts/
+    install-{runtime}-relay.*
     {runtime}-relay.*
   install.md
 ```

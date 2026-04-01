@@ -13,6 +13,10 @@ Use the broker path when you want the local Codex terminal to show up in IRC as
 soon as it starts, post `online`/`offline` presence, stream per-tool activity via
 hooks, and accept addressed instructions continuously while the session is running.
 
+Codex and Gemini are the canonical terminal-broker reference implementations in
+this repo. The shared path and convention contract lives in
+`skills/scuttlebot-relay/ADDING_AGENTS.md`.
+
 Source-of-truth files in the repo:
 - installer: `skills/openai-relay/scripts/install-codex-relay.sh`
 - broker: `cmd/codex-relay/main.go`
@@ -20,6 +24,7 @@ Source-of-truth files in the repo:
 - dev wrapper: `skills/openai-relay/scripts/codex-relay.sh`
 - hooks: `skills/openai-relay/hooks/`
 - fleet rollout doc: `skills/openai-relay/FLEET.md`
+- canonical relay contract: `skills/scuttlebot-relay/ADDING_AGENTS.md`
 
 Installed files under `~/.codex`, `~/.local/bin`, and `~/.config` are copies.
 
@@ -70,6 +75,13 @@ Behavior:
 - mirror assistant output and tool activity from the active session log
 - use `pkg/sessionrelay` for both `http` and `irc` transport modes
 - let the existing hooks remain the pre-tool fallback path
+
+Canonical pattern summary:
+- broker entrypoint: `cmd/codex-relay/main.go`
+- tracked installer: `skills/openai-relay/scripts/install-codex-relay.sh`
+- runtime docs: `skills/openai-relay/install.md` and `skills/openai-relay/FLEET.md`
+- hooks: `skills/openai-relay/hooks/`
+- shared transport: `pkg/sessionrelay/`
 
 Transport modes:
 - `SCUTTLEBOT_TRANSPORT=http` uses the working HTTP bridge path and presence heartbeats

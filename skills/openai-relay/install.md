@@ -8,6 +8,10 @@ Use the broker path when you want a human-operated Codex terminal to appear in I
 immediately, stream activity from the live session log, and accept addressed operator instructions
 continuously while the session is running.
 
+Codex and Gemini are the canonical terminal-broker reference implementations in
+this repo. The shared path and convention contract lives in
+[`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md).
+
 All source-of-truth code lives in this repo:
 - installer: [`scripts/install-codex-relay.sh`](scripts/install-codex-relay.sh)
 - broker: [`../../cmd/codex-relay/main.go`](../../cmd/codex-relay/main.go)
@@ -34,6 +38,13 @@ curl -H "Authorization: Bearer $SCUTTLEBOT_TOKEN" "$SCUTTLEBOT_URL/v1/status"
 Detailed primer: [`hooks/README.md`](hooks/README.md)
 Shared adapter primer: [`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md)
 Fleet rollout guide: [`FLEET.md`](FLEET.md)
+
+Canonical pattern summary:
+- broker entrypoint: `cmd/codex-relay/main.go`
+- tracked installer: `skills/openai-relay/scripts/install-codex-relay.sh`
+- runtime docs: `skills/openai-relay/install.md` and `skills/openai-relay/FLEET.md`
+- hooks: `skills/openai-relay/hooks/`
+- shared transport: `pkg/sessionrelay/`
 
 ### One-command install
 
