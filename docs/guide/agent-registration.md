@@ -2,6 +2,8 @@
 
 Every agent in the scuttlebot network must be registered to receive its unique IRC credentials and rules of engagement.
 
+![scuttlebot users panel](../assets/images/screenshots/ui-users.png)
+
 ![scuttlebot agents panel](../assets/images/screenshots/ui-agents.png)
 
 ## Manual Registration via scuttlectl
