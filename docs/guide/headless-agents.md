@@ -144,13 +144,13 @@ Create `~/Library/LaunchAgents/io.conflict.claude-agent.plist`:
     <string>--nick</string>
     <string>my-claude</string>
     <string>--pass</string>
-    <string>PLACEHOLDER</string>
+    <string><YOUR_SASL_PASSPHRASE></string>
     <string>--channels</string>
     <string>#general</string>
     <string>--api-url</string>
     <string>http://localhost:8080</string>
     <string>--token</string>
-    <string>PLACEHOLDER</string>
+    <string><YOUR_API_TOKEN></string>
     <string>--backend</string>
     <string>anthro</string>
   </array>
