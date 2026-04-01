@@ -1,7 +1,23 @@
-.PHONY: build test lint clean install-codex-relay install-gemini-relay install-claude-relay test-smoke
+.PHONY: all build fmt vet lint test test-smoke clean install \
+        install-claude-relay install-codex-relay install-gemini-relay
+
+BINS := bin/scuttlebot bin/scuttlectl bin/claude-relay bin/codex-relay \
+        bin/gemini-relay bin/claude-agent bin/codex-agent bin/gemini-agent \
+        bin/fleet-cmd
+
+all: $(BINS)
 
 build:
 	go build ./...
+
+fmt:
+	gofmt -w ./
+
+vet:
+	go vet ./...
+
+lint:
+	golangci-lint run
 
 test:
 	go test ./...
@@ -9,11 +25,17 @@ test:
 test-smoke:
 	bash tests/smoke/test-installers.sh
 
-lint:
-	golangci-lint run
+# Install daemon + CLI to $(GOPATH)/bin (or ~/go/bin).
+install:
+	go install ./cmd/scuttlebot ./cmd/scuttlectl
 
 clean:
-	rm -f bin/scuttlebot bin/scuttlectl bin/claude-agent bin/codex-agent bin/gemini-agent bin/codex-relay bin/gemini-relay bin/claude-relay bin/fleet-cmd
+	rm -f $(BINS)
+
+# --- relay install helpers ---
+
+install-claude-relay:
+	bash skills/scuttlebot-relay/scripts/install-claude-relay.sh
 
 install-codex-relay:
 	bash skills/openai-relay/scripts/install-codex-relay.sh
@@ -21,32 +43,31 @@ install-codex-relay:
 install-gemini-relay:
 	bash skills/gemini-relay/scripts/install-gemini-relay.sh
 
-install-claude-relay:
-	bash skills/scuttlebot-relay/scripts/install-claude-relay.sh
+# --- individual bin targets ---
 
 bin/scuttlebot:
-	go build -o bin/scuttlebot ./cmd/scuttlebot
+	go build -o $@ ./cmd/scuttlebot
 
 bin/scuttlectl:
-	go build -o bin/scuttlectl ./cmd/scuttlectl
-
-bin/claude-agent:
-	go build -o bin/claude-agent ./cmd/claude-agent
-
-bin/codex-agent:
-	go build -o bin/codex-agent ./cmd/codex-agent
-
-bin/gemini-agent:
-	go build -o bin/gemini-agent ./cmd/gemini-agent
-
-bin/codex-relay:
-	go build -o bin/codex-relay ./cmd/codex-relay
-
-bin/gemini-relay:
-	go build -o bin/gemini-relay ./cmd/gemini-relay
+	go build -o $@ ./cmd/scuttlectl
 
 bin/claude-relay:
-	go build -o bin/claude-relay ./cmd/claude-relay
+	go build -o $@ ./cmd/claude-relay
+
+bin/codex-relay:
+	go build -o $@ ./cmd/codex-relay
+
+bin/gemini-relay:
+	go build -o $@ ./cmd/gemini-relay
+
+bin/claude-agent:
+	go build -o $@ ./cmd/claude-agent
+
+bin/codex-agent:
+	go build -o $@ ./cmd/codex-agent
+
+bin/gemini-agent:
+	go build -o $@ ./cmd/gemini-agent
 
 bin/fleet-cmd:
-	go build -o bin/fleet-cmd ./cmd/fleet-cmd
+	go build -o $@ ./cmd/fleet-cmd

@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: go.mod
           cache: true
 
       - name: Build binaries
@@ -37,10 +37,13 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           SUFFIX="${{ matrix.goos }}-${{ matrix.goarch }}"
-          go build -ldflags="-X main.version=${{ github.ref_name }}" \
-            -o "dist/scuttlebot-${SUFFIX}" ./cmd/scuttlebot
-          go build -ldflags="-X main.version=${{ github.ref_name }}" \
-            -o "dist/scuttlectl-${SUFFIX}" ./cmd/scuttlectl
+          LDFLAGS="-X main.version=${{ github.ref_name }}"
+          mkdir -p dist
+          go build -ldflags="${LDFLAGS}" -o "dist/scuttlebot-${SUFFIX}"   ./cmd/scuttlebot
+          go build -ldflags="${LDFLAGS}" -o "dist/scuttlectl-${SUFFIX}"   ./cmd/scuttlectl
+          go build -ldflags="${LDFLAGS}" -o "dist/claude-relay-${SUFFIX}" ./cmd/claude-relay
+          go build -ldflags="${LDFLAGS}" -o "dist/codex-relay-${SUFFIX}"  ./cmd/codex-relay
+          go build -ldflags="${LDFLAGS}" -o "dist/gemini-relay-${SUFFIX}" ./cmd/gemini-relay
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2

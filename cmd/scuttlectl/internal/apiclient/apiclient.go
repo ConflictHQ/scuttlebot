@@ -84,6 +84,11 @@ func (c *Client) ListChannels() (json.RawMessage, error) {
 	return c.get("/v1/channels")
 }
 
+// ListLLMBackends sends GET /v1/llm/backends and returns raw JSON.
+func (c *Client) ListLLMBackends() (json.RawMessage, error) {
+	return c.get("/v1/llm/backends")
+}
+
 // GetLLMBackend sends GET /v1/llm/backends and finds the named backend, returning raw JSON.
 func (c *Client) GetLLMBackend(name string) (json.RawMessage, error) {
 	raw, err := c.get("/v1/llm/backends")

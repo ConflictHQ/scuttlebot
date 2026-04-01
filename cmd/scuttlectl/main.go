@@ -131,10 +131,18 @@ func main() {
 		}
 	case "backend", "backends":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: scuttlectl backend rename <old-name> <new-name>\n")
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl backend <list|get|delete|rename> [args]\n")
 			os.Exit(1)
 		}
 		switch args[1] {
+		case "list":
+			cmdBackendList(api, *jsonFlag)
+		case "get":
+			requireArgs(args, 3, "scuttlectl backend get <name>")
+			cmdBackendGet(api, args[2], *jsonFlag)
+		case "delete", "rm":
+			requireArgs(args, 3, "scuttlectl backend delete <name>")
+			cmdBackendDelete(api, args[2])
 		case "rename":
 			requireArgs(args, 4, "scuttlectl backend rename <old-name> <new-name>")
 			cmdBackendRename(api, args[2], args[3])
@@ -142,9 +150,6 @@ func main() {
 			fmt.Fprintf(os.Stderr, "unknown subcommand: backend %s\n", args[1])
 			os.Exit(1)
 		}
-	case "logs":
-		fmt.Fprintln(os.Stderr, "logs tail: not yet implemented (requires scribe HTTP endpoint)")
-		os.Exit(1)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		usage()
@@ -396,6 +401,61 @@ func cmdChannelDelete(api *apiclient.Client, channel string) {
 	fmt.Printf("Channel deleted: #%s\n", strings.TrimPrefix(channel, "#"))
 }
 
+func cmdBackendList(api *apiclient.Client, asJSON bool) {
+	raw, err := api.ListLLMBackends()
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+	var body struct {
+		Backends []struct {
+			Name     string `json:"name"`
+			Provider string `json:"provider"`
+		} `json:"backends"`
+	}
+	must(json.Unmarshal(raw, &body))
+	if len(body.Backends) == 0 {
+		fmt.Println("no backends")
+		return
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tPROVIDER")
+	for _, b := range body.Backends {
+		fmt.Fprintf(tw, "%s\t%s\n", b.Name, b.Provider)
+	}
+	tw.Flush()
+}
+
+func cmdBackendGet(api *apiclient.Client, name string, asJSON bool) {
+	raw, err := api.GetLLMBackend(name)
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+	var b struct {
+		Name     string `json:"name"`
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseURL  string `json:"base_url,omitempty"`
+	}
+	must(json.Unmarshal(raw, &b))
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(tw, "name\t%s\n", b.Name)
+	fmt.Fprintf(tw, "provider\t%s\n", b.Provider)
+	fmt.Fprintf(tw, "model\t%s\n", b.Model)
+	if b.BaseURL != "" {
+		fmt.Fprintf(tw, "base_url\t%s\n", b.BaseURL)
+	}
+	tw.Flush()
+}
+
+func cmdBackendDelete(api *apiclient.Client, name string) {
+	die(api.DeleteLLMBackend(name))
+	fmt.Printf("Backend deleted: %s\n", name)
+}
+
 func cmdBackendRename(api *apiclient.Client, oldName, newName string) {
 	raw, err := api.GetLLMBackend(oldName)
 	die(err)
@@ -452,7 +512,7 @@ Commands:
   agents list                   list all registered agents
   agent get <nick>              get a single agent
   agent register <nick>         register a new agent, print credentials
-    [--type worker|orchestrator|observer]
+    [--type worker|orchestrator|observer|operator]
     [--channels #a,#b,#c]
   agent revoke <nick>           revoke agent credentials
   agent delete <nick>           permanently remove agent from registry
@@ -460,8 +520,10 @@ Commands:
   channels list                 list active channels
   channels users <channel>      list users in a channel
   channels delete <channel>     part bridge from channel (closes when empty)
-  backend rename <old> <new>    rename an LLM backend
-  logs tail                     tail scribe log (coming soon)
+  backend list                  list LLM backends
+  backend get <name>            show a single backend
+  backend delete <name>         remove a backend
+  backend rename <old> <new>    rename a backend
   admin list                    list admin accounts
   admin add <username>          add admin (prompts for password)
   admin remove <username>       remove admin
