@@ -62,15 +62,15 @@ func TestGeminiDiscoverModels(t *testing.T) {
 		resp := map[string]any{
 			"models": []map[string]any{
 				{
-					"name":                     "models/gemini-1.5-flash",
-					"displayName":              "Gemini 1.5 Flash",
-					"description":              "Fast and versatile",
+					"name":                       "models/gemini-1.5-flash",
+					"displayName":                "Gemini 1.5 Flash",
+					"description":                "Fast and versatile",
 					"supportedGenerationMethods": []string{"generateContent"},
 				},
 				{
-					"name":                     "models/other-model",
-					"displayName":              "Other",
-					"description":              "Other model",
+					"name":                       "models/other-model",
+					"displayName":                "Other",
+					"description":                "Other model",
 					"supportedGenerationMethods": []string{"other"},
 				},
 			},

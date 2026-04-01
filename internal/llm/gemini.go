@@ -106,9 +106,9 @@ func (p *geminiProvider) DiscoverModels(ctx context.Context) ([]ModelInfo, error
 
 	var result struct {
 		Models []struct {
-			Name            string   `json:"name"`
-			DisplayName     string   `json:"displayName"`
-			Description     string   `json:"description"`
+			Name             string   `json:"name"`
+			DisplayName      string   `json:"displayName"`
+			Description      string   `json:"description"`
 			SupportedMethods []string `json:"supportedGenerationMethods"`
 		} `json:"models"`
 	}

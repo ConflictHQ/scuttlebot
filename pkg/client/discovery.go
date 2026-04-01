@@ -19,9 +19,9 @@ type DiscoveryOptions struct {
 
 // ChannelSummary is a channel returned by ListChannels.
 type ChannelSummary struct {
-	Name      string
+	Name        string
 	MemberCount int
-	Topic     string
+	Topic       string
 }
 
 // Member is an entry in the channel member list.

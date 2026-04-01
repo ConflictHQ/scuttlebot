@@ -63,13 +63,13 @@ func TestParseCommandInvalid(t *testing.T) {
 	tests := []struct {
 		input string
 	}{
-		{"summarize"},                          // missing channel
-		{""},                                  // empty
-		{"do-something #fleet"},               // unknown command
-		{"summarize fleet"},                   // missing #
-		{"summarize #fleet last=notanumber"},  // bad last
-		{"summarize #fleet format=xml"},       // unknown format
-		{"summarize #fleet last=-5"},          // negative
+		{"summarize"},                        // missing channel
+		{""},                                 // empty
+		{"do-something #fleet"},              // unknown command
+		{"summarize fleet"},                  // missing #
+		{"summarize #fleet last=notanumber"}, // bad last
+		{"summarize #fleet format=xml"},      // unknown format
+		{"summarize #fleet last=-5"},         // negative
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

@@ -113,7 +113,7 @@ func (m *Manager) startManaged(ctx context.Context) error {
 				return nil
 			case <-time.After(wait):
 			}
-			wait = min(wait*2, restartMaxWait) //nolint:ineffassign
+			wait = min(wait*2, restartMaxWait) //nolint:ineffassign,staticcheck
 		}
 	}
 }

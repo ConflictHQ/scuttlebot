@@ -20,11 +20,11 @@ var KnownBackends = map[string]string{
 	"cerebras":    "https://api.cerebras.ai/v1",
 	"xai":         "https://api.x.ai/v1",
 	// Local / self-hosted (defaults — override with base_url)
-	"litellm":    "http://localhost:4000/v1",
-	"lmstudio":   "http://localhost:1234/v1",
-	"jan":        "http://localhost:1337/v1",
-	"localai":    "http://localhost:8080/v1",
-	"vllm":       "http://localhost:8000/v1",
+	"litellm":     "http://localhost:4000/v1",
+	"lmstudio":    "http://localhost:1234/v1",
+	"jan":         "http://localhost:1337/v1",
+	"localai":     "http://localhost:8080/v1",
+	"vllm":        "http://localhost:8000/v1",
 	"anythingllm": "http://localhost:3001/v1",
 }
 

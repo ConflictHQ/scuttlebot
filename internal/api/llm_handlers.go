@@ -14,7 +14,7 @@ import (
 type backendView struct {
 	Name     string   `json:"name"`
 	Backend  string   `json:"backend"`
-	APIKey   string   `json:"api_key,omitempty"`   // "***" if set, "" if not
+	APIKey   string   `json:"api_key,omitempty"` // "***" if set, "" if not
 	BaseURL  string   `json:"base_url,omitempty"`
 	Model    string   `json:"model,omitempty"`
 	Region   string   `json:"region,omitempty"`

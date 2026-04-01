@@ -15,6 +15,7 @@ linters-settings:
     disable:
       - fieldalignment
       - shadow
+      - unusedwrite
 
 issues:
   exclude-rules:

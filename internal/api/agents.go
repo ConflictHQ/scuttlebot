@@ -18,7 +18,7 @@ type registerRequest struct {
 }
 
 type registerResponse struct {
-	Credentials *registry.Credentials  `json:"credentials"`
+	Credentials *registry.Credentials   `json:"credentials"`
 	Payload     *registry.SignedPayload `json:"payload"`
 }
 

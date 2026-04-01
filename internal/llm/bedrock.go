@@ -21,8 +21,8 @@ import (
 type awsCreds struct {
 	KeyID        string
 	SecretKey    string
-	SessionToken string // non-empty for temporary credentials from IAM roles
-	Expiry       time.Time  // zero for static credentials
+	SessionToken string    // non-empty for temporary credentials from IAM roles
+	Expiry       time.Time // zero for static credentials
 }
 
 // credCache caches resolved credentials to avoid hitting the metadata endpoint

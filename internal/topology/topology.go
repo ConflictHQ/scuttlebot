@@ -61,13 +61,13 @@ func (m *Manager) Connect(ctx context.Context) error {
 	}
 
 	c := girc.New(girc.Config{
-		Server:     host,
-		Port:       port,
-		Nick:       m.nick,
-		User:       "scuttlebot",
-		Name:       "scuttlebot topology manager",
-		SASL:       &girc.SASLPlain{User: m.nick, Pass: m.password},
-		SSL:        false,
+		Server: host,
+		Port:   port,
+		Nick:   m.nick,
+		User:   "scuttlebot",
+		Name:   "scuttlebot topology manager",
+		SASL:   &girc.SASLPlain{User: m.nick, Pass: m.password},
+		SSL:    false,
 	})
 
 	connected := make(chan struct{})

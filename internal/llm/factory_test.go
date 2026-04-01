@@ -52,7 +52,7 @@ func TestBackendNames(t *testing.T) {
 	if len(names) == 0 {
 		t.Error("expected non-empty backend names")
 	}
-	
+
 	foundGemini := false
 	for _, n := range names {
 		if n == "gemini" {

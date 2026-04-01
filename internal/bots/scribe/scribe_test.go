@@ -167,8 +167,8 @@ func TestFileStoreJSONL(t *testing.T) {
 
 	entries := []scribe.Entry{
 		{At: time.Now(), Channel: "#fleet", Nick: "alice", Kind: scribe.EntryKindRaw, Raw: "hello"},
-		{At: time.Now(), Channel: "#fleet", Nick: "bob",   Kind: scribe.EntryKindRaw, Raw: "world"},
-		{At: time.Now(), Channel: "#ops",   Nick: "alice", Kind: scribe.EntryKindRaw, Raw: "other"},
+		{At: time.Now(), Channel: "#fleet", Nick: "bob", Kind: scribe.EntryKindRaw, Raw: "world"},
+		{At: time.Now(), Channel: "#ops", Nick: "alice", Kind: scribe.EntryKindRaw, Raw: "other"},
 	}
 	for _, e := range entries {
 		if err := fs.Append(e); err != nil {
@@ -191,7 +191,7 @@ func TestFileStorePerChannel(t *testing.T) {
 	defer fs.Close()
 
 	_ = fs.Append(scribe.Entry{At: time.Now(), Channel: "#fleet", Nick: "a", Kind: scribe.EntryKindRaw, Raw: "msg"})
-	_ = fs.Append(scribe.Entry{At: time.Now(), Channel: "#ops",   Nick: "a", Kind: scribe.EntryKindRaw, Raw: "msg"})
+	_ = fs.Append(scribe.Entry{At: time.Now(), Channel: "#ops", Nick: "a", Kind: scribe.EntryKindRaw, Raw: "msg"})
 
 	entries, err := fs.Query("#fleet", 0)
 	if err != nil {

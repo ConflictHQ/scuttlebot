@@ -59,12 +59,12 @@ type Message struct {
 // Relay posts status messages to an IRC channel and surfaces inbound
 // human messages to the running agent. It is safe for concurrent use.
 type Relay struct {
-	cfg    Config
-	http   *http.Client
+	cfg  Config
+	http *http.Client
 
-	mu       sync.Mutex
-	inbox    []Message // buffered inbound messages not yet consumed
-	cancel   context.CancelFunc
+	mu     sync.Mutex
+	inbox  []Message // buffered inbound messages not yet consumed
+	cancel context.CancelFunc
 }
 
 // New creates a Relay and starts listening for inbound messages via SSE.
