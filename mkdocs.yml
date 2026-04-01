@@ -88,6 +88,7 @@ nav:
       - Wire Format: architecture/wire-format.md
       - Persistence: architecture/persistence.md
   - Reference:
+      - HTTP API: reference/api.md
       - CLI (scuttlectl): reference/cli.md
       - Config Schema: reference/config.md
       - Message Types: reference/message-types.md
