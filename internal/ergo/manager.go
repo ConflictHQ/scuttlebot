@@ -70,7 +70,7 @@ func (m *Manager) startManaged(ctx context.Context) error {
 		return fmt.Errorf("ergo: write config: %w", err)
 	}
 
-	wait := restartBaseWait
+	var wait time.Duration //nolint:ineffassign
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil
@@ -113,7 +113,7 @@ func (m *Manager) startManaged(ctx context.Context) error {
 				return nil
 			case <-time.After(wait):
 			}
-			wait = min(wait*2, restartMaxWait)
+			wait = min(wait*2, restartMaxWait) //nolint:ineffassign
 		}
 	}
 }

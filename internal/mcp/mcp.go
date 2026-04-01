@@ -59,7 +59,7 @@ type ChannelInfo struct {
 type Server struct {
 	registry *registry.Registry
 	channels ChannelLister
-	sender   Sender        // optional — send_message returns error if nil
+	sender   Sender         // optional — send_message returns error if nil
 	history  HistoryQuerier // optional — get_history returns error if nil
 	tokens   map[string]struct{}
 	log      *slog.Logger

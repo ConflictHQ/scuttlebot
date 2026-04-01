@@ -1,6 +1,7 @@
 package oracle_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -106,7 +107,7 @@ func TestBotName(t *testing.T) {
 
 func TestStubProviderReturnsResponse(t *testing.T) {
 	p := &oracle.StubProvider{Response: "the fleet is idle"}
-	summary, err := p.Summarize(nil, "prompt")
+	summary, err := p.Summarize(context.TODO(), "prompt")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -117,7 +118,7 @@ func TestStubProviderReturnsResponse(t *testing.T) {
 
 func TestStubProviderReturnsError(t *testing.T) {
 	p := &oracle.StubProvider{Err: errors.New("llm unavailable")}
-	_, err := p.Summarize(nil, "prompt")
+	_, err := p.Summarize(context.TODO(), "prompt")
 	if err == nil {
 		t.Error("expected error")
 	}

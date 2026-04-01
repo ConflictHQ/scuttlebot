@@ -59,9 +59,9 @@ func buildConfig(s *setupScanner) map[string]any {
 	printSection("IRC / network")
 
 	networkName := s.ask("  IRC network name", "scuttlebot")
-	serverName  := s.ask("  IRC server hostname", "irc.scuttlebot.local")
-	ircAddr     := s.ask("  IRC listen address", "127.0.0.1:6667")
-	apiAddr     := s.ask("  HTTP API listen address", ":8080")
+	serverName := s.ask("  IRC server hostname", "irc.scuttlebot.local")
+	ircAddr := s.ask("  IRC listen address", "127.0.0.1:6667")
+	apiAddr := s.ask("  HTTP API listen address", ":8080")
 
 	cfg["ergo"] = map[string]any{
 		"network_name": networkName,
@@ -75,7 +75,7 @@ func buildConfig(s *setupScanner) map[string]any {
 
 	if s.confirm("  Enable Let's Encrypt TLS?", false) {
 		domain := s.ask("  Domain name", "")
-		email  := s.ask("  Email for cert expiry notices", "")
+		email := s.ask("  Email for cert expiry notices", "")
 		cfg["tls"] = map[string]any{
 			"domain":         domain,
 			"email":          email,
@@ -113,11 +113,13 @@ func buildConfig(s *setupScanner) map[string]any {
 	printSection("message logging  (scribe bot)")
 
 	if s.confirm("  Enable scribe message logging?", true) {
-		logDir  := s.ask("  Log directory", "./data/logs/scribe")
-		format  := s.choice("  Format", []string{"jsonl", "csv", "text"}, "jsonl")
+		logDir := s.ask("  Log directory", "./data/logs/scribe")
+		format := s.choice("  Format", []string{"jsonl", "csv", "text"}, "jsonl")
 		rotatef := s.choice("  Rotation", []string{"none", "daily", "weekly", "monthly", "size"}, "daily")
 		// Stored as scribe bot policy — just print a note, actual policy is in policies.json
-		_ = logDir; _ = format; _ = rotatef
+		_ = logDir
+		_ = format
+		_ = rotatef
 		fmt.Printf("\n  Note: scribe is enabled via the web UI (settings → system behaviors).\n")
 		fmt.Printf("  Set dir=%s format=%s rotation=%s in oracle's behavior config.\n\n", logDir, format, rotatef)
 	}
@@ -143,7 +145,7 @@ func buildBackend(s *setupScanner) map[string]any {
 	case "bedrock":
 		b["region"] = s.ask("  AWS region", "us-east-1")
 		if s.confirm("  Use static AWS credentials? (No = IAM role auto-detected)", false) {
-			b["aws_key_id"]     = s.ask("  AWS access key ID", "")
+			b["aws_key_id"] = s.ask("  AWS access key ID", "")
 			b["aws_secret_key"] = s.ask("  AWS secret access key", "")
 		} else {
 			fmt.Println("  → credentials will be resolved from env vars or instance/task role")
@@ -152,19 +154,19 @@ func buildBackend(s *setupScanner) map[string]any {
 
 	case "ollama":
 		b["base_url"] = s.ask("  Ollama base URL", "http://localhost:11434")
-		b["model"]    = s.ask("  Default model", "llama3.2")
+		b["model"] = s.ask("  Default model", "llama3.2")
 
 	case "anthropic":
 		b["api_key"] = s.secret("  API key")
-		b["model"]   = s.ask("  Default model", "claude-3-5-sonnet-20241022")
+		b["model"] = s.ask("  Default model", "claude-3-5-sonnet-20241022")
 
 	case "gemini":
 		b["api_key"] = s.secret("  API key")
-		b["model"]   = s.ask("  Default model", "gemini-1.5-flash")
+		b["model"] = s.ask("  Default model", "gemini-1.5-flash")
 
 	default:
 		b["api_key"] = s.secret("  API key")
-		b["model"]   = s.ask("  Default model", defaultModelFor(backendType))
+		b["model"] = s.ask("  Default model", defaultModelFor(backendType))
 	}
 
 	if s.confirm("  Add model allow/block regex filters?", false) {
@@ -187,19 +189,19 @@ func buildBackend(s *setupScanner) map[string]any {
 
 func defaultModelFor(backend string) string {
 	defaults := map[string]string{
-		"openai":      "gpt-4o-mini",
-		"openrouter":  "openai/gpt-4o-mini",
-		"groq":        "llama-3.3-70b-versatile",
-		"together":    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-		"fireworks":   "accounts/fireworks/models/llama-v3p3-70b-instruct",
-		"mistral":     "mistral-large-latest",
-		"deepseek":    "deepseek-chat",
-		"xai":         "grok-2",
-		"cerebras":    "llama3.3-70b",
-		"litellm":     "",
-		"lmstudio":    "",
-		"vllm":        "",
-		"localai":     "",
+		"openai":     "gpt-4o-mini",
+		"openrouter": "openai/gpt-4o-mini",
+		"groq":       "llama-3.3-70b-versatile",
+		"together":   "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+		"fireworks":  "accounts/fireworks/models/llama-v3p3-70b-instruct",
+		"mistral":    "mistral-large-latest",
+		"deepseek":   "deepseek-chat",
+		"xai":        "grok-2",
+		"cerebras":   "llama3.3-70b",
+		"litellm":    "",
+		"lmstudio":   "",
+		"vllm":       "",
+		"localai":    "",
 	}
 	if m, ok := defaults[backend]; ok {
 		return m

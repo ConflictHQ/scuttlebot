@@ -241,7 +241,6 @@ func cmdAgentGet(api *apiclient.Client, nick string, asJSON bool) {
 
 func cmdAgentRegister(api *apiclient.Client, args []string, asJSON bool) {
 	nick := args[0]
-	agentType := "worker"
 	var channels []string
 
 	// Parse optional --type and --channels from remaining args.
@@ -249,7 +248,7 @@ func cmdAgentRegister(api *apiclient.Client, args []string, asJSON bool) {
 	typeFlag := fs.String("type", "worker", "agent type (worker, orchestrator, observer)")
 	channelsFlag := fs.String("channels", "", "comma-separated list of channels to join")
 	_ = fs.Parse(args[1:])
-	agentType = *typeFlag
+	agentType := *typeFlag
 	if *channelsFlag != "" {
 		for _, ch := range strings.Split(*channelsFlag, ",") {
 			if ch = strings.TrimSpace(ch); ch != "" {

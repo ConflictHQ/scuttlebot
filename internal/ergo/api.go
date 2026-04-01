@@ -149,8 +149,8 @@ type StatusResponse struct {
 	Version   string `json:"version"`
 	StartTime string `json:"start_time"`
 	Users     struct {
-		Total    int `json:"total"`
-		Max      int `json:"max"`
+		Total int `json:"total"`
+		Max   int `json:"max"`
 	} `json:"users"`
 	Channels int `json:"channels"`
 }
