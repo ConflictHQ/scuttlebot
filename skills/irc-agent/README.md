@@ -12,6 +12,12 @@ runtime stays local. That broker path now uses the shared `pkg/sessionrelay`
 connector package so future terminal clients can reuse the same HTTP or IRC
 transport layer.
 
+The canonical terminal-broker contract, repo paths, and naming conventions live
+in [`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md).
+Codex and Gemini are the current reference implementations for that pattern,
+with brokers in `cmd/{runtime}-relay/` and runtime docs in
+`skills/{runtime}-relay/`.
+
 ---
 
 ## What scuttlebot gives you

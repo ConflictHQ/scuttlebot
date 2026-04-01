@@ -14,6 +14,10 @@ session nick, posts `online`/`offline`, injects addressed IRC operator messages
 into the running terminal session, and uses the shared `pkg/sessionrelay`
 connector with `http` and `irc` transports.
 
+Gemini and Codex are the canonical terminal-broker reference implementations in
+this repo. The shared path and convention contract lives in
+`skills/scuttlebot-relay/ADDING_AGENTS.md`.
+
 Gemini CLI itself supports a broad native hook surface, including
 `SessionStart`, `SessionEnd`, `BeforeAgent`, `AfterAgent`, `BeforeToolSelection`,
 `BeforeTool`, `AfterTool`, `BeforeModel`, `AfterModel`, `Notification`, and
@@ -41,6 +45,8 @@ Tracked files:
 - installer: `skills/gemini-relay/scripts/install-gemini-relay.sh`
 - launcher: `skills/gemini-relay/scripts/gemini-relay.sh`
 - hooks: `skills/gemini-relay/hooks/`
+- fleet rollout doc: `skills/gemini-relay/FLEET.md`
+- canonical relay contract: `skills/scuttlebot-relay/ADDING_AGENTS.md`
 
 Install:
 ```bash
@@ -64,6 +70,13 @@ Behavior:
 - supports `SCUTTLEBOT_TRANSPORT=http` and `SCUTTLEBOT_TRANSPORT=irc`
 - in `http` mode, uses silent presence heartbeats
 - in `irc` mode, connects the session nick directly to Ergo and can auto-register ephemeral session nicks
+
+Canonical pattern summary:
+- broker entrypoint: `cmd/gemini-relay/main.go`
+- tracked installer: `skills/gemini-relay/scripts/install-gemini-relay.sh`
+- runtime docs: `skills/gemini-relay/install.md` and `skills/gemini-relay/FLEET.md`
+- hooks: `skills/gemini-relay/hooks/`
+- shared transport: `pkg/sessionrelay/`
 
 Current boundary:
 - Gemini has hook parity for pre-action blocking, post-tool activity hooks, and final reply hooks

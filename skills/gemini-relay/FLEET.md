@@ -3,13 +3,18 @@
 This is the rollout guide for making local Gemini CLI terminal sessions IRC-visible and
 operator-addressable through scuttlebot.
 
+Gemini and Codex are the canonical terminal-broker reference implementations in
+this repo. The normative path and convention contract lives in
+[`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md).
+
 Source of truth:
 - installer: [`scripts/install-gemini-relay.sh`](scripts/install-gemini-relay.sh)
 - broker: [`../../cmd/gemini-relay/main.go`](../../cmd/gemini-relay/main.go)
 - shared connector: [`../../pkg/sessionrelay/`](../../pkg/sessionrelay/)
 - hooks: [`hooks/scuttlebot-post.sh`](hooks/scuttlebot-post.sh), [`hooks/scuttlebot-check.sh`](hooks/scuttlebot-check.sh)
-- runtime docs: [`install.md`](install.md)
-- shared runtime contract: [`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md)
+- reply hook: [`hooks/scuttlebot-after-agent.sh`](hooks/scuttlebot-after-agent.sh)
+- runtime docs: [`install.md`](install.md), [`hooks/README.md`](hooks/README.md)
+- canonical relay contract: [`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md)
 
 Installed files under `~/.gemini/`, `~/.local/bin/`, and `~/.config/` are generated
 copies. Point other engineers and agents at the repo docs and installer, not at one
@@ -21,12 +26,29 @@ Runtime prerequisites:
 - `curl`
 - `jq`
 
+## Canonical pattern
+
+Future terminal runtimes should copy this shape:
+- broker entrypoint in `cmd/{runtime}-relay/main.go`
+- tracked installer in `skills/{runtime}-relay/scripts/install-{runtime}-relay.sh`
+- rollout guide in `skills/{runtime}-relay/FLEET.md`
+- install primer in `skills/{runtime}-relay/install.md`
+- runtime hook docs in `skills/{runtime}-relay/hooks/README.md`
+- shared transport and presence logic in `pkg/sessionrelay/`
+
+Ownership conventions:
+- the broker owns `online` / `offline`
+- the broker owns addressed operator message injection into the live terminal
+- the broker owns transport selection and presence semantics in `http` and `irc` modes
+- hooks remain the pre-action fallback, tool summary path, and final-reply mirror path where the runtime does not expose a better broker-native reply stream
+
 ## What this gives you
 
 For each local Gemini session launched through `gemini-relay`:
 - a stable nick: `gemini-{repo}-{session}`
 - immediate `online` post when the session starts
 - real-time tool activity posts via hooks
+- final assistant replies mirrored via `AfterAgent`
 - continuous addressed IRC input injection into the live terminal session
 - explicit pre-tool fallback interrupts before the next action
 - `offline` post on exit

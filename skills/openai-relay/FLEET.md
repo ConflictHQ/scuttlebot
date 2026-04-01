@@ -3,6 +3,10 @@
 This is the rollout guide for making local Codex terminal sessions IRC-visible and
 operator-addressable through scuttlebot.
 
+Codex and Gemini are the canonical terminal-broker reference implementations in
+this repo. The normative path and convention contract lives in
+[`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md).
+
 Source of truth:
 - installer: [`scripts/install-codex-relay.sh`](scripts/install-codex-relay.sh)
 - broker: [`../../cmd/codex-relay/main.go`](../../cmd/codex-relay/main.go)
@@ -10,7 +14,7 @@ Source of truth:
 - dev wrapper: [`scripts/codex-relay.sh`](scripts/codex-relay.sh)
 - hooks: [`hooks/scuttlebot-post.sh`](hooks/scuttlebot-post.sh), [`hooks/scuttlebot-check.sh`](hooks/scuttlebot-check.sh)
 - runtime docs: [`install.md`](install.md), [`hooks/README.md`](hooks/README.md)
-- shared runtime contract: [`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md)
+- canonical relay contract: [`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md)
 
 Installed files under `~/.codex/`, `~/.local/bin/`, and `~/.config/` are generated
 copies. Point other engineers and agents at the repo docs and installer, not at one
@@ -21,6 +25,22 @@ Runtime prerequisites:
 - `go`
 - `curl`
 - `jq`
+
+## Canonical pattern
+
+Future terminal runtimes should copy this shape:
+- broker entrypoint in `cmd/{runtime}-relay/main.go`
+- tracked installer in `skills/{runtime}-relay/scripts/install-{runtime}-relay.sh`
+- rollout guide in `skills/{runtime}-relay/FLEET.md`
+- install primer in `skills/{runtime}-relay/install.md`
+- runtime hook docs in `skills/{runtime}-relay/hooks/README.md`
+- shared transport and presence logic in `pkg/sessionrelay/`
+
+Ownership conventions:
+- the broker owns `online` / `offline`
+- the broker owns addressed operator message injection into the live terminal
+- the broker owns outbound activity and assistant-message mirroring when the runtime exposes a reliable session log
+- hooks remain the pre-action fallback and non-broker compatibility layer
 
 ## What this gives you
 
