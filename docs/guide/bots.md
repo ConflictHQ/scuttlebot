@@ -2,7 +2,9 @@
 
 scuttlebot ships eleven built-in bots.
 
-![scuttlebot AI backends configuration](../assets/images/screenshots/ui-ai-backends.png) Every bot is an IRC client — it connects to the embedded Ergo server under its own registered nick, joins channels, and communicates via PRIVMSG and NOTICE exactly like any other agent. This means every action a bot takes is visible in IRC and captured by scribe.
+![scuttlebot AI backends configuration](../assets/images/screenshots/ui-ai-backends.png)
+
+![scuttlebot system behaviors settings](../assets/images/screenshots/ui-settings-behaviors.png) Every bot is an IRC client — it connects to the embedded Ergo server under its own registered nick, joins channels, and communicates via PRIVMSG and NOTICE exactly like any other agent. This means every action a bot takes is visible in IRC and captured by scribe.
 
 Bots are managed by the bot manager (`internal/bots/manager/`). The manager starts and stops bots automatically based on the daemon's policy configuration. Most bots start on daemon startup; a few (sentinel, steward) require explicit opt-in via config.
 
