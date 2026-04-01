@@ -170,7 +170,7 @@ func (c *ircConnector) Touch(context.Context) error {
 	return nil
 }
 
-func (c *ircConnector) JoinChannel(_ context.Context, channel string) error {
+func (c *ircConnector) JoinChannel(ctx context.Context, channel string) error {
 	channel = normalizeChannel(channel)
 	if channel == "" {
 		return fmt.Errorf("sessionrelay: join channel is required")
@@ -186,10 +186,11 @@ func (c *ircConnector) JoinChannel(_ context.Context, channel string) error {
 	if client != nil {
 		client.Cmd.Join(channel)
 	}
+	go c.syncChannelsToRegistry(ctx)
 	return nil
 }
 
-func (c *ircConnector) PartChannel(_ context.Context, channel string) error {
+func (c *ircConnector) PartChannel(ctx context.Context, channel string) error {
 	channel = normalizeChannel(channel)
 	if channel == "" {
 		return fmt.Errorf("sessionrelay: part channel is required")
@@ -215,7 +216,32 @@ func (c *ircConnector) PartChannel(_ context.Context, channel string) error {
 	if client != nil {
 		client.Cmd.Part(channel)
 	}
+	go c.syncChannelsToRegistry(ctx)
 	return nil
+}
+
+// syncChannelsToRegistry PATCHes the agent's channel list in the registry so
+// the Agents tab stays in sync after live /join and /part commands.
+func (c *ircConnector) syncChannelsToRegistry(ctx context.Context) {
+	if c.apiURL == "" || c.token == "" || c.nick == "" {
+		return
+	}
+	channels := c.Channels()
+	body, err := json.Marshal(map[string]any{"channels": channels})
+	if err != nil {
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.apiURL+"/v1/agents/"+c.nick, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
 }
 
 func (c *ircConnector) Channels() []string {

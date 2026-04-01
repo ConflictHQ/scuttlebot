@@ -57,13 +57,25 @@ contains_mention() {
   [[ "$text" =~ (^|[^[:alnum:]_./\\-])$SCUTTLEBOT_NICK($|[^[:alnum:]_./\\-]) ]]
 }
 
-epoch_seconds() {
-  local at="$1"
-  local ts_clean ts
-  ts_clean=$(echo "$at" | sed 's/\.[0-9]*//' | sed 's/\([+-][0-9][0-9]\):\([0-9][0-9]\)$/\1\2/')
-  ts=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$ts_clean" "+%s" 2>/dev/null || \
-       date -d "$ts_clean" "+%s" 2>/dev/null)
-  printf '%s' "$ts"
+epoch_millis() {
+  local at="$1" ts_secs ts_frac ts_clean frac
+  ts_frac=$(printf '%s' "$at" | grep -oE '\.[0-9]+' | head -1)
+  ts_clean=$(printf '%s' "$at" | sed 's/\.[0-9]*//' | sed 's/\([+-][0-9][0-9]\):\([0-9][0-9]\)$/\1\2/')
+  ts_secs=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$ts_clean" "+%s" 2>/dev/null || \
+            date -d "$ts_clean" "+%s" 2>/dev/null)
+  [ -n "$ts_secs" ] || return
+  if [ -n "$ts_frac" ]; then
+    frac="${ts_frac#.}000"
+    printf '%s%s' "$ts_secs" "${frac:0:3}"
+  else
+    printf '%s000' "$ts_secs"
+  fi
+}
+
+now_millis() {
+  python3 -c "import time; print(int(time.time()*1000))" 2>/dev/null || \
+  date +%s%3N 2>/dev/null || \
+  printf '%s000' "$(date +%s)"
 }
 
 cwd=$(echo "$input" | jq -r '.cwd // empty' 2>/dev/null)
@@ -83,8 +95,12 @@ LAST_CHECK_FILE="/tmp/.scuttlebot-last-check-$state_key"
 last_check=0
 if [ -f "$LAST_CHECK_FILE" ]; then
   last_check=$(cat "$LAST_CHECK_FILE")
+  # Migrate from second-precision to millisecond-precision on first upgrade.
+  if [ "$last_check" -lt 100000000000 ] 2>/dev/null; then
+    last_check=$((last_check * 1000))
+  fi
 fi
-now=$(date +%s)
+now=$(now_millis)
 echo "$now" > "$LAST_CHECK_FILE"
 
 BOTS='["bridge","oracle","sentinel","steward","scribe","warden","snitch","herald","scroll","systembot","auditbot","claude"]'
@@ -109,7 +125,7 @@ instruction=$(
       | "\(.at)\t\($channel)\t\(.nick)\t\(.text)"
     ' 2>/dev/null
   done | while IFS=$'\t' read -r at channel nick text; do
-    ts=$(epoch_seconds "$at")
+    ts=$(epoch_millis "$at")
     [ -n "$ts" ] || continue
     [ "$ts" -gt "$last_check" ] || continue
     contains_mention "$text" || continue

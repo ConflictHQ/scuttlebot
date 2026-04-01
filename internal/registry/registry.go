@@ -284,6 +284,21 @@ func (r *Registry) Delete(nick string) error {
 	return nil
 }
 
+// UpdateChannels replaces the channel list for an active agent.
+// Used by relay brokers to sync runtime /join and /part changes back to the registry.
+func (r *Registry) UpdateChannels(nick string, channels []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	agent, err := r.get(nick)
+	if err != nil {
+		return err
+	}
+	agent.Channels = append([]string(nil), channels...)
+	agent.Config.Channels = append([]string(nil), channels...)
+	r.save()
+	return nil
+}
+
 // Get returns the agent with the given nick.
 func (r *Registry) Get(nick string) (*Agent, error) {
 	r.mu.RLock()

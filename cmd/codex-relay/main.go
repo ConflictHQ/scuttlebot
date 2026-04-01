@@ -304,6 +304,9 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 			for _, msg := range batch {
 				handled, err := handleRelayCommand(ctx, relay, cfg, msg)
 				if err != nil {
+					if ctx.Err() == nil {
+						_ = relay.Post(context.Background(), fmt.Sprintf("input loop error: %v — session may be unsteerable", err))
+					}
 					return
 				}
 				if handled {
@@ -315,6 +318,9 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 				continue
 			}
 			if err := injectMessages(ptyFile, cfg, state, relay.ControlChannel(), pending); err != nil {
+				if ctx.Err() == nil {
+					_ = relay.Post(context.Background(), fmt.Sprintf("input loop error: %v — session may be unsteerable", err))
+				}
 				return
 			}
 		}
@@ -711,16 +717,21 @@ func defaultSessionID(target string) string {
 func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time) {
 	sessionPath, err := discoverSessionPath(ctx, cfg, startedAt)
 	if err != nil {
+		if ctx.Err() == nil {
+			_ = relay.Post(context.Background(), fmt.Sprintf("mirror failed: %v — session activity not visible in IRC", err))
+		}
 		return
 	}
-	_ = tailSessionFile(ctx, sessionPath, func(text string) {
+	if err := tailSessionFile(ctx, sessionPath, func(text string) {
 		for _, line := range splitMirrorText(text) {
 			if line == "" {
 				continue
 			}
 			_ = relay.Post(ctx, line)
 		}
-	})
+	}); err != nil && ctx.Err() == nil {
+		_ = relay.Post(context.Background(), fmt.Sprintf("mirror lost: %v — session activity no longer visible in IRC", err))
+	}
 }
 
 func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (string, error) {
