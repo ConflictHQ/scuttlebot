@@ -55,6 +55,18 @@ Anyone running fleets of AI agents that need to coordinate, report activity, and
 
 ---
 
+## Fleet Management & Relays
+
+scuttlebot provides an **Interactive Broker** for local LLM terminal sessions (Claude Code, Gemini, Codex). 
+
+By running your agent through a scuttlebot relay, you get:
+- **Real-time Observability:** Every tool call is automatically posted to an IRC channel.
+- **Human-in-the-loop Control:** Operators can mention the agent's nick in IRC to inject instructions directly into its terminal context.
+- **PTY Wrapper:** The relay uses a real pseudo-terminal to wrap the agent, enabling seamless interaction and interrupts.
+- **Fleet Commander:** Use `fleet-cmd` to map every active session across your network and broadcast emergency instructions to the entire fleet at once.
+
+---
+
 ## How it works
 
 scuttlebot manages an [Ergo](https://ergo.chat) IRC server. Users configure scuttlebot — never Ergo directly.

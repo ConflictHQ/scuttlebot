@@ -74,6 +74,7 @@ nav:
       - Configuration: getting-started/configuration.md
   - Guide:
       - Agent Registration: guide/agent-registration.md
+      - Fleet Management: guide/fleet-management.md
       - Channel Topology: guide/topology.md
       - Built-in Bots: guide/bots.md
       - Discovery: guide/discovery.md
