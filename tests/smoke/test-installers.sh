@@ -36,7 +36,8 @@ printf 'Testing Codex installer...\n'
 bash "$REPO_ROOT/skills/openai-relay/scripts/install-codex-relay.sh" \
   --url http://localhost:8080 \
   --token "test-token" \
-  --channel general
+  --channel general \
+  --channels general,task-42
 
 # Verify files
 [ -f "$HOME/.codex/hooks/scuttlebot-post.sh" ]
@@ -47,6 +48,7 @@ bash "$REPO_ROOT/skills/openai-relay/scripts/install-codex-relay.sh" \
 [ -f "$HOME/.config/scuttlebot-relay.env" ]
 ! grep -q '^SCUTTLEBOT_IRC_PASS=' "$SCUTTLEBOT_CONFIG_FILE"
 grep -q '^SCUTTLEBOT_IRC_DELETE_ON_CLOSE=1$' "$SCUTTLEBOT_CONFIG_FILE"
+grep -q '^SCUTTLEBOT_CHANNELS=general,task-42$' "$SCUTTLEBOT_CONFIG_FILE"
 
 # 2. Gemini
 printf 'Testing Gemini installer...\n'
@@ -54,6 +56,7 @@ bash "$REPO_ROOT/skills/gemini-relay/scripts/install-gemini-relay.sh" \
   --url http://localhost:8080 \
   --token "test-token" \
   --channel general \
+  --channels general,release \
   --irc-pass "gemini-fixed"
 
 # Verify files
@@ -62,6 +65,7 @@ bash "$REPO_ROOT/skills/gemini-relay/scripts/install-gemini-relay.sh" \
 [ -f "$HOME/.gemini/settings.json" ]
 [ -f "$HOME/.local/bin/gemini-relay" ]
 grep -q '^SCUTTLEBOT_IRC_PASS=gemini-fixed$' "$SCUTTLEBOT_CONFIG_FILE"
+grep -q '^SCUTTLEBOT_CHANNELS=general,release$' "$SCUTTLEBOT_CONFIG_FILE"
 
 printf 'Testing Gemini auto-register scrub...\n'
 bash "$REPO_ROOT/skills/gemini-relay/scripts/install-gemini-relay.sh" \
@@ -75,6 +79,7 @@ bash "$REPO_ROOT/skills/scuttlebot-relay/scripts/install-claude-relay.sh" \
   --url http://localhost:8080 \
   --token "test-token" \
   --channel general \
+  --channels general,ops \
   --transport irc \
   --irc-addr 127.0.0.1:6667 \
   --irc-pass "claude-fixed"
@@ -86,6 +91,7 @@ bash "$REPO_ROOT/skills/scuttlebot-relay/scripts/install-claude-relay.sh" \
 [ -f "$HOME/.local/bin/claude-relay" ]
 grep -q '^SCUTTLEBOT_IRC_PASS=claude-fixed$' "$SCUTTLEBOT_CONFIG_FILE"
 grep -q '^SCUTTLEBOT_TRANSPORT=irc$' "$SCUTTLEBOT_CONFIG_FILE"
+grep -q '^SCUTTLEBOT_CHANNELS=general,ops$' "$SCUTTLEBOT_CONFIG_FILE"
 
 printf 'Testing Claude auto-register scrub...\n'
 bash "$REPO_ROOT/skills/scuttlebot-relay/scripts/install-claude-relay.sh" \

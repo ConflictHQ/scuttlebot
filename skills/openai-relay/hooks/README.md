@@ -77,6 +77,8 @@ Required:
 Optional:
 - `SCUTTLEBOT_NICK`
 - `SCUTTLEBOT_SESSION_ID`
+- `SCUTTLEBOT_CHANNELS`
+- `SCUTTLEBOT_CHANNEL_STATE_FILE`
 - `SCUTTLEBOT_TRANSPORT`
 - `SCUTTLEBOT_IRC_ADDR`
 - `SCUTTLEBOT_IRC_PASS`
@@ -94,6 +96,7 @@ Example:
 export SCUTTLEBOT_URL=http://localhost:8080
 export SCUTTLEBOT_TOKEN=$(./run.sh token)
 export SCUTTLEBOT_CHANNEL=general
+export SCUTTLEBOT_CHANNELS=general,task-42
 ```
 
 The hooks also auto-load a shared relay env file if it exists:
@@ -103,6 +106,7 @@ cat > ~/.config/scuttlebot-relay.env <<'EOF'
 SCUTTLEBOT_URL=http://localhost:8080
 SCUTTLEBOT_TOKEN=...
 SCUTTLEBOT_CHANNEL=general
+SCUTTLEBOT_CHANNELS=general
 SCUTTLEBOT_TRANSPORT=http
 SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667
 SCUTTLEBOT_HOOKS_ENABLED=1
@@ -130,7 +134,8 @@ Preferred path: run the tracked installer and let it wire the files up for you.
 bash skills/openai-relay/scripts/install-codex-relay.sh \
   --url http://localhost:8080 \
   --token "$(./run.sh token)" \
-  --channel general
+  --channel general \
+  --channels general,task-42
 ```
 
 Manual path:
@@ -234,9 +239,11 @@ The check hook stores its last-seen timestamp in:
 ```
 
 The checksum is derived from:
-- channel
 - session nick
 - current working directory
+
+Live channel changes come from `SCUTTLEBOT_CHANNEL_STATE_FILE`, which the broker
+rewrites as `/join` and `/part` commands change the current session channel set.
 
 That avoids one session consuming another session's instructions.
 

@@ -85,6 +85,7 @@ Every terminal broker should follow these conventions:
 - one stable nick per live session: `{runtime}-{basename}-{session}`
 - one shared env contract using `SCUTTLEBOT_*`
 - installer default is auto-registration: leave `SCUTTLEBOT_IRC_PASS` unset and remove stale fixed-pass values unless the operator explicitly requests a fixed identity
+- one primary control channel plus optional joined work channels
 - one broker process owning `online` / `offline`
 - one broker process owning continuous addressed operator input injection
 - one broker process owning outbound activity and assistant-message mirroring when the runtime exposes a reliable event/session stream
@@ -98,6 +99,7 @@ All adapters should use the same environment variables:
 - `SCUTTLEBOT_URL`
 - `SCUTTLEBOT_TOKEN`
 - `SCUTTLEBOT_CHANNEL`
+- `SCUTTLEBOT_CHANNELS`
 - `SCUTTLEBOT_TRANSPORT`
 
 Optional:
@@ -110,10 +112,16 @@ Optional:
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE`
 - `SCUTTLEBOT_POLL_INTERVAL`
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT`
+- `SCUTTLEBOT_CHANNEL_STATE_FILE`
 
 Do not hardcode tokens into repo scripts.
 For terminal-session brokers, treat `SCUTTLEBOT_IRC_PASS` as an explicit
 fixed-identity override, not a default.
+
+Channel semantics:
+- `SCUTTLEBOT_CHANNEL` is the primary control channel
+- `SCUTTLEBOT_CHANNELS` is the startup channel set and should include the control channel
+- runtime `/join`, `/part`, and `/channels` commands may change the live channel set for one session without rewriting the shared env file
 
 ## Nicking rules
 
@@ -148,11 +156,12 @@ Ambient channel chat must not block the tool loop.
 Do not use one global timestamp file.
 
 Track last-seen state by a key derived from:
-- channel
 - nick
 - working directory
 
-That prevents parallel sessions from consuming each other's instructions.
+That prevents parallel sessions from consuming each other's instructions while
+still allowing one session to join or part channels without losing its check
+state.
 
 ## HTTP API contract
 

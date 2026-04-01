@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,7 +20,7 @@ type ircConnector struct {
 	http          *http.Client
 	apiURL        string
 	token         string
-	channel       string
+	primary       string
 	nick          string
 	addr          string
 	agentType     string
@@ -27,6 +28,7 @@ type ircConnector struct {
 	deleteOnClose bool
 
 	mu       sync.RWMutex
+	channels []string
 	messages []Message
 	client   *girc.Client
 	errCh    chan error
@@ -42,12 +44,13 @@ func newIRCConnector(cfg Config) (Connector, error) {
 		http:          cfg.HTTPClient,
 		apiURL:        stringsTrimRightSlash(cfg.URL),
 		token:         cfg.Token,
-		channel:       normalizeChannel(cfg.Channel),
+		primary:       normalizeChannel(cfg.Channel),
 		nick:          cfg.Nick,
 		addr:          cfg.IRC.Addr,
 		agentType:     cfg.IRC.AgentType,
 		pass:          cfg.IRC.Pass,
 		deleteOnClose: cfg.IRC.DeleteOnClose,
+		channels:      append([]string(nil), cfg.Channels...),
 		messages:      make([]Message, 0, defaultBufferSize),
 		errCh:         make(chan error, 1),
 	}, nil
@@ -74,13 +77,15 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 		SASL:   &girc.SASLPlain{User: c.nick, Pass: c.pass},
 	})
 	client.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
-		cl.Cmd.Join(c.channel)
+		for _, channel := range c.Channels() {
+			cl.Cmd.Join(channel)
+		}
 	})
 	client.Handlers.AddBg(girc.JOIN, func(_ *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil || e.Source.Name != c.nick {
 			return
 		}
-		if normalizeChannel(e.Params[0]) != c.channel {
+		if normalizeChannel(e.Params[0]) != c.primary {
 			return
 		}
 		joinOnce.Do(func() { close(joined) })
@@ -90,7 +95,7 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 			return
 		}
 		target := normalizeChannel(e.Params[0])
-		if target != c.channel {
+		if !c.hasChannel(target) {
 			return
 		}
 		sender := e.Source.Name
@@ -101,7 +106,7 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 				text = strings.TrimSpace(text[end+2:])
 			}
 		}
-		c.appendMessage(Message{At: time.Now(), Nick: sender, Text: text})
+		c.appendMessage(Message{At: time.Now(), Channel: target, Nick: sender, Text: text})
 	})
 
 	c.client = client
@@ -130,7 +135,21 @@ func (c *ircConnector) Post(_ context.Context, text string) error {
 	if c.client == nil {
 		return fmt.Errorf("sessionrelay: irc client not connected")
 	}
-	c.client.Cmd.Message(c.channel, text)
+	for _, channel := range c.Channels() {
+		c.client.Cmd.Message(channel, text)
+	}
+	return nil
+}
+
+func (c *ircConnector) PostTo(_ context.Context, channel, text string) error {
+	if c.client == nil {
+		return fmt.Errorf("sessionrelay: irc client not connected")
+	}
+	channel = normalizeChannel(channel)
+	if channel == "" {
+		return fmt.Errorf("sessionrelay: post channel is required")
+	}
+	c.client.Cmd.Message(channel, text)
 	return nil
 }
 
@@ -149,6 +168,64 @@ func (c *ircConnector) MessagesSince(_ context.Context, since time.Time) ([]Mess
 
 func (c *ircConnector) Touch(context.Context) error {
 	return nil
+}
+
+func (c *ircConnector) JoinChannel(_ context.Context, channel string) error {
+	channel = normalizeChannel(channel)
+	if channel == "" {
+		return fmt.Errorf("sessionrelay: join channel is required")
+	}
+	c.mu.Lock()
+	if slices.Contains(c.channels, channel) {
+		c.mu.Unlock()
+		return nil
+	}
+	c.channels = append(c.channels, channel)
+	client := c.client
+	c.mu.Unlock()
+	if client != nil {
+		client.Cmd.Join(channel)
+	}
+	return nil
+}
+
+func (c *ircConnector) PartChannel(_ context.Context, channel string) error {
+	channel = normalizeChannel(channel)
+	if channel == "" {
+		return fmt.Errorf("sessionrelay: part channel is required")
+	}
+	if channel == c.primary {
+		return fmt.Errorf("sessionrelay: cannot part control channel %s", channel)
+	}
+	c.mu.Lock()
+	if !slices.Contains(c.channels, channel) {
+		c.mu.Unlock()
+		return nil
+	}
+	filtered := c.channels[:0]
+	for _, existing := range c.channels {
+		if existing == channel {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	c.channels = filtered
+	client := c.client
+	c.mu.Unlock()
+	if client != nil {
+		client.Cmd.Part(channel)
+	}
+	return nil
+}
+
+func (c *ircConnector) Channels() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]string(nil), c.channels...)
+}
+
+func (c *ircConnector) ControlChannel() string {
+	return c.primary
 }
 
 func (c *ircConnector) Close(ctx context.Context) error {
@@ -189,7 +266,7 @@ func (c *ircConnector) registerOrRotate(ctx context.Context) (bool, string, erro
 	body, _ := json.Marshal(map[string]any{
 		"nick":     c.nick,
 		"type":     c.agentType,
-		"channels": []string{c.channel},
+		"channels": c.Channels(),
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL+"/v1/agents/register", bytes.NewReader(body))
 	if err != nil {
@@ -267,6 +344,12 @@ func (c *ircConnector) cleanupRegistration(ctx context.Context) error {
 	}
 	c.registeredByRelay = false
 	return nil
+}
+
+func (c *ircConnector) hasChannel(channel string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return slices.Contains(c.channels, channel)
 }
 
 func splitHostPort(addr string) (string, int, error) {

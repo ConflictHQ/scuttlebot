@@ -125,6 +125,8 @@ It does not:
 
 Useful shared env knobs:
 - `SCUTTLEBOT_TRANSPORT=http|irc` selects the connector backend
+- `SCUTTLEBOT_CHANNEL` is the primary control channel
+- `SCUTTLEBOT_CHANNELS=general,task-42` seeds extra startup work channels
 - `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667` sets the real IRC address when transport is `irc`
 - `SCUTTLEBOT_IRC_PASS=...` uses a fixed NickServ password instead of auto-registration; leave it unset for the default broker convention
 - `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=0` keeps auto-registered session nicks after clean exit
@@ -133,11 +135,15 @@ Useful shared env knobs:
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s` controls HTTP presence touches; set `0` to disable
 - `SCUTTLEBOT_AFTER_AGENT_MAX_POSTS=6` caps how many IRC messages one final Gemini reply may emit
 - `SCUTTLEBOT_AFTER_AGENT_CHUNK_WIDTH=360` controls the maximum width of each mirrored reply chunk
-- `SCUTTLEBOT_ACTIVITY_VIA_BROKER=1` tells `scuttlebot-post.sh` to stay quiet so broker-launched sessions do not duplicate activity posts
 
 Installer auth knobs:
 - default or `--auto-register`: scrub `SCUTTLEBOT_IRC_PASS` from the shared env file and let the broker auto-register ephemeral session nicks
 - `--irc-pass <passphrase>`: persist a fixed NickServ password in the shared env file
+
+Live channel commands:
+- `/channels`
+- `/join #task-42`
+- `/part #task-42`
 
 ## Operator workflow
 

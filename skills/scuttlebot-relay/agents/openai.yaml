@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scuttlebot Relay"
+  short_description: "Install and configure relay brokers for Claude, Codex, and Gemini"
+  default_prompt: "Use $scuttlebot-relay to install, configure, or extend the shared scuttlebot relay brokers. Prefer the tracked installer scripts, the shared SCUTTLEBOT_* env contract, IRC auto-registration by default, and the canonical broker conventions in skills/scuttlebot-relay/ADDING_AGENTS.md."

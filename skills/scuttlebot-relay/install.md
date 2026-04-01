@@ -3,6 +3,8 @@
 Installs Claude Code hooks that post your activity to an IRC channel in real time
 and surface human instructions from IRC back into your context before each action.
 
+Shared relay skill entry: [`SKILL.md`](SKILL.md)
+
 ## What it does
 
 The relay provides an interactive broker that:
@@ -24,7 +26,8 @@ Run from the repo checkout:
 bash skills/scuttlebot-relay/scripts/install-claude-relay.sh \
   --url http://localhost:8080 \
   --token "$(./run.sh token)" \
-  --channel general
+  --channel general \
+  --channels general,task-42
 ```
 
 Or via Make:
@@ -57,6 +60,8 @@ The relay will generate a stable, unique nick for the session: `claude-{repo}-{s
 
 Useful shared env knobs in `~/.config/scuttlebot-relay.env`:
 - `SCUTTLEBOT_TRANSPORT=http|irc` — selects the connector backend
+- `SCUTTLEBOT_CHANNEL` — primary control channel
+- `SCUTTLEBOT_CHANNELS=general,task-42` — optional startup channel set, including the control channel
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1` — interrupts the live Claude session when it appears busy
 - `SCUTTLEBOT_POLL_INTERVAL=2s` — controls how often the broker checks for new addressed IRC messages
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s` — controls HTTP presence touches; set `0` to disable
@@ -65,3 +70,11 @@ Disable without uninstalling:
 ```bash
 SCUTTLEBOT_HOOKS_ENABLED=0 claude-relay
 ```
+
+Live channel commands:
+- `/channels`
+- `/join #task-42`
+- `/part #task-42`
+
+Those commands change the joined channel set for the current session without
+rewriting the shared env file.

@@ -7,6 +7,11 @@ if [ -f "$SCUTTLEBOT_CONFIG_FILE" ]; then
   . "$SCUTTLEBOT_CONFIG_FILE"
   set +a
 fi
+if [ -n "${SCUTTLEBOT_CHANNEL_STATE_FILE:-}" ] && [ -f "$SCUTTLEBOT_CHANNEL_STATE_FILE" ]; then
+  set -a
+  . "$SCUTTLEBOT_CHANNEL_STATE_FILE"
+  set +a
+fi
 
 SCUTTLEBOT_URL="${SCUTTLEBOT_URL:-http://localhost:8080}"
 SCUTTLEBOT_TOKEN="${SCUTTLEBOT_TOKEN}"
@@ -14,6 +19,31 @@ SCUTTLEBOT_CHANNEL="${SCUTTLEBOT_CHANNEL:-general}"
 SCUTTLEBOT_HOOKS_ENABLED="${SCUTTLEBOT_HOOKS_ENABLED:-1}"
 SCUTTLEBOT_AFTER_AGENT_MAX_POSTS="${SCUTTLEBOT_AFTER_AGENT_MAX_POSTS:-6}"
 SCUTTLEBOT_AFTER_AGENT_CHUNK_WIDTH="${SCUTTLEBOT_AFTER_AGENT_CHUNK_WIDTH:-360}"
+
+normalize_channel() {
+  local channel="$1"
+  channel="${channel//[$' \t\r\n']/}"
+  channel="${channel#\#}"
+  printf '%s' "$channel"
+}
+
+relay_channels() {
+  local raw="${SCUTTLEBOT_CHANNELS:-$SCUTTLEBOT_CHANNEL}"
+  local IFS=','
+  local item channel seen=""
+  read -r -a items <<< "$raw"
+  for item in "${items[@]}"; do
+    channel=$(normalize_channel "$item")
+    [ -n "$channel" ] || continue
+    case ",$seen," in
+      *,"$channel",*) ;;
+      *)
+        seen="${seen:+$seen,}$channel"
+        printf '%s\n' "$channel"
+        ;;
+    esac
+  done
+}
 
 sanitize() {
   local input="$1"
@@ -25,14 +55,18 @@ sanitize() {
 
 post_line() {
   local text="$1"
+  local payload
   [ -z "$text" ] && return 0
-  curl -sf -X POST "$SCUTTLEBOT_URL/v1/channels/$SCUTTLEBOT_CHANNEL/messages" \
-    --connect-timeout 1 \
-    --max-time 2 \
-    -H "Authorization: Bearer $SCUTTLEBOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"text\": $(printf '%s' "$text" | jq -Rs .), \"nick\": \"$SCUTTLEBOT_NICK\"}" \
-    > /dev/null || true
+  payload="{\"text\": $(printf '%s' "$text" | jq -Rs .), \"nick\": \"$SCUTTLEBOT_NICK\"}"
+  for channel in $(relay_channels); do
+    curl -sf -X POST "$SCUTTLEBOT_URL/v1/channels/$channel/messages" \
+      --connect-timeout 1 \
+      --max-time 2 \
+      -H "Authorization: Bearer $SCUTTLEBOT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "$payload" \
+      > /dev/null || true
+  done
 }
 
 normalize_response() {

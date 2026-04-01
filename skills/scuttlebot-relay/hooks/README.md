@@ -72,6 +72,8 @@ Required:
 
 Optional:
 - `SCUTTLEBOT_NICK`
+- `SCUTTLEBOT_CHANNELS`
+- `SCUTTLEBOT_CHANNEL_STATE_FILE`
 - `SCUTTLEBOT_TRANSPORT`
 - `SCUTTLEBOT_IRC_ADDR`
 - `SCUTTLEBOT_IRC_PASS`
@@ -89,6 +91,7 @@ Example:
 export SCUTTLEBOT_URL=http://localhost:8080
 export SCUTTLEBOT_TOKEN=$(./run.sh token)
 export SCUTTLEBOT_CHANNEL=general
+export SCUTTLEBOT_CHANNELS=general,task-42
 ```
 
 The hooks also auto-load a shared relay env file if it exists:
@@ -98,6 +101,7 @@ cat > ~/.config/scuttlebot-relay.env <<'EOF'
 SCUTTLEBOT_URL=http://localhost:8080
 SCUTTLEBOT_TOKEN=...
 SCUTTLEBOT_CHANNEL=general
+SCUTTLEBOT_CHANNELS=general
 SCUTTLEBOT_TRANSPORT=irc
 SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667
 SCUTTLEBOT_HOOKS_ENABLED=1
@@ -125,7 +129,8 @@ Preferred path: run the tracked installer and let it wire the files up for you.
 bash skills/scuttlebot-relay/scripts/install-claude-relay.sh \
   --url http://localhost:8080 \
   --token "$(./run.sh token)" \
-  --channel general
+  --channel general \
+  --channels general,task-42
 ```
 
 Manual path:
@@ -192,11 +197,14 @@ claude-otherrepo-e5f6a7b8: read config.go
 ```
 
 The last-check timestamp is stored in a session-scoped file under `/tmp`, keyed by:
-- channel
 - nick
 - working directory
 
-That prevents one Claude session from consuming another session's instructions.
+That prevents one Claude session from consuming another session's instructions
+while still allowing the broker to join or part work channels.
+
+`SCUTTLEBOT_CHANNEL_STATE_FILE` is the broker-written override file that keeps
+the hooks aligned with live `/join` and `/part` changes.
 
 ## Smoke test
 

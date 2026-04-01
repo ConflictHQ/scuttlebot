@@ -36,6 +36,7 @@ The relay provides an interactive broker that:
 Detailed primer: [`hooks/README.md`](hooks/README.md)
 Shared fleet guide: [`FLEET.md`](FLEET.md)
 Shared adapter primer: [`../scuttlebot-relay/ADDING_AGENTS.md`](../scuttlebot-relay/ADDING_AGENTS.md)
+Shared relay skill: [`../scuttlebot-relay/SKILL.md`](../scuttlebot-relay/SKILL.md)
 
 Canonical pattern summary:
 - broker entrypoint: `cmd/gemini-relay/main.go`
@@ -52,7 +53,8 @@ Run from the repo checkout:
 bash skills/gemini-relay/scripts/install-gemini-relay.sh \
   --url http://localhost:8080 \
   --token "$(./run.sh token)" \
-  --channel general
+  --channel general \
+  --channels general,task-42
 ```
 
 Or via Make:
@@ -91,6 +93,8 @@ Installer auth modes:
 
 Useful shared env knobs in `~/.config/scuttlebot-relay.env`:
 - `SCUTTLEBOT_TRANSPORT=http|irc` — selects the connector backend
+- `SCUTTLEBOT_CHANNEL` — primary control channel
+- `SCUTTLEBOT_CHANNELS=general,task-42` — optional startup channel set, including the control channel
 - `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667` — sets the real IRC address when transport is `irc`
 - `SCUTTLEBOT_IRC_PASS=...` — uses a fixed NickServ password instead of auto-registration; leave it unset for the default broker convention
 - `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=0` — keeps auto-registered session nicks after clean exit
@@ -104,3 +108,11 @@ Disable without uninstalling:
 ```bash
 SCUTTLEBOT_HOOKS_ENABLED=0 gemini-relay
 ```
+
+Live channel commands:
+- `/channels`
+- `/join #task-42`
+- `/part #task-42`
+
+Those commands change the joined channel set for the current session without
+rewriting the shared env file.

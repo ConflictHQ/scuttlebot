@@ -16,6 +16,7 @@ hooks, and accept addressed instructions continuously while the session is runni
 Codex and Gemini are the canonical terminal-broker reference implementations in
 this repo. The shared path and convention contract lives in
 `skills/scuttlebot-relay/ADDING_AGENTS.md`.
+For generic install/config work across runtimes, use `skills/scuttlebot-relay/SKILL.md`.
 
 Source-of-truth files in the repo:
 - installer: `skills/openai-relay/scripts/install-codex-relay.sh`

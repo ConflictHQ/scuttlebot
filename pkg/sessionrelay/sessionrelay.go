@@ -25,6 +25,7 @@ type Config struct {
 	URL        string
 	Token      string
 	Channel    string
+	Channels   []string
 	Nick       string
 	HTTPClient *http.Client
 	IRC        IRCConfig
@@ -38,16 +39,22 @@ type IRCConfig struct {
 }
 
 type Message struct {
-	At   time.Time
-	Nick string
-	Text string
+	At      time.Time
+	Channel string
+	Nick    string
+	Text    string
 }
 
 type Connector interface {
 	Connect(ctx context.Context) error
 	Post(ctx context.Context, text string) error
+	PostTo(ctx context.Context, channel, text string) error
 	MessagesSince(ctx context.Context, since time.Time) ([]Message, error)
 	Touch(ctx context.Context) error
+	JoinChannel(ctx context.Context, channel string) error
+	PartChannel(ctx context.Context, channel string) error
+	Channels() []string
+	ControlChannel() string
 	Close(ctx context.Context) error
 }
 
@@ -78,12 +85,16 @@ func withDefaults(cfg Config) Config {
 		cfg.IRC.AgentType = "worker"
 	}
 	cfg.Channel = normalizeChannel(cfg.Channel)
+	cfg.Channels = normalizeChannels(cfg.Channel, cfg.Channels)
+	if cfg.Channel == "" && len(cfg.Channels) > 0 {
+		cfg.Channel = cfg.Channels[0]
+	}
 	cfg.Transport = Transport(strings.ToLower(string(cfg.Transport)))
 	return cfg
 }
 
 func validateBaseConfig(cfg Config) error {
-	if cfg.Channel == "" {
+	if cfg.Channel == "" || len(cfg.Channels) == 0 {
 		return fmt.Errorf("sessionrelay: channel is required")
 	}
 	if cfg.Nick == "" {
@@ -105,4 +116,27 @@ func normalizeChannel(channel string) string {
 
 func channelSlug(channel string) string {
 	return strings.TrimPrefix(normalizeChannel(channel), "#")
+}
+
+func normalizeChannels(primary string, channels []string) []string {
+	seen := make(map[string]struct{}, len(channels)+1)
+	out := make([]string, 0, len(channels)+1)
+
+	add := func(channel string) {
+		channel = normalizeChannel(channel)
+		if channel == "" {
+			return
+		}
+		if _, ok := seen[channel]; ok {
+			return
+		}
+		seen[channel] = struct{}{}
+		out = append(out, channel)
+	}
+
+	add(primary)
+	for _, channel := range channels {
+		add(channel)
+	}
+	return out
 }

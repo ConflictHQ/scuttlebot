@@ -73,6 +73,8 @@ type config struct {
 	IRCAgentType       string
 	IRCDeleteOnClose   bool
 	Channel            string
+	Channels           []string
+	ChannelStateFile   string
 	SessionID          string
 	Nick               string
 	HooksEnabled       bool
@@ -126,6 +128,8 @@ func run(cfg config) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	_ = sessionrelay.RemoveChannelStateFile(cfg.ChannelStateFile)
+	defer func() { _ = sessionrelay.RemoveChannelStateFile(cfg.ChannelStateFile) }()
 
 	var relay sessionrelay.Connector
 	relayActive := false
@@ -135,6 +139,7 @@ func run(cfg config) error {
 			URL:       cfg.URL,
 			Token:     cfg.Token,
 			Channel:   cfg.Channel,
+			Channels:  cfg.Channels,
 			Nick:      cfg.Nick,
 			IRC: sessionrelay.IRCConfig{
 				Addr:          cfg.IRCAddr,
@@ -153,6 +158,9 @@ func run(cfg config) error {
 			} else {
 				relay = conn
 				relayActive = true
+				if err := sessionrelay.WriteChannelStateFile(cfg.ChannelStateFile, relay.ControlChannel(), relay.Channels()); err != nil {
+					fmt.Fprintf(os.Stderr, "claude-relay: channel state disabled: %v\n", err)
+				}
 				_ = relay.Post(context.Background(), fmt.Sprintf(
 					"online in %s; mention %s to interrupt before the next action",
 					filepath.Base(cfg.TargetCWD), cfg.Nick,
@@ -176,6 +184,8 @@ func run(cfg config) error {
 		"SCUTTLEBOT_URL="+cfg.URL,
 		"SCUTTLEBOT_TOKEN="+cfg.Token,
 		"SCUTTLEBOT_CHANNEL="+cfg.Channel,
+		"SCUTTLEBOT_CHANNELS="+strings.Join(cfg.Channels, ","),
+		"SCUTTLEBOT_CHANNEL_STATE_FILE="+cfg.ChannelStateFile,
 		"SCUTTLEBOT_HOOKS_ENABLED="+boolString(cfg.HooksEnabled),
 		"SCUTTLEBOT_SESSION_ID="+cfg.SessionID,
 		"SCUTTLEBOT_NICK="+cfg.Nick,
@@ -431,7 +441,7 @@ func sessionMessages(line []byte) []string {
 			if msg := summarizeToolUse(block.Name, block.Input); msg != "" {
 				out = append(out, msg)
 			}
-		// thinking blocks are intentionally skipped — too verbose for IRC
+			// thinking blocks are intentionally skipped — too verbose for IRC
 		}
 	}
 	return out
@@ -583,7 +593,21 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 				continue
 			}
 			lastSeen = newest
-			if err := injectMessages(ptyFile, cfg, state, batch); err != nil {
+			pending := make([]message, 0, len(batch))
+			for _, msg := range batch {
+				handled, err := handleRelayCommand(ctx, relay, cfg, msg)
+				if err != nil {
+					return
+				}
+				if handled {
+					continue
+				}
+				pending = append(pending, msg)
+			}
+			if len(pending) == 0 {
+				continue
+			}
+			if err := injectMessages(ptyFile, cfg, state, relay.ControlChannel(), pending); err != nil {
 				return
 			}
 		}
@@ -607,14 +631,21 @@ func presenceLoop(ctx context.Context, relay sessionrelay.Connector, interval ti
 	}
 }
 
-func injectMessages(writer io.Writer, cfg config, state *relayState, batch []message) error {
+func injectMessages(writer io.Writer, cfg config, state *relayState, controlChannel string, batch []message) error {
 	lines := make([]string, 0, len(batch))
 	for _, msg := range batch {
 		text := ircagent.TrimAddressedText(strings.TrimSpace(msg.Text), cfg.Nick)
 		if text == "" {
 			text = strings.TrimSpace(msg.Text)
 		}
-		lines = append(lines, fmt.Sprintf("%s: %s", msg.Nick, text))
+		channelPrefix := ""
+		if msg.Channel != "" {
+			channelPrefix = "[" + strings.TrimPrefix(msg.Channel, "#") + "] "
+		}
+		if msg.Channel == "" || msg.Channel == controlChannel {
+			channelPrefix = "[" + strings.TrimPrefix(controlChannel, "#") + "] "
+		}
+		lines = append(lines, fmt.Sprintf("%s%s: %s", channelPrefix, msg.Nick, text))
 	}
 
 	var block strings.Builder
@@ -639,6 +670,58 @@ func injectMessages(writer io.Writer, cfg config, state *relayState, batch []mes
 	}
 	_, err := writer.Write([]byte{'\r'})
 	return err
+}
+
+func handleRelayCommand(ctx context.Context, relay sessionrelay.Connector, cfg config, msg message) (bool, error) {
+	text := ircagent.TrimAddressedText(strings.TrimSpace(msg.Text), cfg.Nick)
+	if text == "" {
+		text = strings.TrimSpace(msg.Text)
+	}
+
+	cmd, ok := sessionrelay.ParseBrokerCommand(text)
+	if !ok {
+		return false, nil
+	}
+
+	postStatus := func(channel, text string) error {
+		if channel == "" {
+			channel = relay.ControlChannel()
+		}
+		return relay.PostTo(ctx, channel, text)
+	}
+
+	switch cmd.Name {
+	case "channels":
+		return true, postStatus(msg.Channel, fmt.Sprintf("channels: %s (control %s)", sessionrelay.FormatChannels(relay.Channels()), relay.ControlChannel()))
+	case "join":
+		if cmd.Channel == "" {
+			return true, postStatus(msg.Channel, "usage: /join #channel")
+		}
+		if err := relay.JoinChannel(ctx, cmd.Channel); err != nil {
+			return true, postStatus(msg.Channel, fmt.Sprintf("join %s failed: %v", cmd.Channel, err))
+		}
+		if err := sessionrelay.WriteChannelStateFile(cfg.ChannelStateFile, relay.ControlChannel(), relay.Channels()); err != nil {
+			return true, postStatus(msg.Channel, fmt.Sprintf("joined %s, but channel state update failed: %v", cmd.Channel, err))
+		}
+		return true, postStatus(msg.Channel, fmt.Sprintf("joined %s; channels: %s", cmd.Channel, sessionrelay.FormatChannels(relay.Channels())))
+	case "part":
+		if cmd.Channel == "" {
+			return true, postStatus(msg.Channel, "usage: /part #channel")
+		}
+		if err := relay.PartChannel(ctx, cmd.Channel); err != nil {
+			return true, postStatus(msg.Channel, fmt.Sprintf("part %s failed: %v", cmd.Channel, err))
+		}
+		if err := sessionrelay.WriteChannelStateFile(cfg.ChannelStateFile, relay.ControlChannel(), relay.Channels()); err != nil {
+			return true, postStatus(msg.Channel, fmt.Sprintf("parted %s, but channel state update failed: %v", cmd.Channel, err))
+		}
+		replyChannel := msg.Channel
+		if sameChannel(replyChannel, cmd.Channel) {
+			replyChannel = relay.ControlChannel()
+		}
+		return true, postStatus(replyChannel, fmt.Sprintf("parted %s; channels: %s", cmd.Channel, sessionrelay.FormatChannels(relay.Channels())))
+	default:
+		return false, nil
+	}
 }
 
 func copyPTYOutput(src io.Reader, dst io.Writer, state *relayState) {
@@ -724,12 +807,17 @@ func loadConfig(args []string) (config, error) {
 		IRCPass:            getenvOr(fileConfig, "SCUTTLEBOT_IRC_PASS", ""),
 		IRCAgentType:       getenvOr(fileConfig, "SCUTTLEBOT_IRC_AGENT_TYPE", "worker"),
 		IRCDeleteOnClose:   getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_DELETE_ON_CLOSE", true),
-		Channel:            strings.TrimPrefix(getenvOr(fileConfig, "SCUTTLEBOT_CHANNEL", defaultChannel), "#"),
 		HooksEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true),
 		InterruptOnMessage: getenvBoolOr(fileConfig, "SCUTTLEBOT_INTERRUPT_ON_MESSAGE", true),
 		PollInterval:       getenvDurationOr(fileConfig, "SCUTTLEBOT_POLL_INTERVAL", defaultPollInterval),
 		HeartbeatInterval:  getenvDurationAllowZeroOr(fileConfig, "SCUTTLEBOT_PRESENCE_HEARTBEAT", defaultHeartbeat),
 		Args:               append([]string(nil), args...),
+	}
+
+	controlChannel := getenvOr(fileConfig, "SCUTTLEBOT_CHANNEL", defaultChannel)
+	cfg.Channels = sessionrelay.ChannelSlugs(sessionrelay.ParseEnvChannels(controlChannel, getenvOr(fileConfig, "SCUTTLEBOT_CHANNELS", "")))
+	if len(cfg.Channels) > 0 {
+		cfg.Channel = cfg.Channels[0]
 	}
 
 	target, err := targetCWD(args)
@@ -749,14 +837,24 @@ func loadConfig(args []string) (config, error) {
 		nick = fmt.Sprintf("claude-%s-%s", sanitize(filepath.Base(target)), cfg.SessionID)
 	}
 	cfg.Nick = sanitize(nick)
+	cfg.ChannelStateFile = getenvOr(fileConfig, "SCUTTLEBOT_CHANNEL_STATE_FILE", defaultChannelStateFile(cfg.Nick))
 
 	if cfg.Channel == "" {
 		cfg.Channel = defaultChannel
+		cfg.Channels = []string{defaultChannel}
 	}
 	if cfg.Transport == sessionrelay.TransportHTTP && cfg.Token == "" {
 		cfg.HooksEnabled = false
 	}
 	return cfg, nil
+}
+
+func defaultChannelStateFile(nick string) string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf(".scuttlebot-channels-%s.env", sanitize(nick)))
+}
+
+func sameChannel(a, b string) bool {
+	return strings.TrimPrefix(a, "#") == strings.TrimPrefix(b, "#")
 }
 
 func configFilePath() string {
