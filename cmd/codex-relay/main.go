@@ -2,14 +2,12 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -22,17 +20,21 @@ import (
 	"time"
 
 	"github.com/conflicthq/scuttlebot/pkg/ircagent"
+	"github.com/conflicthq/scuttlebot/pkg/sessionrelay"
 	"github.com/creack/pty"
 	"golang.org/x/term"
 )
 
 const (
 	defaultRelayURL      = "http://localhost:8080"
+	defaultIRCAddr       = "127.0.0.1:6667"
 	defaultChannel       = "general"
+	defaultTransport     = sessionrelay.TransportHTTP
 	defaultPollInterval  = 2 * time.Second
+	defaultConnectWait   = 10 * time.Second
 	defaultInjectDelay   = 150 * time.Millisecond
 	defaultBusyWindow    = 1500 * time.Millisecond
-	defaultRequestTimout = 3 * time.Second
+	defaultHeartbeat     = 60 * time.Second
 	defaultConfigFile    = ".config/scuttlebot-relay.env"
 	defaultScanInterval  = 250 * time.Millisecond
 	defaultDiscoverWait  = 20 * time.Second
@@ -63,30 +65,25 @@ var (
 type config struct {
 	CodexBin           string
 	ConfigFile         string
+	Transport          sessionrelay.Transport
 	URL                string
 	Token              string
+	IRCAddr            string
+	IRCPass            string
+	IRCAgentType       string
+	IRCDeleteOnClose   bool
 	Channel            string
 	SessionID          string
 	Nick               string
 	HooksEnabled       bool
 	InterruptOnMessage bool
 	PollInterval       time.Duration
+	HeartbeatInterval  time.Duration
 	TargetCWD          string
 	Args               []string
 }
 
-type relayClient struct {
-	http  *http.Client
-	url   string
-	token string
-}
-
-type message struct {
-	At   string `json:"at"`
-	Nick string `json:"nick"`
-	Text string `json:"text"`
-	Time time.Time
-}
+type message = sessionrelay.Message
 
 type relayState struct {
 	mu       sync.RWMutex
@@ -146,19 +143,51 @@ func main() {
 
 func run(cfg config) error {
 	fmt.Fprintf(os.Stderr, "codex-relay: nick %s\n", cfg.Nick)
-	relayActive := cfg.HooksEnabled && shouldRelaySession(cfg.Args)
+	relayRequested := cfg.HooksEnabled && shouldRelaySession(cfg.Args)
 
-	client := relayClient{
-		http:  &http.Client{Timeout: defaultRequestTimout},
-		url:   strings.TrimRight(cfg.URL, "/"),
-		token: cfg.Token,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var relay sessionrelay.Connector
+	relayActive := false
+	if relayRequested {
+		conn, err := sessionrelay.New(sessionrelay.Config{
+			Transport: cfg.Transport,
+			URL:       cfg.URL,
+			Token:     cfg.Token,
+			Channel:   cfg.Channel,
+			Nick:      cfg.Nick,
+			IRC: sessionrelay.IRCConfig{
+				Addr:          cfg.IRCAddr,
+				Pass:          cfg.IRCPass,
+				AgentType:     cfg.IRCAgentType,
+				DeleteOnClose: cfg.IRCDeleteOnClose,
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "codex-relay: relay disabled: %v\n", err)
+		} else {
+			connectCtx, connectCancel := context.WithTimeout(ctx, defaultConnectWait)
+			if err := conn.Connect(connectCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "codex-relay: relay disabled: %v\n", err)
+				_ = conn.Close(context.Background())
+			} else {
+				relay = conn
+				relayActive = true
+				_ = relay.Post(context.Background(), fmt.Sprintf(
+					"online in %s; mention %s to interrupt before the next action",
+					filepath.Base(cfg.TargetCWD), cfg.Nick,
+				))
+			}
+			connectCancel()
+		}
 	}
-
-	if relayActive {
-		_ = client.postStatus(cfg.Channel, cfg.Nick, fmt.Sprintf(
-			"online in %s; mention %s to interrupt before the next action",
-			filepath.Base(cfg.TargetCWD), cfg.Nick,
-		))
+	if relay != nil {
+		defer func() {
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), defaultConnectWait)
+			defer closeCancel()
+			_ = relay.Close(closeCtx)
+		}()
 	}
 
 	cmd := exec.Command(cfg.CodexBin, cfg.Args...)
@@ -171,13 +200,11 @@ func run(cfg config) error {
 		"SCUTTLEBOT_HOOKS_ENABLED="+boolString(cfg.HooksEnabled),
 		"SCUTTLEBOT_SESSION_ID="+cfg.SessionID,
 		"SCUTTLEBOT_NICK="+cfg.Nick,
-		"SCUTTLEBOT_ACTIVITY_VIA_BROKER=1",
+		"SCUTTLEBOT_ACTIVITY_VIA_BROKER="+boolString(relayActive),
 	)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	if relayActive {
-		go mirrorSessionLoop(ctx, client, cfg, startedAt)
+		go mirrorSessionLoop(ctx, relay, cfg, startedAt)
+		go presenceLoop(ctx, relay, cfg.HeartbeatInterval)
 	}
 
 	if !isInteractiveTTY() {
@@ -188,12 +215,12 @@ func run(cfg config) error {
 		if err != nil {
 			exitCode := exitStatus(err)
 			if relayActive {
-				_ = client.postStatus(cfg.Channel, cfg.Nick, fmt.Sprintf("offline (exit %d)", exitCode))
+				_ = relay.Post(context.Background(), fmt.Sprintf("offline (exit %d)", exitCode))
 			}
 			return err
 		}
 		if relayActive {
-			_ = client.postStatus(cfg.Channel, cfg.Nick, "offline (exit 0)")
+			_ = relay.Post(context.Background(), "offline (exit 0)")
 		}
 		return nil
 	}
@@ -231,7 +258,7 @@ func run(cfg config) error {
 		copyPTYOutput(ptmx, os.Stdout, state)
 	}()
 	if relayActive {
-		go relayInputLoop(ctx, client, cfg, state, ptmx)
+		go relayInputLoop(ctx, relay, cfg, state, ptmx)
 	}
 
 	err = cmd.Wait()
@@ -239,12 +266,12 @@ func run(cfg config) error {
 
 	exitCode := exitStatus(err)
 	if relayActive {
-		_ = client.postStatus(cfg.Channel, cfg.Nick, fmt.Sprintf("offline (exit %d)", exitCode))
+		_ = relay.Post(context.Background(), fmt.Sprintf("offline (exit %d)", exitCode))
 	}
 	return err
 }
 
-func relayInputLoop(ctx context.Context, client relayClient, cfg config, state *relayState, ptyFile *os.File) {
+func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, state *relayState, ptyFile *os.File) {
 	lastSeen := time.Now()
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
@@ -254,7 +281,7 @@ func relayInputLoop(ctx context.Context, client relayClient, cfg config, state *
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			messages, err := client.fetchMessages(cfg.Channel)
+			messages, err := relay.MessagesSince(ctx, lastSeen)
 			if err != nil {
 				continue
 			}
@@ -266,6 +293,23 @@ func relayInputLoop(ctx context.Context, client relayClient, cfg config, state *
 			if err := injectMessages(ptyFile, cfg, state, batch); err != nil {
 				return
 			}
+		}
+	}
+}
+
+func presenceLoop(ctx context.Context, relay sessionrelay.Connector, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = relay.Touch(ctx)
 		}
 	}
 }
@@ -345,11 +389,11 @@ func filterMessages(messages []message, since time.Time, nick string) ([]message
 	filtered := make([]message, 0, len(messages))
 	newest := since
 	for _, msg := range messages {
-		if msg.Time.IsZero() || !msg.Time.After(since) {
+		if msg.At.IsZero() || !msg.At.After(since) {
 			continue
 		}
-		if msg.Time.After(newest) {
-			newest = msg.Time
+		if msg.At.After(newest) {
+			newest = msg.At
 		}
 		if msg.Nick == nick {
 			continue
@@ -366,7 +410,7 @@ func filterMessages(messages []message, since time.Time, nick string) ([]message
 		filtered = append(filtered, msg)
 	}
 	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].Time.Before(filtered[j].Time)
+		return filtered[i].At.Before(filtered[j].At)
 	})
 	return filtered, newest
 }
@@ -377,12 +421,18 @@ func loadConfig(args []string) (config, error) {
 	cfg := config{
 		CodexBin:           getenvOr(fileConfig, "CODEX_BIN", "codex"),
 		ConfigFile:         getenvOr(fileConfig, "SCUTTLEBOT_CONFIG_FILE", configFilePath()),
+		Transport:          sessionrelay.Transport(strings.ToLower(getenvOr(fileConfig, "SCUTTLEBOT_TRANSPORT", string(defaultTransport)))),
 		URL:                getenvOr(fileConfig, "SCUTTLEBOT_URL", defaultRelayURL),
 		Token:              getenvOr(fileConfig, "SCUTTLEBOT_TOKEN", ""),
+		IRCAddr:            getenvOr(fileConfig, "SCUTTLEBOT_IRC_ADDR", defaultIRCAddr),
+		IRCPass:            getenvOr(fileConfig, "SCUTTLEBOT_IRC_PASS", ""),
+		IRCAgentType:       getenvOr(fileConfig, "SCUTTLEBOT_IRC_AGENT_TYPE", "worker"),
+		IRCDeleteOnClose:   getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_DELETE_ON_CLOSE", true),
 		Channel:            strings.TrimPrefix(getenvOr(fileConfig, "SCUTTLEBOT_CHANNEL", defaultChannel), "#"),
 		HooksEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true),
 		InterruptOnMessage: getenvBoolOr(fileConfig, "SCUTTLEBOT_INTERRUPT_ON_MESSAGE", true),
 		PollInterval:       getenvDurationOr(fileConfig, "SCUTTLEBOT_POLL_INTERVAL", defaultPollInterval),
+		HeartbeatInterval:  getenvDurationAllowZeroOr(fileConfig, "SCUTTLEBOT_PRESENCE_HEARTBEAT", defaultHeartbeat),
 		Args:               append([]string(nil), args...),
 	}
 
@@ -410,7 +460,7 @@ func loadConfig(args []string) (config, error) {
 	if cfg.Channel == "" {
 		cfg.Channel = defaultChannel
 	}
-	if cfg.Token == "" {
+	if cfg.Transport == sessionrelay.TransportHTTP && cfg.Token == "" {
 		cfg.HooksEnabled = false
 	}
 	return cfg, nil
@@ -489,6 +539,21 @@ func getenvDurationOr(file map[string]string, key string, fallback time.Duration
 	return d
 }
 
+func getenvDurationAllowZeroOr(file map[string]string, key string, fallback time.Duration) time.Duration {
+	value := getenvOr(file, key, "")
+	if value == "" {
+		return fallback
+	}
+	if strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) == -1 {
+		value += "s"
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d < 0 {
+		return fallback
+	}
+	return d
+}
+
 func targetCWD(args []string) (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -545,58 +610,7 @@ func defaultSessionID(target string) string {
 	return fmt.Sprintf("%08x", sum)
 }
 
-func (c relayClient) postStatus(channel, nick, text string) error {
-	if c.token == "" {
-		return nil
-	}
-	body, _ := json.Marshal(map[string]string{"nick": nick, "text": text})
-	req, err := http.NewRequest(http.MethodPost, c.url+"/v1/channels/"+channel+"/messages", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("status post: %s", resp.Status)
-	}
-	return nil
-}
-
-func (c relayClient) fetchMessages(channel string) ([]message, error) {
-	req, err := http.NewRequest(http.MethodGet, c.url+"/v1/channels/"+channel+"/messages", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("message fetch: %s", resp.Status)
-	}
-	var payload struct {
-		Messages []message `json:"messages"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
-	}
-	for i := range payload.Messages {
-		ts, err := time.Parse(time.RFC3339Nano, payload.Messages[i].At)
-		if err == nil {
-			payload.Messages[i].Time = ts
-		}
-	}
-	return payload.Messages, nil
-}
-
-func mirrorSessionLoop(ctx context.Context, client relayClient, cfg config, startedAt time.Time) {
+func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time) {
 	sessionPath, err := discoverSessionPath(ctx, cfg, startedAt)
 	if err != nil {
 		return
@@ -606,7 +620,7 @@ func mirrorSessionLoop(ctx context.Context, client relayClient, cfg config, star
 			if line == "" {
 				continue
 			}
-			_ = client.postStatus(cfg.Channel, cfg.Nick, line)
+			_ = relay.Post(ctx, line)
 		}
 	})
 }

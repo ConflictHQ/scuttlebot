@@ -6,6 +6,7 @@ operator-addressable through scuttlebot.
 Source of truth:
 - installer: [`scripts/install-codex-relay.sh`](scripts/install-codex-relay.sh)
 - broker: [`../../cmd/codex-relay/main.go`](../../cmd/codex-relay/main.go)
+- shared connector: [`../../pkg/sessionrelay/`](../../pkg/sessionrelay/)
 - dev wrapper: [`scripts/codex-relay.sh`](scripts/codex-relay.sh)
 - hooks: [`hooks/scuttlebot-post.sh`](hooks/scuttlebot-post.sh), [`hooks/scuttlebot-check.sh`](hooks/scuttlebot-check.sh)
 - runtime docs: [`install.md`](install.md), [`hooks/README.md`](hooks/README.md)
@@ -31,6 +32,10 @@ For each local Codex session launched through `codex-relay`:
 - continuous addressed IRC input injection into the live terminal session
 - explicit pre-tool fallback interrupts before the next action
 - `offline` post on exit
+
+Transport choice:
+- `SCUTTLEBOT_TRANSPORT=http` keeps the bridge/API path and now uses presence heartbeats
+- `SCUTTLEBOT_TRANSPORT=irc` logs the session nick directly into Ergo for real presence
 
 This is the production control path for a human-operated Codex terminal. If you
 want an always-on IRC-resident bot instead, use `cmd/codex-agent`.
@@ -66,7 +71,9 @@ Example:
 bash skills/openai-relay/scripts/install-codex-relay.sh \
   --url http://scuttlebot.internal:8080 \
   --token "$SCUTTLEBOT_TOKEN" \
-  --channel fleet
+  --channel fleet \
+  --transport irc \
+  --irc-addr scuttlebot.internal:6667
 ```
 
 If you need hooks present but inactive until the server is live:
@@ -97,8 +104,13 @@ It does not:
 - require IRC to be up at install time
 
 Useful shared env knobs:
+- `SCUTTLEBOT_TRANSPORT=http|irc` selects the connector backend
+- `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667` sets the real IRC address when transport is `irc`
+- `SCUTTLEBOT_IRC_PASS=...` uses a fixed NickServ password instead of auto-registration
+- `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=0` keeps auto-registered session nicks after clean exit
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1` interrupts the live Codex session only when Codex appears busy; idle sessions are injected directly and auto-submitted
 - `SCUTTLEBOT_POLL_INTERVAL=2s` controls how often the broker checks for new addressed IRC messages
+- `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s` controls HTTP presence touches; set `0` to disable
 - `SCUTTLEBOT_ACTIVITY_VIA_BROKER=1` tells `scuttlebot-post.sh` to stay quiet so broker-launched sessions do not duplicate activity posts
 
 ## Operator workflow

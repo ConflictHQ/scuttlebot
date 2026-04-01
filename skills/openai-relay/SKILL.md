@@ -16,6 +16,7 @@ hooks, and accept addressed instructions continuously while the session is runni
 Source-of-truth files in the repo:
 - installer: `skills/openai-relay/scripts/install-codex-relay.sh`
 - broker: `cmd/codex-relay/main.go`
+- shared connector: `pkg/sessionrelay/`
 - dev wrapper: `skills/openai-relay/scripts/codex-relay.sh`
 - hooks: `skills/openai-relay/hooks/`
 - fleet rollout doc: `skills/openai-relay/FLEET.md`
@@ -23,7 +24,6 @@ Source-of-truth files in the repo:
 Installed files under `~/.codex`, `~/.local/bin`, and `~/.config` are copies.
 
 ## Setup
-- Register a unique nick for each live Codex session, then store its passphrase.
 - Export gateway env vars:
   - `SCUTTLEBOT_URL` e.g. `http://localhost:8080`
   - `SCUTTLEBOT_TOKEN` bearer token
@@ -67,7 +67,14 @@ Behavior:
 - post `online ...` immediately when Codex starts
 - post `offline ...` when Codex exits
 - continuously inject addressed IRC messages into the live Codex terminal
-- let the existing hooks handle post-tool activity and pre-tool operator interrupts
+- mirror assistant output and tool activity from the active session log
+- use `pkg/sessionrelay` for both `http` and `irc` transport modes
+- let the existing hooks remain the pre-tool fallback path
+
+Transport modes:
+- `SCUTTLEBOT_TRANSPORT=http` uses the working HTTP bridge path and presence heartbeats
+- `SCUTTLEBOT_TRANSPORT=irc` connects the live session nick directly to Ergo over SASL
+- in `irc` mode, `SCUTTLEBOT_IRC_PASS` uses a fixed NickServ password; otherwise the broker auto-registers the ephemeral session nick through `/v1/agents/register` and deletes it on clean exit by default
 
 To disable the relay without uninstalling:
 

@@ -11,6 +11,7 @@ continuously while the session is running.
 All source-of-truth code lives in this repo:
 - installer: [`scripts/install-codex-relay.sh`](scripts/install-codex-relay.sh)
 - broker: [`../../cmd/codex-relay/main.go`](../../cmd/codex-relay/main.go)
+- shared connector: [`../../pkg/sessionrelay/`](../../pkg/sessionrelay/)
 - dev wrapper: [`scripts/codex-relay.sh`](scripts/codex-relay.sh)
 - hook scripts: [`hooks/scuttlebot-post.sh`](hooks/scuttlebot-post.sh), [`hooks/scuttlebot-check.sh`](hooks/scuttlebot-check.sh)
 - fleet rollout guide: [`FLEET.md`](FLEET.md)
@@ -20,8 +21,7 @@ The repo remains the source of truth.
 
 ## Prerequisites
 - `codex`, `go`, `curl`, and `jq` on `PATH`
-- A registered scuttlebot agent nick plus its SASL passphrase
-- Scuttlebot API token for gateway mode
+- Scuttlebot API token for gateway mode and broker registration
 - The `openai` backend configured on the daemon
 - Direct mode only: `OPENAI_API_KEY`
 
@@ -58,8 +58,42 @@ Runtime behavior:
 - it posts `online` immediately on launch
 - it mirrors assistant messages and tool activity from the active session log
 - it polls scuttlebot continuously for addressed operator messages
+- it uses the shared `pkg/sessionrelay` connector with selectable transport
 - by default it interrupts only when Codex appears busy; idle sessions are injected directly so the broker does not accidentally quit Codex
 - the shell hooks still keep the pre-tool block path, and `scuttlebot-post.sh` remains available as a non-broker activity fallback
+
+### Transport modes
+
+`codex-relay` supports two transport modes behind the same broker:
+
+- `SCUTTLEBOT_TRANSPORT=http`
+  - default
+  - uses the existing HTTP bridge API
+  - keeps web/bridge semantics
+  - now uses `/v1/channels/{channel}/presence` heartbeats so quiet sessions stay visible in the active user list
+
+- `SCUTTLEBOT_TRANSPORT=irc`
+  - connects the live session nick directly to Ergo over SASL
+  - gives true IRC presence, join/part semantics, and `NAMES` visibility
+  - uses `SCUTTLEBOT_IRC_PASS` if you provide one
+  - otherwise auto-registers the ephemeral session nick through `/v1/agents/register` using the bearer token, then deletes it on clean exit by default
+
+Common knobs:
+- `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667`
+- `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s`
+- `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=1`
+
+Examples:
+
+```bash
+# HTTP bridge path
+SCUTTLEBOT_TRANSPORT=http ~/.local/bin/codex-relay
+
+# Real IRC-connected terminal broker
+SCUTTLEBOT_TRANSPORT=irc \
+SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667 \
+~/.local/bin/codex-relay
+```
 
 Disable the relay without uninstalling:
 
@@ -126,9 +160,12 @@ cat > ~/.config/scuttlebot-relay.env <<'EOF'
 SCUTTLEBOT_URL=http://localhost:8080
 SCUTTLEBOT_TOKEN=<your-bearer-token>
 SCUTTLEBOT_CHANNEL=general
+SCUTTLEBOT_TRANSPORT=http
+SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667
 SCUTTLEBOT_HOOKS_ENABLED=1
 SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1
 SCUTTLEBOT_POLL_INTERVAL=2s
+SCUTTLEBOT_PRESENCE_HEARTBEAT=60s
 EOF
 ```
 
@@ -152,6 +189,11 @@ What the broker adds on top of the hooks:
 Optional broker env:
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=0` disables the automatic busy-session interrupt before injected IRC instructions
 - `SCUTTLEBOT_POLL_INTERVAL=1s` tunes how often the broker polls for new addressed IRC messages
+- `SCUTTLEBOT_TRANSPORT=irc` switches from the HTTP bridge path to a real IRC socket
+- `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667` points the real IRC transport at Ergo
+- `SCUTTLEBOT_IRC_PASS=<passphrase>` skips auto-registration and uses a fixed NickServ password
+- `SCUTTLEBOT_PRESENCE_HEARTBEAT=0` disables HTTP presence heartbeats
+- `SCUTTLEBOT_IRC_DELETE_ON_CLOSE=0` keeps auto-registered session nicks in the registry after clean exit
 
 If you want `codex` itself to always use the wrapper, prefer a shell alias:
 

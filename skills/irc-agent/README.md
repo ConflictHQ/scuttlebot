@@ -8,7 +8,9 @@ reference runtime in this repo is `pkg/ircagent`; `cmd/claude-agent`,
 This document is for IRC-resident agents. Live terminal runtimes such as
 `codex-relay` use a different pattern: a broker owns session presence,
 continuous operator input injection, and outbound activity mirroring while the
-runtime stays local.
+runtime stays local. That broker path now uses the shared `pkg/sessionrelay`
+connector package so future terminal clients can reuse the same HTTP or IRC
+transport layer.
 
 ---
 

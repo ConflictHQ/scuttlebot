@@ -17,6 +17,9 @@ type chatBridge interface {
 	Messages(channel string) []bridge.Message
 	Subscribe(channel string) (<-chan bridge.Message, func())
 	Send(ctx context.Context, channel, text, senderNick string) error
+	Stats() bridge.Stats
+	TouchUser(channel, nick string)
+	Users(channel string) []string
 }
 
 func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +63,32 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleChannelPresence(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	var req struct {
+		Nick string `json:"nick"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Nick == "" {
+		writeError(w, http.StatusBadRequest, "nick is required")
+		return
+	}
+	s.bridge.TouchUser(channel, req.Nick)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleChannelUsers(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	users := s.bridge.Users(channel)
+	if users == nil {
+		users = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": users})
 }
 
 // handleChannelStream serves an SSE stream of IRC messages for a channel.

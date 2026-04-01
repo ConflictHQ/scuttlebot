@@ -13,12 +13,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lrstanley/girc"
 )
 
 const botNick = "bridge"
+const defaultWebUserTTL = 5 * time.Minute
 
 // Message is a single IRC message captured by the bridge.
 type Message struct {
@@ -63,6 +65,13 @@ func (r *ringBuf) snapshot() []Message {
 	return out
 }
 
+// Stats is a snapshot of bridge activity.
+type Stats struct {
+	Channels      int   `json:"channels"`
+	MessagesTotal int64 `json:"messages_total"`
+	ActiveSubs    int   `json:"active_subscribers"`
+}
+
 // Bot is the IRC bridge bot.
 type Bot struct {
 	ircAddr      string
@@ -77,18 +86,28 @@ type Bot struct {
 	subs    map[string]map[uint64]chan Message
 	subSeq  uint64
 	joined  map[string]bool
+	// webUsers tracks nicks that have posted via the HTTP bridge recently.
+	// channel → nick → last seen time
+	webUsers map[string]map[string]time.Time
+	// webUserTTL controls how long bridge-posted HTTP nicks stay visible in Users().
+	webUserTTL time.Duration
+
+	msgTotal atomic.Int64
 
 	joinCh chan string
 	client *girc.Client
 }
 
 // New creates a bridge Bot.
-func New(ircAddr, nick, password string, channels []string, bufSize int, log *slog.Logger) *Bot {
+func New(ircAddr, nick, password string, channels []string, bufSize int, webUserTTL time.Duration, log *slog.Logger) *Bot {
 	if nick == "" {
 		nick = botNick
 	}
 	if bufSize <= 0 {
 		bufSize = 200
+	}
+	if webUserTTL <= 0 {
+		webUserTTL = defaultWebUserTTL
 	}
 	return &Bot{
 		ircAddr:      ircAddr,
@@ -96,12 +115,25 @@ func New(ircAddr, nick, password string, channels []string, bufSize int, log *sl
 		password:     password,
 		bufSize:      bufSize,
 		initChannels: channels,
+		webUsers:     make(map[string]map[string]time.Time),
+		webUserTTL:   webUserTTL,
 		log:          log,
 		buffers:      make(map[string]*ringBuf),
 		subs:         make(map[string]map[uint64]chan Message),
 		joined:       make(map[string]bool),
 		joinCh:       make(chan string, 32),
 	}
+}
+
+// SetWebUserTTL updates how long bridge-posted HTTP nicks remain visible in
+// the channel user list after their last post.
+func (b *Bot) SetWebUserTTL(ttl time.Duration) {
+	if ttl <= 0 {
+		ttl = defaultWebUserTTL
+	}
+	b.mu.Lock()
+	b.webUserTTL = ttl
+	b.mu.Unlock()
 }
 
 // Name returns the bot's IRC nick.
@@ -269,18 +301,102 @@ func (b *Bot) Send(ctx context.Context, channel, text, senderNick string) error 
 		ircText = "[" + senderNick + "] " + text
 	}
 	b.client.Cmd.Message(channel, ircText)
+
+	// Track web sender as active in this channel.
+	if senderNick != "" {
+		b.TouchUser(channel, senderNick)
+	}
+
 	// Buffer the outgoing message immediately (server won't echo it back).
+	// Use senderNick so the web UI shows who actually sent it.
+	displayNick := b.nick
+	if senderNick != "" {
+		displayNick = senderNick
+	}
 	b.dispatch(Message{
 		At:      time.Now(),
 		Channel: channel,
-		Nick:    b.nick,
-		Text:    ircText,
+		Nick:    displayNick,
+		Text:    text,
 	})
 	return nil
 }
 
+// TouchUser marks a bridge/web nick as active in the given channel without
+// sending a visible IRC message. This is used by broker-style local runtimes
+// to maintain presence in the user list while idle.
+func (b *Bot) TouchUser(channel, nick string) {
+	if nick == "" {
+		return
+	}
+	b.mu.Lock()
+	if b.webUsers[channel] == nil {
+		b.webUsers[channel] = make(map[string]time.Time)
+	}
+	b.webUsers[channel][nick] = time.Now()
+	b.mu.Unlock()
+}
+
+// Users returns the current nick list for a channel — IRC connections plus
+// web UI users who have posted recently within the configured TTL.
+func (b *Bot) Users(channel string) []string {
+	seen := make(map[string]bool)
+	var nicks []string
+
+	// IRC-connected nicks from NAMES — exclude the bridge bot itself.
+	if b.client != nil {
+		if ch := b.client.LookupChannel(channel); ch != nil {
+			for _, u := range ch.Users(b.client) {
+				if u.Nick == b.nick {
+					continue // skip the bridge bot
+				}
+				if !seen[u.Nick] {
+					seen[u.Nick] = true
+					nicks = append(nicks, u.Nick)
+				}
+			}
+		}
+	}
+
+	// Web UI senders active within the configured TTL. Also prune expired nicks
+	// so the bridge doesn't retain dead web-user entries forever.
+	now := time.Now()
+	b.mu.Lock()
+	cutoff := now.Add(-b.webUserTTL)
+	for nick, last := range b.webUsers[channel] {
+		if !last.After(cutoff) {
+			delete(b.webUsers[channel], nick)
+			continue
+		}
+		if !seen[nick] {
+			seen[nick] = true
+			nicks = append(nicks, nick)
+		}
+	}
+	b.mu.Unlock()
+
+	return nicks
+}
+
+// Stats returns a snapshot of bridge activity.
+func (b *Bot) Stats() Stats {
+	b.mu.RLock()
+	channels := len(b.joined)
+	subs := 0
+	for _, m := range b.subs {
+		subs += len(m)
+	}
+	b.mu.RUnlock()
+	return Stats{
+		Channels:      channels,
+		MessagesTotal: b.msgTotal.Load(),
+		ActiveSubs:    subs,
+	}
+}
+
 // dispatch pushes a message to the ring buffer and fans out to subscribers.
 func (b *Bot) dispatch(msg Message) {
+	b.msgTotal.Add(1)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	rb := b.buffers[msg.Channel]
