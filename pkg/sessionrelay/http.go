@@ -107,6 +107,9 @@ func (c *httpConnector) MessagesSince(ctx context.Context, since time.Time) ([]M
 			if err != nil {
 				continue
 			}
+			if !since.IsZero() && !at.After(since) {
+				continue // server-side filter is best-effort; guard here too
+			}
 			out = append(out, Message{At: at, Channel: channel, Nick: msg.Nick, Text: msg.Text})
 		}
 	}
