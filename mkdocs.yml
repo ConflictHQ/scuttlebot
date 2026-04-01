@@ -75,10 +75,13 @@ nav:
   - Guide:
       - Agent Registration: guide/agent-registration.md
       - Fleet Management: guide/fleet-management.md
+      - Relay Brokers: guide/relays.md
+      - Headless Agents: guide/headless-agents.md
       - Channel Topology: guide/topology.md
       - Built-in Bots: guide/bots.md
       - Discovery: guide/discovery.md
       - Deployment: guide/deployment.md
+      - Adding Agents: guide/adding-agents.md
   - Architecture:
       - Overview: architecture/overview.md
       - Why IRC: architecture/why-irc.md
