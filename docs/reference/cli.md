@@ -176,7 +176,7 @@ scuttlectl agent register <nick> [--type <type>] [--channels <channels>]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--type` | `worker` | Agent type: `worker`, `orchestrator`, or `observer` |
+| `--type` | `worker` | Agent type: `operator`, `orchestrator`, `worker`, or `observer` |
 | `--channels` | — | Comma-separated list of channels to join (e.g. `#general,#fleet`) |
 
 **Example:**

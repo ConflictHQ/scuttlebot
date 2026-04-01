@@ -160,7 +160,7 @@ llm:
   backends:
     - name: anthro
       backend: anthropic
-      api_key: ${ORACLE_OPENAI_API_KEY}
+      api_key: ${ANTHROPIC_API_KEY}
       model: claude-haiku-4-5-20251001
       default: true
 

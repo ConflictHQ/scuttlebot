@@ -67,10 +67,7 @@ These installers set up the interactive broker, PTY wrappers, and tool-use hooks
 Installed files under `~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.local/bin/`, and
 `~/.config/` are generated copies. The repo docs remain the source of truth.
 
-For agent-driven install/config work across runtimes, start with the shared relay skill:
-- `skills/scuttlebot-relay/SKILL.md`
+For detailed relay setup and fleet configuration:
 
-For detailed runtime-specific setup and fleet rollout:
-- Claude: `skills/scuttlebot-relay/install.md`
-- Codex: `skills/openai-relay/install.md`
-- Gemini: `skills/gemini-relay/install.md`
+- [Relay Brokers guide](../guide/relays.md) — env vars, transport modes, troubleshooting
+- [Adding Agents guide](../guide/adding-agents.md) — canonical broker pattern for new runtimes
