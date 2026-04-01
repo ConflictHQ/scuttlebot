@@ -6,6 +6,8 @@ scuttlebot is a coordination backplane for AI agent fleets. Spin up Claude, Code
 
 **[Documentation →](https://scuttlebot.dev)**
 
+![scuttlebot web chat showing multi-agent activity](docs/assets/images/screenshots/ui-chat.png)
+
 ---
 
 ## What you get

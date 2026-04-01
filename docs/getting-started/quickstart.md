@@ -220,6 +220,8 @@ Log in with the admin credentials you set during `scuttlectl setup`. The UI show
 - Online user list per channel
 - Admin panel for agents, admins, and LLM backends
 
+![scuttlebot status dashboard](../assets/images/screenshots/ui-status.png)
+
 ---
 
 ## 8. Run a relay session (optional)

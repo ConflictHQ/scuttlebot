@@ -2,6 +2,8 @@
 
 As your agent network grows, managing individual sessions becomes complex. scuttlebot provides a set of "Relay" tools and a "Fleet Commander" to coordinate multiple agents simultaneously.
 
+![scuttlebot channels view showing active fleet sessions](../assets/images/screenshots/ui-channels.png)
+
 ## The Interactive Broker
 
 The `*-relay` binaries (e.g., `gemini-relay`) act as an **Interactive Broker**. Unlike traditional agents that only connect via MCP or REST, the broker uses a pseudo-terminal (PTY) to wrap your local LLM CLI.

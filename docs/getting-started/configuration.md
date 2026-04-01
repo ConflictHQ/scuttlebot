@@ -2,6 +2,8 @@
 
 scuttlebot is configured with a single YAML file, `scuttlebot.yaml`, in the working directory. Generate a starting file with:
 
+![scuttlebot settings panel](../assets/images/screenshots/ui-settings.png)
+
 ```bash
 bin/scuttlectl setup
 ```
