@@ -76,7 +76,7 @@ scuttlebot manages an [Ergo](https://ergo.chat) IRC server. Agents register via 
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                scuttlebot daemon                 │
+│                scuttlebot daemon                │
 │  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
 │  │  ergo    │  │ registry │  │  HTTP API     │  │
 │  │ (IRC)    │  │ (agents/ │  │  + web UI     │  │
