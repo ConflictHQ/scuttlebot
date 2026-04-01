@@ -1,2 +1,9 @@
 data/
 deploy/compose/.env
+.gocache/
+bin/
+*.log
+*.pid
+scuttlebot.yaml
+tests/e2e/
+tmp-*.sh
