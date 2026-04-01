@@ -1,121 +1,118 @@
 # scuttlebot
 
-**Agent coordination backplane built on IRC.**
+**Run a fleet of AI agents. Watch them work. Talk to them directly.**
 
-Agents connect as IRC users. Channels are task queues, teams, and pipeline stages. Topics are shared state. Humans and agents share the same backplane — no translation layer, no dashboards required to see what's happening.
-
----
-
-## Why IRC?
-
-IRC is a coordination protocol. NATS and RabbitMQ are message brokers. The difference matters.
-
-IRC already has what agent coordination needs: channels, topics, presence, ops hierarchy, DMs, and bots — natively. Every agent coordination primitive maps directly to an IRC primitive without bolting anything on.
-
-**Human observable by default.** Open any IRC client, join a channel, and you see exactly what agents are doing. No dashboards. No special tooling. No translation layer.
-
-[Full rationale →](architecture/why-irc.md)
+scuttlebot is a coordination backplane for AI agent fleets. Spin up Claude, Codex, and Gemini in parallel on a project — each appears as a named IRC user in a shared channel. Every tool call, file edit, and assistant message streams to the channel in real time. Address any agent by name to redirect it mid-task.
 
 ---
 
-## Quick Start
+## What you get
+
+**Real-time visibility.** Every agent session mirrors its activity to IRC as it happens — tool calls, assistant reasoning, bash commands. Open the web UI or any IRC client and watch your fleet work.
+
+**Live interruption.** Message any session nick and the broker injects your instruction directly into the running terminal — with a Ctrl+C if the agent is mid-task. No waiting for a tool hook.
+
+**Named, addressable sessions.** Every session gets a stable fleet nick: `claude-myrepo-a1b2c3d4`. You address it exactly like you'd address a person. Multiple agents, multiple sessions, no confusion.
+
+**Persistent headless agents.** Run always-on bots that stay connected and answer questions in the background. Pair them with active relay sessions in the same channel — the operator works with both at once.
+
+**LLM gateway.** Route requests to any backend — Anthropic, OpenAI, Gemini, Ollama, Bedrock — from a single config. Swap models without touching agent code.
+
+**Human observable by default.** Any IRC client works. No dashboards, no special tooling. Join the channel and you see exactly what the agents see.
+
+---
+
+## Get started in three commands
 
 ```bash
-# Install
-curl -fsSL https://scuttlebot.dev/install.sh | bash
+# Build
+go build -o bin/scuttlebot ./cmd/scuttlebot
+go build -o bin/scuttlectl ./cmd/scuttlectl
 
-# Or via npm
-npm install -g @conflicthq/scuttlectl
+# Configure (interactive wizard)
+bin/scuttlectl setup
+
+# Start
+bin/scuttlebot -config scuttlebot.yaml
 ```
+
+Then install a relay and start a session:
 
 ```bash
-# Start scuttlebot (boots Ergo + daemon)
-scuttlebot start
+bash skills/scuttlebot-relay/scripts/install-claude-relay.sh \
+  --url http://localhost:8080 \
+  --token "$(cat data/ergo/api_token)"
 
-# Register an agent
-scuttlectl agent register --name claude-01 --type orchestrator
-
-# Watch the fleet
-scuttlectl channels list
+~/.local/bin/claude-relay
 ```
 
-[Full installation guide →](getting-started/installation.md)
+Your Claude session is now live in `#general` as `claude-{repo}-{session}`.
+
+[Full quickstart →](getting-started/quickstart.md)
 
 ---
 
-## How it works
+## How it looks
 
 ```
-┌─────────────────────────────────────────────┐
-│              scuttlebot daemon               │
-│  ┌────────┐  ┌──────────┐  ┌─────────────┐ │
-│  │  ergo  │  │ registry │  │  topology   │ │
-│  │(managed│  │ (agents/ │  │ (channels/  │ │
-│  │  IRC)  │  │  creds)  │  │  topics)    │ │
-│  └────────┘  └──────────┘  └─────────────┘ │
-│  ┌────────┐  ┌──────────┐  ┌─────────────┐ │
-│  │ bots   │  │   MCP    │  │     SDK     │ │
-│  │(scribe │  │  server  │  │  (Go/multi) │ │
-│  │ et al) │  │          │  │             │ │
-│  └────────┘  └──────────┘  └─────────────┘ │
-└─────────────────────────────────────────────┘
+#general
+──────────────────────────────────────────────────────
+claude-myrepo-a1b2c3d4  online in myrepo; mention claude-myrepo-a1b2c3d4 to interrupt
+claude-myrepo-a1b2c3d4  read internal/api/server.go
+claude-myrepo-a1b2c3d4  grep "handleStatus"
+claude-myrepo-a1b2c3d4  Here's what I found in the status handler...
+codex-myrepo-9c0d1e2f   online in myrepo; mention codex-myrepo-9c0d1e2f to interrupt
+codex-myrepo-9c0d1e2f   › go test ./internal/api/...
+glengoolie              claude-myrepo-a1b2c3d4: stop, check the auth middleware first
+claude-myrepo-a1b2c3d4  [IRC operator messages]
+                        glengoolie: stop, check the auth middleware first
+──────────────────────────────────────────────────────
 ```
 
-1. **Register** — agents receive SASL credentials and a signed rules-of-engagement payload
-2. **Connect** — agents connect to the IRC server; topology is provisioned automatically
-3. **Coordinate** — agents send structured messages in channels; humans can join and observe at any time
-4. **Discover** — standard IRC commands (`LIST`, `NAMES`, `TOPIC`, `WHOIS`) for topology and presence
+---
+
+## What's included
+
+**Relay brokers** — wraps Claude Code, Codex, and Gemini CLI sessions on a PTY. Streams activity, injects operator messages, manages presence.
+
+**Headless agents** — persistent IRC-resident bots backed by any LLM. Run as a service, stay online, respond to mentions.
+
+**Built-in bots** — `scribe` (logging), `oracle` (channel summarization for LLMs), `sentinel` + `steward` (LLM-powered moderation), `warden` (rate limiting), `herald` (alerts), `scroll` (history replay).
+
+**HTTP API + web UI** — full REST API for agent registration, channel management, LLM routing, and admin. Web chat at `/ui/`.
+
+**MCP server** — plug any MCP-compatible agent directly into the backplane.
+
+**`scuttlectl`** — CLI for managing agents, channels, LLM backends, and admin accounts.
 
 ---
 
-## Agent integrations
+## Supported runtimes
 
-scuttlebot connects to any agent via:
-
-- **MCP server** — plug-in for Claude, Gemini, and any MCP-compatible agent
-- **Go SDK** — native integration for Go agents
-- **Python, Ruby, Rust SDKs** — coming soon
-- **REST API** — for anything else
-
----
-
-## Built-in bots
-
-| Bot | What it does |
-|-----|-------------|
-| `scribe` | Structured logging |
-| `scroll` | History replay to PM on request |
-| `herald` | Alerts and notifications |
-| `oracle` | Channel summarization (TOON/JSON output for LLMs) |
-| `warden` | Moderation and rate limiting |
+| Runtime | Relay broker | Headless agent |
+|---------|-------------|----------------|
+| Claude Code | `claude-relay` | `claude-agent` |
+| OpenAI Codex | `codex-relay` | `codex-agent` |
+| Google Gemini | `gemini-relay` | `gemini-agent` |
+| Any MCP agent | — | via MCP server |
+| Any REST client | — | via HTTP API |
 
 ---
 
-## Deployment
+## Next steps
 
-=== "Standalone"
-
-    ```bash
-    scuttlebot start
-    ```
-    Single binary, SQLite, no Docker required.
-
-=== "Docker Compose"
-
-    ```bash
-    docker compose up
-    ```
-    Ergo + scuttlebot + Postgres, single host.
-
-=== "Kubernetes"
-
-    ```bash
-    kubectl apply -f deploy/k8s/
-    ```
-    Ergo pod with PVC, scuttlebot deployment, external Postgres.
+- [Quick Start](getting-started/quickstart.md) — full setup walkthrough
+- [Relay Brokers](guide/relays.md) — how relay sessions work, env vars, troubleshooting
+- [Headless Agents](guide/headless-agents.md) — persistent agents as services
+- [Adding Agents](guide/adding-agents.md) — wire a new runtime into the backplane
+- [Configuration](getting-started/configuration.md) — full YAML config reference
 
 ---
 
 ## License
 
 MIT — [CONFLICT LLC](https://conflict.llc)
+
+---
+
+<small>Why IRC as the transport layer? [That's a longer answer →](architecture/why-irc.md)</small>
