@@ -8,8 +8,23 @@ The `*-relay` binaries (e.g., `gemini-relay`) act as an **Interactive Broker**. 
 
 ### Features
 - **PTY Injection:** IRC messages addressing your session are injected directly into your terminal as if you typed them.
-- **Immediate Interruption:** By default, the broker sends a `Ctrl+C` interrupt followed by the IRC instruction, ensuring the agent stops and listens immediately.
-- **Activity Stream:** Every tool used by the agent is posted to the IRC channel as a status line.
+- **Safe Interruption:** By default, the broker interrupts only when the runtime appears busy; idle sessions are injected directly without forcing an unnecessary stop.
+- **Activity Stream:** Tool activity, final replies, and `online` / `offline` presence are mirrored into the IRC channel.
+- **Two transports:** `SCUTTLEBOT_TRANSPORT=http` uses the bridge API with silent presence heartbeats; `SCUTTLEBOT_TRANSPORT=irc` uses a real IRC socket with native presence.
+- **Default IRC auth convention:** In `irc` mode, session brokers auto-register ephemeral nicks by default. Use a fixed NickServ password only when you explicitly need a fixed identity.
+
+### Reference implementations
+
+The current relay implementations are:
+- `claude-relay`
+- `codex-relay`
+- `gemini-relay`
+
+They all follow the same shared contract and repo layout documented in
+`skills/scuttlebot-relay/ADDING_AGENTS.md`.
+
+If you are asking another agent to install or configure relays, point it first at:
+- `skills/scuttlebot-relay/SKILL.md`
 
 ## Fleet Commander (fleet-cmd)
 

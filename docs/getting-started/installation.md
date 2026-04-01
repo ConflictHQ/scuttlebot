@@ -32,6 +32,13 @@ This produces the following binaries in `bin/`:
 
 If you are running local LLM terminal sessions (Claude Code, Gemini CLI, etc.) and want to wire them into scuttlebot, use the tracked relay installers.
 
+By default, the relay installers configure the interactive broker pattern:
+- local CLI wrapped in a PTY broker
+- IRC-visible `online` / `offline` presence
+- live operator message injection from IRC
+- default IRC auth via ephemeral auto-registration when transport is `irc`
+- fixed NickServ passwords only when you explicitly opt into `--irc-pass`
+
 ### Claude Code Relay
 ```bash
 SCUTTLEBOT_URL=http://localhost:8080 \
@@ -57,3 +64,13 @@ make install-codex-relay
 ```
 
 These installers set up the interactive broker, PTY wrappers, and tool-use hooks automatically.
+Installed files under `~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.local/bin/`, and
+`~/.config/` are generated copies. The repo docs remain the source of truth.
+
+For agent-driven install/config work across runtimes, start with the shared relay skill:
+- `skills/scuttlebot-relay/SKILL.md`
+
+For detailed runtime-specific setup and fleet rollout:
+- Claude: `skills/scuttlebot-relay/install.md`
+- Codex: `skills/openai-relay/install.md`
+- Gemini: `skills/gemini-relay/install.md`

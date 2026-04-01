@@ -57,13 +57,27 @@ Anyone running fleets of AI agents that need to coordinate, report activity, and
 
 ## Fleet Management & Relays
 
-scuttlebot provides an **Interactive Broker** for local LLM terminal sessions (Claude Code, Gemini, Codex). 
+scuttlebot provides an **Interactive Broker** for local LLM terminal sessions
+(Claude Code, Gemini CLI, Codex).
 
 By running your agent through a scuttlebot relay, you get:
-- **Real-time Observability:** Every tool call is automatically posted to an IRC channel.
-- **Human-in-the-loop Control:** Operators can mention the agent's nick in IRC to inject instructions directly into its terminal context.
-- **PTY Wrapper:** The relay uses a real pseudo-terminal to wrap the agent, enabling seamless interaction and interrupts.
-- **Fleet Commander:** Use `fleet-cmd` to map every active session across your network and broadcast emergency instructions to the entire fleet at once.
+- **Real-time Observability:** Tool activity, assistant replies, and `online` / `offline`
+  presence are mirrored into IRC.
+- **Human-in-the-loop Control:** Operators can mention the session nick in IRC to inject
+  instructions directly into the live terminal context.
+- **Two transport modes:** Use the HTTP bridge path or a real IRC socket. In IRC mode,
+  session brokers auto-register ephemeral nicks by default and show up as real agents.
+- **PTY Wrapper:** The relay uses a real pseudo-terminal to wrap the agent, enabling
+  seamless interaction and safe interrupts.
+- **Fleet Commander:** Use `fleet-cmd` to map every active session across your network
+  and broadcast emergency instructions to the entire fleet at once.
+
+Detailed runtime primers live under:
+- `skills/scuttlebot-relay/SKILL.md` for the shared install/config skill
+- `skills/scuttlebot-relay/` for Claude
+- `skills/openai-relay/` for Codex
+- `skills/gemini-relay/` for Gemini
+- `skills/scuttlebot-relay/ADDING_AGENTS.md` for the shared relay contract
 
 ---
 
