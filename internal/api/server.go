@@ -22,6 +22,7 @@ type Server struct {
 	policies  *PolicyStore      // nil if not configured
 	admins    adminStore        // nil if not configured
 	llmCfg    *config.LLMConfig // nil if no LLM backends configured
+	topoMgr   topologyManager   // nil if topology not configured
 	loginRL   *loginRateLimiter
 	tlsDomain string // empty if no TLS
 }
@@ -29,7 +30,8 @@ type Server struct {
 // New creates a new API Server. Pass nil for b to disable the chat bridge.
 // Pass nil for admins to disable admin authentication endpoints.
 // Pass nil for llmCfg to disable AI/LLM management endpoints.
-func New(reg *registry.Registry, tokens []string, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, tlsDomain string, log *slog.Logger) *Server {
+// Pass nil for topo to disable topology provisioning endpoints.
+func New(reg *registry.Registry, tokens []string, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, topo topologyManager, tlsDomain string, log *slog.Logger) *Server {
 	tokenSet := make(map[string]struct{}, len(tokens))
 	for _, t := range tokens {
 		tokenSet[t] = struct{}{}
@@ -42,6 +44,7 @@ func New(reg *registry.Registry, tokens []string, b chatBridge, ps *PolicyStore,
 		policies:  ps,
 		admins:    admins,
 		llmCfg:    llmCfg,
+		topoMgr:   topo,
 		loginRL:   newLoginRateLimiter(),
 		tlsDomain: tlsDomain,
 	}
@@ -74,6 +77,10 @@ func (s *Server) Handler() http.Handler {
 		apiMux.HandleFunc("POST /v1/channels/{channel}/messages", s.handleSendMessage)
 		apiMux.HandleFunc("POST /v1/channels/{channel}/presence", s.handleChannelPresence)
 		apiMux.HandleFunc("GET /v1/channels/{channel}/users", s.handleChannelUsers)
+	}
+	if s.topoMgr != nil {
+		apiMux.HandleFunc("POST /v1/channels", s.handleProvisionChannel)
+		apiMux.HandleFunc("GET /v1/topology", s.handleGetTopology)
 	}
 
 	if s.admins != nil {
