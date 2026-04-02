@@ -156,15 +156,31 @@ func TestSessionMessagesFunctionCallAndAssistant(t *testing.T) {
 	t.Helper()
 
 	fnLine := []byte(`{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}}`)
-	got := sessionMessages(fnLine)
+	got := sessionMessages(fnLine, false)
 	if len(got) != 1 || got[0] != "› pwd" {
 		t.Fatalf("sessionMessages function_call = %#v", got)
 	}
 
 	msgLine := []byte(`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"one line\nsecond line"}]}}`)
-	got = sessionMessages(msgLine)
+	got = sessionMessages(msgLine, false)
 	if len(got) != 2 || got[0] != "one line" || got[1] != "second line" {
 		t.Fatalf("sessionMessages assistant = %#v", got)
+	}
+}
+
+func TestSessionMessagesReasoning(t *testing.T) {
+	line := []byte(`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"reasoning","text":"thinking hard"},{"type":"output_text","text":"done"}]}}`)
+
+	// reasoning off — only output_text
+	got := sessionMessages(line, false)
+	if len(got) != 1 || got[0] != "done" {
+		t.Fatalf("mirrorReasoning=false: got %#v", got)
+	}
+
+	// reasoning on — both, reasoning prefixed
+	got = sessionMessages(line, true)
+	if len(got) != 2 || got[0] != "💭 thinking hard" || got[1] != "done" {
+		t.Fatalf("mirrorReasoning=true: got %#v", got)
 	}
 }
 

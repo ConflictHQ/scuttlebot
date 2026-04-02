@@ -79,6 +79,7 @@ type config struct {
 	Nick               string
 	HooksEnabled       bool
 	InterruptOnMessage bool
+	MirrorReasoning    bool
 	PollInterval       time.Duration
 	HeartbeatInterval  time.Duration
 	TargetCWD          string
@@ -133,6 +134,7 @@ func run(cfg config) error {
 
 	var relay sessionrelay.Connector
 	relayActive := false
+	var onlineAt time.Time
 	if relayRequested {
 		conn, err := sessionrelay.New(sessionrelay.Config{
 			Transport: cfg.Transport,
@@ -161,6 +163,7 @@ func run(cfg config) error {
 				if err := sessionrelay.WriteChannelStateFile(cfg.ChannelStateFile, relay.ControlChannel(), relay.Channels()); err != nil {
 					fmt.Fprintf(os.Stderr, "claude-relay: channel state disabled: %v\n", err)
 				}
+				onlineAt = time.Now()
 				_ = relay.Post(context.Background(), fmt.Sprintf(
 					"online in %s; mention %s to interrupt before the next action",
 					filepath.Base(cfg.TargetCWD), cfg.Nick,
@@ -247,7 +250,7 @@ func run(cfg config) error {
 		copyPTYOutput(ptmx, os.Stdout, state)
 	}()
 	if relayActive {
-		go relayInputLoop(ctx, relay, cfg, state, ptmx)
+		go relayInputLoop(ctx, relay, cfg, state, ptmx, onlineAt)
 	}
 
 	err = cmd.Wait()
@@ -270,7 +273,7 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 		}
 		return
 	}
-	if err := tailSessionFile(ctx, sessionPath, func(text string) {
+	if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(text string) {
 		for _, line := range splitMirrorText(text) {
 			if line == "" {
 				continue
@@ -387,7 +390,7 @@ func matchesSession(path, targetCWD string, since time.Time) bool {
 	return false
 }
 
-func tailSessionFile(ctx context.Context, path string, emit func(string)) error {
+func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(string)) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -402,7 +405,7 @@ func tailSessionFile(ctx context.Context, path string, emit func(string)) error 
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			for _, text := range sessionMessages(line) {
+			for _, text := range sessionMessages(line, mirrorReasoning) {
 				if text != "" {
 					emit(text)
 				}
@@ -424,7 +427,8 @@ func tailSessionFile(ctx context.Context, path string, emit func(string)) error 
 }
 
 // sessionMessages parses a Claude Code JSONL line and returns IRC-ready strings.
-func sessionMessages(line []byte) []string {
+// If mirrorReasoning is true, thinking blocks are included prefixed with "💭 ".
+func sessionMessages(line []byte, mirrorReasoning bool) []string {
 	var entry claudeSessionEntry
 	if err := json.Unmarshal(line, &entry); err != nil {
 		return nil
@@ -446,7 +450,14 @@ func sessionMessages(line []byte) []string {
 			if msg := summarizeToolUse(block.Name, block.Input); msg != "" {
 				out = append(out, msg)
 			}
-			// thinking blocks are intentionally skipped — too verbose for IRC
+		case "thinking":
+			if mirrorReasoning {
+				for _, l := range splitMirrorText(block.Text) {
+					if l != "" {
+						out = append(out, "💭 "+sanitizeSecrets(l))
+					}
+				}
+			}
 		}
 	}
 	return out
@@ -579,8 +590,8 @@ func splitMirrorText(text string) []string {
 
 // --- Relay input (operator → Claude) ---
 
-func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, state *relayState, ptyFile *os.File) {
-	lastSeen := time.Now()
+func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, state *relayState, ptyFile *os.File, since time.Time) {
+	lastSeen := since
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
 
@@ -820,6 +831,7 @@ func loadConfig(args []string) (config, error) {
 		IRCDeleteOnClose:   getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_DELETE_ON_CLOSE", true),
 		HooksEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true),
 		InterruptOnMessage: getenvBoolOr(fileConfig, "SCUTTLEBOT_INTERRUPT_ON_MESSAGE", true),
+		MirrorReasoning:    getenvBoolOr(fileConfig, "SCUTTLEBOT_MIRROR_REASONING", false),
 		PollInterval:       getenvDurationOr(fileConfig, "SCUTTLEBOT_POLL_INTERVAL", defaultPollInterval),
 		HeartbeatInterval:  getenvDurationAllowZeroOr(fileConfig, "SCUTTLEBOT_PRESENCE_HEARTBEAT", defaultHeartbeat),
 		Args:               append([]string(nil), args...),
