@@ -23,6 +23,7 @@ type Server struct {
 	admins    adminStore        // nil if not configured
 	llmCfg    *config.LLMConfig // nil if no LLM backends configured
 	topoMgr   topologyManager   // nil if topology not configured
+	cfgStore  *ConfigStore      // nil if config write-back not configured
 	loginRL   *loginRateLimiter
 	tlsDomain string // empty if no TLS
 }
@@ -31,7 +32,8 @@ type Server struct {
 // Pass nil for admins to disable admin authentication endpoints.
 // Pass nil for llmCfg to disable AI/LLM management endpoints.
 // Pass nil for topo to disable topology provisioning endpoints.
-func New(reg *registry.Registry, tokens []string, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, topo topologyManager, tlsDomain string, log *slog.Logger) *Server {
+// Pass nil for cfgStore to disable config read/write endpoints.
+func New(reg *registry.Registry, tokens []string, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, topo topologyManager, cfgStore *ConfigStore, tlsDomain string, log *slog.Logger) *Server {
 	tokenSet := make(map[string]struct{}, len(tokens))
 	for _, t := range tokens {
 		tokenSet[t] = struct{}{}
@@ -45,6 +47,7 @@ func New(reg *registry.Registry, tokens []string, b chatBridge, ps *PolicyStore,
 		admins:    admins,
 		llmCfg:    llmCfg,
 		topoMgr:   topo,
+		cfgStore:  cfgStore,
 		loginRL:   newLoginRateLimiter(),
 		tlsDomain: tlsDomain,
 	}
@@ -82,6 +85,12 @@ func (s *Server) Handler() http.Handler {
 		apiMux.HandleFunc("POST /v1/channels", s.handleProvisionChannel)
 		apiMux.HandleFunc("DELETE /v1/topology/channels/{channel}", s.handleDropChannel)
 		apiMux.HandleFunc("GET /v1/topology", s.handleGetTopology)
+	}
+	if s.cfgStore != nil {
+		apiMux.HandleFunc("GET /v1/config", s.handleGetConfig)
+		apiMux.HandleFunc("PUT /v1/config", s.handlePutConfig)
+		apiMux.HandleFunc("GET /v1/config/history", s.handleGetConfigHistory)
+		apiMux.HandleFunc("GET /v1/config/history/{filename}", s.handleGetConfigHistoryEntry)
 	}
 
 	if s.admins != nil {

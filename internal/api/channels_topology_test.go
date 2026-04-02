@@ -36,7 +36,7 @@ func newTopoTestServer(t *testing.T, topo *stubTopologyManager) (*httptest.Serve
 	t.Helper()
 	reg := registry.New(nil, []byte("key"))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(New(reg, []string{"tok"}, nil, nil, nil, nil, topo, "", log).Handler())
+	srv := httptest.NewServer(New(reg, []string{"tok"}, nil, nil, nil, nil, topo, nil, "", log).Handler())
 	t.Cleanup(srv.Close)
 	return srv, "tok"
 }

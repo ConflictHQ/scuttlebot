@@ -30,14 +30,14 @@ func newTestServerWithAdmins(t *testing.T) (*httptest.Server, *auth.AdminStore) 
 		t.Fatalf("Add admin: %v", err)
 	}
 	reg := registry.New(newMock(), []byte("test-signing-key"))
-	srv := api.New(reg, []string{testToken}, nil, nil, admins, nil, nil, "", testLog)
+	srv := api.New(reg, []string{testToken}, nil, nil, admins, nil, nil, nil, "", testLog)
 	return httptest.NewServer(srv.Handler()), admins
 }
 
 func TestLoginNoAdmins(t *testing.T) {
 	// When admins is nil, login returns 404.
 	reg := registry.New(newMock(), []byte("test-signing-key"))
-	srv := api.New(reg, []string{testToken}, nil, nil, nil, nil, nil, "", testLog)
+	srv := api.New(reg, []string{testToken}, nil, nil, nil, nil, nil, nil, "", testLog)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

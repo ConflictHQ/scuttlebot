@@ -41,7 +41,7 @@ func TestHandleChannelPresence(t *testing.T) {
 	bridgeStub := &stubChatBridge{}
 	reg := registry.New(nil, []byte("test-signing-key"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(New(reg, []string{"token"}, bridgeStub, nil, nil, nil, nil, "", logger).Handler())
+	srv := httptest.NewServer(New(reg, []string{"token"}, bridgeStub, nil, nil, nil, nil, nil, "", logger).Handler())
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{"nick": "codex-test"})
@@ -74,7 +74,7 @@ func TestHandleChannelPresenceRequiresNick(t *testing.T) {
 	bridgeStub := &stubChatBridge{}
 	reg := registry.New(nil, []byte("test-signing-key"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(New(reg, []string{"token"}, bridgeStub, nil, nil, nil, nil, "", logger).Handler())
+	srv := httptest.NewServer(New(reg, []string{"token"}, bridgeStub, nil, nil, nil, nil, nil, "", logger).Handler())
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{})

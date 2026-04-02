@@ -262,12 +262,34 @@ func main() {
 		botMgr.Sync(ctx, specs)
 	}
 
+	// Config store — owns write-back to scuttlebot.yaml with history snapshots.
+	cfgStore := api.NewConfigStore(*configPath, *cfg)
+	cfgStore.OnChange(func(updated config.Config) {
+		// Hot-reload topology on config change.
+		if topoMgr != nil {
+			staticChannels := make([]topology.ChannelConfig, 0, len(updated.Topology.Channels))
+			for _, sc := range updated.Topology.Channels {
+				staticChannels = append(staticChannels, topology.ChannelConfig{
+					Name: sc.Name, Topic: sc.Topic,
+					Ops: sc.Ops, Voice: sc.Voice, Autojoin: sc.Autojoin,
+				})
+			}
+			if err := topoMgr.Provision(staticChannels); err != nil {
+				log.Error("topology hot-reload failed", "err", err)
+			}
+		}
+		// Hot-reload bridge web TTL.
+		if bridgeBot != nil {
+			bridgeBot.SetWebUserTTL(time.Duration(updated.Bridge.WebUserTTLMinutes) * time.Minute)
+		}
+	})
+
 	// Start HTTP REST API server.
 	var llmCfg *config.LLMConfig
 	if len(cfg.LLM.Backends) > 0 {
 		llmCfg = &cfg.LLM
 	}
-	apiSrv := api.New(reg, tokens, bridgeBot, policyStore, adminStore, llmCfg, topoMgr, cfg.TLS.Domain, log)
+	apiSrv := api.New(reg, tokens, bridgeBot, policyStore, adminStore, llmCfg, topoMgr, cfgStore, cfg.TLS.Domain, log)
 	handler := apiSrv.Handler()
 
 	var httpServer, tlsServer *http.Server

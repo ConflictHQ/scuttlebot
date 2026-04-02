@@ -11,12 +11,13 @@ import (
 
 // Config is the top-level scuttlebot configuration.
 type Config struct {
-	Ergo      ErgoConfig      `yaml:"ergo"`
-	Datastore DatastoreConfig `yaml:"datastore"`
-	Bridge    BridgeConfig    `yaml:"bridge"`
-	TLS       TLSConfig       `yaml:"tls"`
-	LLM       LLMConfig       `yaml:"llm"`
-	Topology  TopologyConfig  `yaml:"topology"`
+	Ergo      ErgoConfig          `yaml:"ergo"`
+	Datastore DatastoreConfig     `yaml:"datastore"`
+	Bridge    BridgeConfig        `yaml:"bridge"`
+	TLS       TLSConfig           `yaml:"tls"`
+	LLM       LLMConfig           `yaml:"llm"`
+	Topology  TopologyConfig      `yaml:"topology"`
+	History   ConfigHistoryConfig `yaml:"config_history"`
 
 	// APIAddr is the address for scuttlebot's own HTTP management API.
 	// Ignored when TLS.Domain is set (HTTPS runs on :443, HTTP on :80).
@@ -26,6 +27,17 @@ type Config struct {
 	// MCPAddr is the address for the MCP server.
 	// Default: ":8081"
 	MCPAddr string `yaml:"mcp_addr"`
+}
+
+// ConfigHistoryConfig controls config write-back history retention.
+type ConfigHistoryConfig struct {
+	// Keep is the number of config snapshots to retain in Dir.
+	// 0 disables history. Default: 20.
+	Keep int `yaml:"keep"`
+
+	// Dir is the directory for config snapshots.
+	// Default: {ergo.data_dir}/config-history
+	Dir string `yaml:"dir"`
 }
 
 // LLMConfig configures the omnibus LLM gateway used by oracle and any other
@@ -273,6 +285,34 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+// MarshalYAML encodes Duration as a human-readable string ("72h", "30m").
+func (d Duration) MarshalYAML() (any, error) {
+	if d.Duration == 0 {
+		return "0s", nil
+	}
+	return d.Duration.String(), nil
+}
+
+// Save marshals c to YAML and writes it to path atomically (write to a temp
+// file in the same directory, then rename). Comments in the original file are
+// not preserved after the first save.
+func (c *Config) Save(path string) error {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("config: marshal: %w", err)
+	}
+	// Write to a sibling temp file then rename for atomic replacement.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("config: write %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("config: rename %s → %s: %w", tmp, path, err)
+	}
+	return nil
+}
+
 // Defaults fills in zero values with sensible defaults.
 func (c *Config) Defaults() {
 	if c.Ergo.BinaryPath == "" {
@@ -323,6 +363,9 @@ func (c *Config) Defaults() {
 	if c.Topology.Nick == "" {
 		c.Topology.Nick = "topology"
 	}
+	if c.History.Keep == 0 {
+		c.History.Keep = 20
+	}
 }
 
 func envStr(key string) string { return os.Getenv(key) }
@@ -339,8 +382,13 @@ func (c *Config) LoadFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("config: read %s: %w", path, err)
 	}
+	return c.LoadFromBytes(data)
+}
+
+// LoadFromBytes parses YAML config bytes into c.
+func (c *Config) LoadFromBytes(data []byte) error {
 	if err := yaml.Unmarshal(data, c); err != nil {
-		return fmt.Errorf("config: parse %s: %w", path, err)
+		return fmt.Errorf("config: parse: %w", err)
 	}
 	return nil
 }
