@@ -12,6 +12,4 @@
 - [calliope-cli agent](reference_calliope_cli.md) — calliope.md is the shim for https://github.com/calliopeai/calliope-cli
 - [Calliope disambiguation](reference_calliope_disambiguation.md) — calliope-cli (coding agent) vs Calliope AI platform (JupyterHub) are different things
 
-## Project
-- [Kohakku](project_kohakku.md) — agent dispatch system that pairs with scuttlebot, not yet built
-- [Current state](project_current_state.md) — All 8 bots wired, login auth, admin mgmt, test coverage, e2e fixed — v1 feature complete
+
