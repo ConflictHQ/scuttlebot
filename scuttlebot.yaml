@@ -25,3 +25,54 @@ bridge:
   # web_user_ttl_minutes: 5     # keep HTTP bridge nicks visible in /users after their last post
 
 # api_addr: :8080               # scuttlebot REST API listen address
+
+# topology defines channel structure and autojoin policy.
+# Static channels are provisioned at startup; types apply to agent-created channels.
+# This is domain-agnostic — replace the example types with whatever fits your workflow.
+#
+# topology:
+#   channels:
+#     - name: "#general"
+#       topic: "Fleet coordination"
+#       ops: [bridge, oracle]
+#       autojoin: [bridge, oracle, scribe, herald]
+#     - name: "#alerts"
+#       topic: "Alerts and incidents"
+#       autojoin: [bridge, sentinel, steward, oracle]
+#
+#   types:
+#     # --- software development (default example) ---
+#     - name: task
+#       prefix: "task."            # matches #task.gh-42, #task.JIRA-99, etc.
+#       autojoin: [bridge, scribe]
+#       supervision: "#general"   # where summaries surface; agents post here too
+#       ephemeral: true
+#       ttl: 72h
+#     - name: sprint
+#       prefix: "sprint."
+#       autojoin: [bridge, oracle, herald]
+#     - name: feature
+#       prefix: "feature."
+#       autojoin: [bridge, scribe, herald]
+#       supervision: "#general"
+#     - name: infra
+#       prefix: "infra."
+#       autojoin: [bridge, sentinel, steward]
+#       supervision: "#alerts"
+#     - name: incident
+#       prefix: "incident."
+#       autojoin: [bridge, sentinel, steward, oracle, auditbot]
+#       supervision: "#alerts"
+#       ephemeral: true
+#       ttl: 168h                 # 1 week
+#
+#     # --- other domain examples (uncomment/replace as needed) ---
+#     # - name: experiment        # data science
+#     #   prefix: "experiment."
+#     #   autojoin: [bridge, scribe]
+#     # - name: ticket            # customer support
+#     #   prefix: "ticket."
+#     #   autojoin: [bridge, scribe]
+#     #   supervision: "#general"
+#     #   ephemeral: true
+#     #   ttl: 48h

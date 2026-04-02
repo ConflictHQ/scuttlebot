@@ -18,3 +18,5 @@ datastore:
   # dsn: ./data/scuttlebot.db
 
 # api_addr: :8080               # scuttlebot REST API listen address
+
+# topology: (see scuttlebot.yaml for full annotated example)

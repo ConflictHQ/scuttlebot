@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,6 +16,7 @@ type Config struct {
 	Bridge    BridgeConfig    `yaml:"bridge"`
 	TLS       TLSConfig       `yaml:"tls"`
 	LLM       LLMConfig       `yaml:"llm"`
+	Topology  TopologyConfig  `yaml:"topology"`
 
 	// APIAddr is the address for scuttlebot's own HTTP management API.
 	// Ignored when TLS.Domain is set (HTTPS runs on :443, HTTP on :80).
@@ -190,6 +192,81 @@ type DatastoreConfig struct {
 	// For sqlite: path to the .db file.
 	// For postgres: connection string.
 	DSN string `yaml:"dsn"`
+}
+
+// TopologyConfig is the top-level channel topology declaration.
+// It defines static channels provisioned at startup and dynamic channel type
+// rules applied when agents create channels at runtime.
+type TopologyConfig struct {
+	// Channels are static channels provisioned at daemon startup.
+	Channels []StaticChannelConfig `yaml:"channels"`
+
+	// Types are prefix-based rules applied to dynamically created channels.
+	// The first matching prefix wins.
+	Types []ChannelTypeConfig `yaml:"types"`
+}
+
+// StaticChannelConfig describes a channel that is provisioned at startup.
+type StaticChannelConfig struct {
+	// Name is the full channel name including the # prefix (e.g. "#general").
+	Name string `yaml:"name"`
+
+	// Topic is the initial channel topic.
+	Topic string `yaml:"topic"`
+
+	// Ops is a list of nicks to grant channel operator (+o) access.
+	Ops []string `yaml:"ops"`
+
+	// Voice is a list of nicks to grant voice (+v) access.
+	Voice []string `yaml:"voice"`
+
+	// Autojoin is a list of bot nicks to invite when the channel is provisioned.
+	Autojoin []string `yaml:"autojoin"`
+}
+
+// ChannelTypeConfig defines policy rules for a class of dynamically created channels.
+// Matched by prefix against channel names (e.g. prefix "task." matches "#task.gh-42").
+type ChannelTypeConfig struct {
+	// Name is a human-readable type identifier (e.g. "task", "sprint", "incident").
+	Name string `yaml:"name"`
+
+	// Prefix is matched against channel names after stripping the leading #.
+	// The first matching type wins. (e.g. "task." matches "#task.gh-42")
+	Prefix string `yaml:"prefix"`
+
+	// Autojoin is a list of bot nicks to invite when a channel of this type is created.
+	Autojoin []string `yaml:"autojoin"`
+
+	// Supervision is the coordination channel where summaries should surface.
+	// Agents receive this when they create a channel so they know where to also post.
+	// May be a static channel name (e.g. "#general") or a type prefix pattern
+	// (e.g. "sprint." — resolved to the most recently created matching channel).
+	Supervision string `yaml:"supervision"`
+
+	// Ephemeral marks channels of this type for automatic cleanup.
+	Ephemeral bool `yaml:"ephemeral"`
+
+	// TTL is the maximum lifetime of an ephemeral channel with no non-bot members.
+	// Zero means no TTL; cleanup only occurs when the channel is empty.
+	TTL Duration `yaml:"ttl"`
+}
+
+// Duration wraps time.Duration for YAML unmarshalling ("72h", "30m", etc.).
+type Duration struct {
+	time.Duration
+}
+
+func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
+	var s string
+	if err := value.Decode(&s); err != nil {
+		return err
+	}
+	dur, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("config: invalid duration %q: %w", s, err)
+	}
+	d.Duration = dur
+	return nil
 }
 
 // Defaults fills in zero values with sensible defaults.
