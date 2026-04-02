@@ -95,6 +95,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		b.log.Info("systembot connected", "channels", b.channels)
 	})
 
+	c.Handlers.AddBg(girc.INVITE, func(cl *girc.Client, e girc.Event) {
+		if ch := e.Last(); strings.HasPrefix(ch, "#") {
+			cl.Cmd.Join(ch)
+		}
+	})
+
 	// NOTICE — server announcements, NickServ/ChanServ responses.
 	c.Handlers.AddBg(girc.NOTICE, func(_ *girc.Client, e girc.Event) {
 		channel := ""

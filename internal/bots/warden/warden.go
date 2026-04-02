@@ -204,6 +204,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	c.Handlers.AddBg(girc.INVITE, func(cl *girc.Client, e girc.Event) {
+		if ch := e.Last(); strings.HasPrefix(ch, "#") {
+			cl.Cmd.Join(ch)
+		}
+	})
+
 	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
 			return
