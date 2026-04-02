@@ -30,6 +30,9 @@ type ChannelConfig struct {
 
 	// Voice is a list of nicks to grant +v status.
 	Voice []string
+
+	// Autojoin is a list of bot nicks to invite after provisioning.
+	Autojoin []string
 }
 
 // Manager provisions and maintains IRC channel topology.
@@ -38,19 +41,25 @@ type Manager struct {
 	nick     string
 	password string
 	log      *slog.Logger
+	policy   *Policy
 	client   *girc.Client
 }
 
 // NewManager creates a topology Manager. nick and password are the Ergo
 // credentials of the scuttlebot oper account used to manage channels.
-func NewManager(ircAddr, nick, password string, log *slog.Logger) *Manager {
+// policy may be nil if the caller only uses the manager for ad-hoc provisioning.
+func NewManager(ircAddr, nick, password string, policy *Policy, log *slog.Logger) *Manager {
 	return &Manager{
 		ircAddr:  ircAddr,
 		nick:     nick,
 		password: password,
+		policy:   policy,
 		log:      log,
 	}
 }
+
+// Policy returns the policy attached to this manager, or nil.
+func (m *Manager) Policy() *Policy { return m.policy }
 
 // Connect establishes the IRC connection used for channel management.
 // Call before Provision.
@@ -145,10 +154,45 @@ func (m *Manager) DestroyEphemeral(channel string) {
 	m.chanserv("DROP %s", channel)
 }
 
+// ProvisionChannel provisions a single channel and invites its autojoin nicks.
+// It applies the manager's Policy if set; the caller may override autojoin via
+// the ChannelConfig directly.
+func (m *Manager) ProvisionChannel(ch ChannelConfig) error {
+	if err := ValidateName(ch.Name); err != nil {
+		return err
+	}
+	if err := m.provision(ch); err != nil {
+		return err
+	}
+	if len(ch.Autojoin) > 0 {
+		m.Invite(ch.Name, ch.Autojoin)
+	}
+	return nil
+}
+
+// Invite sends IRC INVITE to each nick in nicks for the given channel.
+// Invite is best-effort: nicks that are not connected are silently skipped.
+func (m *Manager) Invite(channel string, nicks []string) {
+	if m.client == nil {
+		return
+	}
+	for _, nick := range nicks {
+		m.client.Cmd.Invite(nick, channel)
+	}
+}
+
 func (m *Manager) provision(ch ChannelConfig) error {
 	// Register with ChanServ (idempotent — fails silently if already registered).
 	m.chanserv("REGISTER %s", ch.Name)
-	time.Sleep(100 * time.Millisecond) // let ChanServ process
+	// Give ChanServ time to process the registration before issuing follow-up
+	// commands. Retry the sleep up to 3 times so transient load doesn't cause
+	// TOPIC/ACCESS commands to fire before registration completes.
+	for range 3 {
+		time.Sleep(200 * time.Millisecond)
+		if m.client.IsConnected() {
+			break
+		}
+	}
 
 	if ch.Topic != "" {
 		m.chanserv("TOPIC %s %s", ch.Name, ch.Topic)
@@ -159,6 +203,10 @@ func (m *Manager) provision(ch ChannelConfig) error {
 	}
 	for _, nick := range ch.Voice {
 		m.chanserv("ACCESS %s ADD %s VOICE", ch.Name, nick)
+	}
+
+	if len(ch.Autojoin) > 0 {
+		m.Invite(ch.Name, ch.Autojoin)
 	}
 
 	m.log.Info("provisioned channel", "channel", ch.Name)

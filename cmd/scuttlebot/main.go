@@ -26,6 +26,7 @@ import (
 	"github.com/conflicthq/scuttlebot/internal/ergo"
 	"github.com/conflicthq/scuttlebot/internal/mcp"
 	"github.com/conflicthq/scuttlebot/internal/registry"
+	"github.com/conflicthq/scuttlebot/internal/topology"
 )
 
 var version = "dev"
@@ -157,6 +158,44 @@ func main() {
 			}
 		}()
 	}
+
+	// Topology manager — provisions static channels and enforces autojoin policy.
+	topoPolicy := topology.NewPolicy(cfg.Topology)
+	if len(cfg.Topology.Channels) > 0 || len(cfg.Topology.Types) > 0 {
+		topoPass := mustGenToken()
+		if err := ergoMgr.API().RegisterAccount(cfg.Topology.Nick, topoPass); err != nil {
+			if err2 := ergoMgr.API().ChangePassword(cfg.Topology.Nick, topoPass); err2 != nil {
+				log.Error("topology account setup failed", "err", err2)
+				os.Exit(1)
+			}
+		}
+		topoMgr := topology.NewManager(cfg.Ergo.IRCAddr, cfg.Topology.Nick, topoPass, topoPolicy, log)
+		topoCtx, topoCancel := context.WithTimeout(ctx, 30*time.Second)
+		if err := topoMgr.Connect(topoCtx); err != nil {
+			topoCancel()
+			log.Error("topology manager connect failed", "err", err)
+			os.Exit(1)
+		}
+		topoCancel()
+		staticChannels := make([]topology.ChannelConfig, 0, len(cfg.Topology.Channels))
+		for _, sc := range cfg.Topology.Channels {
+			staticChannels = append(staticChannels, topology.ChannelConfig{
+				Name:     sc.Name,
+				Topic:    sc.Topic,
+				Ops:      sc.Ops,
+				Voice:    sc.Voice,
+				Autojoin: sc.Autojoin,
+			})
+		}
+		if err := topoMgr.Provision(staticChannels); err != nil {
+			log.Error("topology provision failed", "err", err)
+		}
+		go func() {
+			<-ctx.Done()
+			topoMgr.Close()
+		}()
+	}
+	_ = topoPolicy // available for future API wiring (#37–#42)
 
 	// Policy store — persists behavior/agent/logging settings.
 	policyStore, err := api.NewPolicyStore(filepath.Join(cfg.Ergo.DataDir, "policies.json"), cfg.Bridge.WebUserTTLMinutes)

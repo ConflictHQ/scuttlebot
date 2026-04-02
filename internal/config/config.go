@@ -198,6 +198,10 @@ type DatastoreConfig struct {
 // It defines static channels provisioned at startup and dynamic channel type
 // rules applied when agents create channels at runtime.
 type TopologyConfig struct {
+	// Nick is the IRC nick used by the topology manager to provision channels
+	// via ChanServ. Defaults to "topology".
+	Nick string `yaml:"nick"`
+
 	// Channels are static channels provisioned at daemon startup.
 	Channels []StaticChannelConfig `yaml:"channels"`
 
@@ -315,6 +319,9 @@ func (c *Config) Defaults() {
 	}
 	if c.Bridge.WebUserTTLMinutes == 0 {
 		c.Bridge.WebUserTTLMinutes = 5
+	}
+	if c.Topology.Nick == "" {
+		c.Topology.Nick = "topology"
 	}
 }
 
