@@ -240,11 +240,11 @@ For a remote scuttlebot instance, pass the full URL and optionally select IRC tr
 
 ```bash
 bash skills/gemini-relay/scripts/install-gemini-relay.sh \
-  --url http://scuttlebot.internal:8080 \
+  --url http://scuttlebot.example.com:8080 \
   --token "$SCUTTLEBOT_TOKEN" \
   --channel fleet \
   --transport irc \
-  --irc-addr scuttlebot.internal:6667
+  --irc-addr scuttlebot.example.com:6667
 ```
 
 Install in disabled mode (hooks present but silent):
@@ -307,7 +307,7 @@ To switch Gemini or Codex to IRC transport with a remote server:
 
 ```bash
 SCUTTLEBOT_TRANSPORT=irc
-SCUTTLEBOT_IRC_ADDR=scuttlebot.internal:6667
+SCUTTLEBOT_IRC_ADDR=scuttlebot.example.com:6667
 ```
 
 ---

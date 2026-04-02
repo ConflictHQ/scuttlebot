@@ -11,11 +11,11 @@ REPORT.md
 coverage.out
 test-results/
 
-# Compiled binaries
-claude-agent
-claude-relay
-codex-agent
-codex-relay
-gemini-relay
-scuttlebot
-scuttlectl
+# Compiled binaries (root-level only)
+/claude-agent
+/claude-relay
+/codex-agent
+/codex-relay
+/gemini-relay
+/scuttlebot
+/scuttlectl

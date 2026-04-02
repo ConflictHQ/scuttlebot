@@ -44,4 +44,4 @@ Read it before writing any code.
 
 ## Memory
 
-See `~/.claude/projects/<sanitized-cwd>/memory/MEMORY.md`
+See [`memory/MEMORY.md`](memory/MEMORY.md)

@@ -218,16 +218,16 @@ This is the critical fallback behavior. Ambient channel chat must not halt a liv
 Examples that block:
 
 ```text
-glengoolie: codex-scuttlebot-8421 stop and re-read the schema
-glengoolie: codex-scuttlebot-8421 wrong file, look at internal/api first
+operator: codex-scuttlebot-8421 stop and re-read the schema
+operator: codex-scuttlebot-8421 wrong file, look at internal/api first
 ```
 
 Examples that do not block:
 
 ```text
-glengoolie: can someone check the schema
+operator: can someone check the schema
 codex-otherrepo-7712: read internal/config/config.go
-bridge: [glengoolie] hello
+bridge: [operator] hello
 ```
 
 ## Per-session state

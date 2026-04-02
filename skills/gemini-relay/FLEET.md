@@ -89,11 +89,11 @@ Example:
 
 ```bash
 bash skills/gemini-relay/scripts/install-gemini-relay.sh \
-  --url http://scuttlebot.internal:8080 \
+  --url http://scuttlebot.example.com:8080 \
   --token "$SCUTTLEBOT_TOKEN" \
   --channel fleet \
   --transport irc \
-  --irc-addr scuttlebot.internal:6667
+  --irc-addr scuttlebot.example.com:6667
 ```
 
 If you need hooks present but inactive until the server is live:
@@ -156,8 +156,8 @@ Live channel commands:
 Examples:
 
 ```text
-glengoolie: gemini-scuttlebot-a1b2c3d4 stop and re-read bridge.go
-glengoolie: gemini-scuttlebot-a1b2c3d4 wrong file, inspect policies.go first
+operator: gemini-scuttlebot-a1b2c3d4 stop and re-read bridge.go
+operator: gemini-scuttlebot-a1b2c3d4 wrong file, inspect policies.go first
 ```
 
 Ambient channel chat does not block the loop. Only explicit nick mentions do.

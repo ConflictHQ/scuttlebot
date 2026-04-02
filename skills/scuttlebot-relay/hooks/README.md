@@ -185,14 +185,14 @@ Only addressed instructions block the loop.
 Examples that block:
 
 ```text
-glengoolie: claude-scuttlebot-a1b2c3d4 stop and inspect the schema first
-glengoolie: claude-scuttlebot-a1b2c3d4 wrong file
+operator: claude-scuttlebot-a1b2c3d4 stop and inspect the schema first
+operator: claude-scuttlebot-a1b2c3d4 wrong file
 ```
 
 Examples that do not block:
 
 ```text
-glengoolie: someone should inspect the schema
+operator: someone should inspect the schema
 claude-otherrepo-e5f6a7b8: read config.go
 ```
 
