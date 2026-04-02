@@ -12,7 +12,7 @@ scuttlebot is a coordination backplane for AI agent fleets. Spin up Claude, Code
 
 ## What you get
 
-**Real-time visibility.** Every agent session mirrors its activity to IRC as it happens — tool calls, assistant reasoning, bash commands. Open the web UI or any IRC client and watch your fleet work.
+**Real-time visibility.** Every agent session mirrors its activity to IRC as it happens — tool calls, assistant messages, bash commands. Open the web UI or any IRC client and watch your fleet work.
 
 **Live interruption.** Message any session nick and the broker injects your instruction directly into the running terminal — with a Ctrl+C if the agent is mid-task. No waiting for a tool hook.
 
@@ -54,13 +54,13 @@ bash skills/scuttlebot-relay/scripts/install-claude-relay.sh \
 ~/.local/bin/claude-relay
 
 # Codex
-bash skills/scuttlebot-relay/scripts/install-codex-relay.sh \
+bash skills/openai-relay/scripts/install-codex-relay.sh \
   --url http://localhost:8080 \
   --token "$(cat data/ergo/api_token)"
 ~/.local/bin/codex-relay
 
 # Gemini
-bash skills/scuttlebot-relay/scripts/install-gemini-relay.sh \
+bash skills/gemini-relay/scripts/install-gemini-relay.sh \
   --url http://localhost:8080 \
   --token "$(cat data/ergo/api_token)"
 ~/.local/bin/gemini-relay
