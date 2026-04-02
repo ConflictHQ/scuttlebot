@@ -33,11 +33,11 @@ type Config struct {
 type ConfigHistoryConfig struct {
 	// Keep is the number of config snapshots to retain in Dir.
 	// 0 disables history. Default: 20.
-	Keep int `yaml:"keep"`
+	Keep int `yaml:"keep" json:"keep"`
 
 	// Dir is the directory for config snapshots.
 	// Default: {ergo.data_dir}/config-history
-	Dir string `yaml:"dir"`
+	Dir string `yaml:"dir" json:"dir,omitempty"`
 }
 
 // LLMConfig configures the omnibus LLM gateway used by oracle and any other
@@ -212,64 +212,81 @@ type DatastoreConfig struct {
 type TopologyConfig struct {
 	// Nick is the IRC nick used by the topology manager to provision channels
 	// via ChanServ. Defaults to "topology".
-	Nick string `yaml:"nick"`
+	Nick string `yaml:"nick" json:"nick"`
 
 	// Channels are static channels provisioned at daemon startup.
-	Channels []StaticChannelConfig `yaml:"channels"`
+	Channels []StaticChannelConfig `yaml:"channels" json:"channels"`
 
 	// Types are prefix-based rules applied to dynamically created channels.
 	// The first matching prefix wins.
-	Types []ChannelTypeConfig `yaml:"types"`
+	Types []ChannelTypeConfig `yaml:"types" json:"types"`
 }
 
 // StaticChannelConfig describes a channel that is provisioned at startup.
 type StaticChannelConfig struct {
 	// Name is the full channel name including the # prefix (e.g. "#general").
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name"`
 
 	// Topic is the initial channel topic.
-	Topic string `yaml:"topic"`
+	Topic string `yaml:"topic" json:"topic,omitempty"`
 
 	// Ops is a list of nicks to grant channel operator (+o) access.
-	Ops []string `yaml:"ops"`
+	Ops []string `yaml:"ops" json:"ops,omitempty"`
 
 	// Voice is a list of nicks to grant voice (+v) access.
-	Voice []string `yaml:"voice"`
+	Voice []string `yaml:"voice" json:"voice,omitempty"`
 
 	// Autojoin is a list of bot nicks to invite when the channel is provisioned.
-	Autojoin []string `yaml:"autojoin"`
+	Autojoin []string `yaml:"autojoin" json:"autojoin,omitempty"`
 }
 
 // ChannelTypeConfig defines policy rules for a class of dynamically created channels.
 // Matched by prefix against channel names (e.g. prefix "task." matches "#task.gh-42").
 type ChannelTypeConfig struct {
 	// Name is a human-readable type identifier (e.g. "task", "sprint", "incident").
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name"`
 
 	// Prefix is matched against channel names after stripping the leading #.
 	// The first matching type wins. (e.g. "task." matches "#task.gh-42")
-	Prefix string `yaml:"prefix"`
+	Prefix string `yaml:"prefix" json:"prefix"`
 
 	// Autojoin is a list of bot nicks to invite when a channel of this type is created.
-	Autojoin []string `yaml:"autojoin"`
+	Autojoin []string `yaml:"autojoin" json:"autojoin,omitempty"`
 
 	// Supervision is the coordination channel where summaries should surface.
-	// Agents receive this when they create a channel so they know where to also post.
-	// May be a static channel name (e.g. "#general") or a type prefix pattern
-	// (e.g. "sprint." — resolved to the most recently created matching channel).
-	Supervision string `yaml:"supervision"`
+	Supervision string `yaml:"supervision" json:"supervision,omitempty"`
 
 	// Ephemeral marks channels of this type for automatic cleanup.
-	Ephemeral bool `yaml:"ephemeral"`
+	Ephemeral bool `yaml:"ephemeral" json:"ephemeral,omitempty"`
 
 	// TTL is the maximum lifetime of an ephemeral channel with no non-bot members.
 	// Zero means no TTL; cleanup only occurs when the channel is empty.
-	TTL Duration `yaml:"ttl"`
+	TTL Duration `yaml:"ttl" json:"ttl,omitempty"`
 }
 
-// Duration wraps time.Duration for YAML unmarshalling ("72h", "30m", etc.).
+// Duration wraps time.Duration for YAML/JSON marshalling ("72h", "30m", etc.).
 type Duration struct {
 	time.Duration
+}
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	if d.Duration == 0 {
+		return []byte(`"0s"`), nil
+	}
+	return []byte(`"` + d.Duration.String() + `"`), nil
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	s := string(b)
+	if len(s) < 2 || s[0] != '"' || s[len(s)-1] != '"' {
+		return fmt.Errorf("config: duration must be a quoted string, got %s", s)
+	}
+	dur, err := time.ParseDuration(s[1 : len(s)-1])
+	if err != nil {
+		return fmt.Errorf("config: invalid duration %s: %w", s, err)
+	}
+	d.Duration = dur
+	return nil
 }
 
 func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
