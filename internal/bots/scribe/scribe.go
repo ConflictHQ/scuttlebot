@@ -70,6 +70,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		b.log.Info("scribe connected and joined channels", "channels", b.channels)
 	})
 
+	c.Handlers.AddBg(girc.INVITE, func(cl *girc.Client, e girc.Event) {
+		if ch := e.Last(); strings.HasPrefix(ch, "#") {
+			cl.Cmd.Join(ch)
+		}
+	})
+
 	// Log PRIVMSG — the agent message stream.
 	c.Handlers.AddBg(girc.PRIVMSG, func(client *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 {

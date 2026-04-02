@@ -152,6 +152,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	c.Handlers.AddBg(girc.INVITE, func(cl *girc.Client, e girc.Event) {
+		if ch := e.Last(); strings.HasPrefix(ch, "#") {
+			cl.Cmd.Join(ch)
+		}
+	})
+
 	b.client = c
 
 	errCh := make(chan error, 1)

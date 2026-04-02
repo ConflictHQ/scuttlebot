@@ -165,6 +165,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	c.Handlers.AddBg(girc.INVITE, func(_ *girc.Client, e girc.Event) {
+		if ch := e.Last(); strings.HasPrefix(ch, "#") {
+			b.JoinChannel(ch)
+		}
+	})
+
 	c.Handlers.AddBg(girc.JOIN, func(_ *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil || e.Source.Name != b.nick {
 			return

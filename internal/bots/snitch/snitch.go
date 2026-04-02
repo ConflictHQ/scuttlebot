@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,6 +137,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 		if b.cfg.AlertChannel != "" {
 			cl.Cmd.Join(b.cfg.AlertChannel)
+		}
+	})
+
+	c.Handlers.AddBg(girc.INVITE, func(cl *girc.Client, e girc.Event) {
+		if ch := e.Last(); strings.HasPrefix(ch, "#") {
+			cl.Cmd.Join(ch)
 		}
 	})
 
