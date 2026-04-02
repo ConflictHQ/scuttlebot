@@ -11,7 +11,11 @@ REPORT.md
 coverage.out
 test-results/
 
-# Compiled relay binaries are committed to the repo for convenience (no build step required).
-# If you rebuild locally, `go build` output goes to bin/ (ignored above).
-# The root-level binaries (claude-relay, codex-relay, gemini-relay, scuttlectl, scuttlebot)
-# are the published release artifacts — do not add them here.
+# Compiled binaries
+claude-agent
+claude-relay
+codex-agent
+codex-relay
+gemini-relay
+scuttlebot
+scuttlectl
