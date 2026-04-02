@@ -11,6 +11,7 @@ import (
 // and query the channel policy. Satisfied by *topology.Manager.
 type topologyManager interface {
 	ProvisionChannel(ch topology.ChannelConfig) error
+	DropChannel(channel string)
 	Policy() *topology.Policy
 }
 
@@ -87,6 +88,18 @@ type channelTypeInfo struct {
 type topologyResponse struct {
 	StaticChannels []string          `json:"static_channels"`
 	Types          []channelTypeInfo `json:"types"`
+}
+
+// handleDropChannel handles DELETE /v1/topology/channels/{channel}.
+// Drops the ChanServ registration of an ephemeral channel.
+func (s *Server) handleDropChannel(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	if err := topology.ValidateName(channel); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.topoMgr.DropChannel(channel)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleGetTopology handles GET /v1/topology.

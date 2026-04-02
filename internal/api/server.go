@@ -80,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.topoMgr != nil {
 		apiMux.HandleFunc("POST /v1/channels", s.handleProvisionChannel)
+		apiMux.HandleFunc("DELETE /v1/topology/channels/{channel}", s.handleDropChannel)
 		apiMux.HandleFunc("GET /v1/topology", s.handleGetTopology)
 	}
 

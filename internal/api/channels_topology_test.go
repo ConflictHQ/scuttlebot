@@ -28,6 +28,8 @@ func (s *stubTopologyManager) ProvisionChannel(ch topology.ChannelConfig) error 
 	return s.provErr
 }
 
+func (s *stubTopologyManager) DropChannel(_ string) {}
+
 func (s *stubTopologyManager) Policy() *topology.Policy { return s.policy }
 
 func newTopoTestServer(t *testing.T, topo *stubTopologyManager) (*httptest.Server, string) {

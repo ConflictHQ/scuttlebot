@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lrstanley/girc"
@@ -35,6 +36,12 @@ type ChannelConfig struct {
 	Autojoin []string
 }
 
+// channelRecord tracks a provisioned channel for TTL-based reaping.
+type channelRecord struct {
+	name        string
+	provisionedAt time.Time
+}
+
 // Manager provisions and maintains IRC channel topology.
 type Manager struct {
 	ircAddr  string
@@ -43,6 +50,9 @@ type Manager struct {
 	log      *slog.Logger
 	policy   *Policy
 	client   *girc.Client
+
+	mu       sync.Mutex
+	channels map[string]channelRecord // channel name → record
 }
 
 // NewManager creates a topology Manager. nick and password are the Ergo
@@ -55,6 +65,7 @@ func NewManager(ircAddr, nick, password string, policy *Policy, log *slog.Logger
 		password: password,
 		policy:   policy,
 		log:      log,
+		channels: make(map[string]channelRecord),
 	}
 }
 
@@ -209,8 +220,60 @@ func (m *Manager) provision(ch ChannelConfig) error {
 		m.Invite(ch.Name, ch.Autojoin)
 	}
 
+	m.mu.Lock()
+	m.channels[ch.Name] = channelRecord{name: ch.Name, provisionedAt: time.Now()}
+	m.mu.Unlock()
+
 	m.log.Info("provisioned channel", "channel", ch.Name)
 	return nil
+}
+
+// DropChannel drops an IRC channel via ChanServ DROP and removes it from the
+// channel registry. Use for ephemeral channels that have expired or been closed.
+func (m *Manager) DropChannel(channel string) {
+	m.chanserv("DROP %s", channel)
+	m.mu.Lock()
+	delete(m.channels, channel)
+	m.mu.Unlock()
+	m.log.Info("dropped channel", "channel", channel)
+}
+
+// StartReaper starts a background goroutine that drops ephemeral channels once
+// their TTL has elapsed. The reaper runs until ctx is cancelled.
+// Policy must be set on the Manager for TTL rules to be evaluated.
+func (m *Manager) StartReaper(ctx context.Context) {
+	if m.policy == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.reap()
+			}
+		}
+	}()
+}
+
+func (m *Manager) reap() {
+	now := time.Now()
+	m.mu.Lock()
+	expired := make([]channelRecord, 0)
+	for _, rec := range m.channels {
+		ttl := m.policy.TTLFor(rec.name)
+		if ttl > 0 && m.policy.IsEphemeral(rec.name) && now.Sub(rec.provisionedAt) > ttl {
+			expired = append(expired, rec)
+		}
+	}
+	m.mu.Unlock()
+	for _, rec := range expired {
+		m.log.Info("reaping expired ephemeral channel", "channel", rec.name, "age", now.Sub(rec.provisionedAt).Round(time.Minute))
+		m.DropChannel(rec.name)
+	}
 }
 
 func (m *Manager) chanserv(format string, args ...any) {
