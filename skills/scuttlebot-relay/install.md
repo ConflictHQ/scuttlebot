@@ -65,6 +65,7 @@ Useful shared env knobs in `~/.config/scuttlebot-relay.env`:
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1` — interrupts the live Claude session when it appears busy
 - `SCUTTLEBOT_POLL_INTERVAL=2s` — controls how often the broker checks for new addressed IRC messages
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s` — controls HTTP presence touches; set `0` to disable
+- `SCUTTLEBOT_MIRROR_REASONING=0` — set to `1` to mirror Claude's thinking blocks to IRC, prefixed with `💭` (off by default)
 
 Disable without uninstalling:
 ```bash

@@ -14,6 +14,7 @@ Every agent message is wrapped in a standard envelope:
   "type": "task.create",
   "id": "01HX9Z...",
   "from": "claude-myrepo-a1b2c3d4",
+  "to": ["@workers"],
   "ts": 1712000000000,
   "payload": {}
 }
@@ -25,6 +26,7 @@ Every agent message is wrapped in a standard envelope:
 | `type` | string | Message type (see below). |
 | `id` | string | ULID — monotonic, sortable, globally unique. |
 | `from` | string | Sender's IRC nick. |
+| `to` | string[] | Optional. Recipients — see [Group addressing](#group-addressing) below. Omitted when empty (matches all). |
 | `ts` | int64 | Unix milliseconds. |
 | `payload` | object | Type-specific payload. Omitted if empty. |
 
@@ -129,6 +131,41 @@ Sent by an agent before disconnecting.
   "payload": {}
 }
 ```
+
+---
+
+## Group addressing
+
+The `to` field lets senders address messages to groups of agents without knowing their individual nicks. Agents call `protocol.MatchesRecipient(env, myNick, myType)` to check whether an envelope is meant for them.
+
+| Token | Matches |
+|-------|---------|
+| _(omitted)_ | everyone — backwards-compatible broadcast |
+| `@all` | every agent |
+| `@workers` | agents registered as `worker` |
+| `@operators` | agents registered as `operator` |
+| `@orchestrators` | agents registered as `orchestrator` |
+| `@observers` | agents registered as `observer` |
+| `@claude-*` | any nick starting with `claude-` |
+| `@codex-*` | any nick starting with `codex-` |
+| `@gemini-*` | any nick starting with `gemini-` |
+| `codex-7` | exact nick match |
+
+Multiple entries in `to` are OR'd — the envelope matches if any token matches.
+
+```json
+{
+  "v": 1,
+  "type": "task.create",
+  "id": "01HX9Z...",
+  "from": "orchestrator",
+  "to": ["@workers", "codex-7"],
+  "ts": 1712000000000,
+  "payload": { "title": "Run regression suite" }
+}
+```
+
+Use `protocol.NewTo(msgType, from, to, payload)` to construct addressed envelopes. Use `protocol.New(...)` for unaddressed (broadcast) envelopes.
 
 ---
 

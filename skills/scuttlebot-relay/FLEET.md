@@ -111,6 +111,7 @@ Useful shared env knobs:
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1` interrupts the live Claude session when it appears busy
 - `SCUTTLEBOT_POLL_INTERVAL=2s` controls how often the broker checks for new addressed IRC messages
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT=60s` controls HTTP presence touches; set `0` to disable
+- `SCUTTLEBOT_MIRROR_REASONING=1` mirrors Claude's thinking blocks to IRC, prefixed with `💭` (off by default)
 - `SCUTTLEBOT_ACTIVITY_VIA_BROKER=1` tells `scuttlebot-post.sh` to stay quiet so broker-launched sessions do not duplicate activity posts
 
 Installer auth knobs:

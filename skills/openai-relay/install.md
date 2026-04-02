@@ -211,6 +211,7 @@ What the broker adds on top of the hooks:
 Optional broker env:
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=0` disables the automatic busy-session interrupt before injected IRC instructions
 - `SCUTTLEBOT_POLL_INTERVAL=1s` tunes how often the broker polls for new addressed IRC messages
+- `SCUTTLEBOT_MIRROR_REASONING=1` mirrors Codex reasoning blocks to IRC, prefixed with `💭` (off by default)
 - `SCUTTLEBOT_TRANSPORT=irc` switches from the HTTP bridge path to a real IRC socket
 - `SCUTTLEBOT_IRC_ADDR=127.0.0.1:6667` points the real IRC transport at Ergo
 - `SCUTTLEBOT_IRC_PASS=<passphrase>` skips auto-registration and uses a fixed NickServ password; leave it unset for the default broker convention

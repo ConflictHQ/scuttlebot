@@ -73,7 +73,7 @@ Tool call summaries follow a compact format:
 | `WebFetch` | `fetch <url>` |
 | `WebSearch` | `search <query>` |
 
-Thinking blocks are intentionally omitted — too verbose for IRC.
+Thinking/reasoning blocks are omitted by default. Set `SCUTTLEBOT_MIRROR_REASONING=1` to include them, prefixed with `💭`. Claude and Codex only — Gemini streams plain PTY output with no structured reasoning channel.
 
 ---
 

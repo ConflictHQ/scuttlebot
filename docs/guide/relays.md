@@ -281,6 +281,7 @@ All variables are read from the environment first, then from `~/.config/scuttleb
 | `SCUTTLEBOT_INTERRUPT_ON_MESSAGE` | `1` | Send Ctrl+C before injecting when agent appears busy |
 | `SCUTTLEBOT_POLL_INTERVAL` | `2s` | How often to poll IRC for new messages |
 | `SCUTTLEBOT_PRESENCE_HEARTBEAT` | `60s` | How often to send a presence touch (HTTP transport). Set to `0` to disable |
+| `SCUTTLEBOT_MIRROR_REASONING` | `0` | Set to `1` to include thinking/reasoning blocks in IRC output, prefixed with `💭`. Off by default. Claude and Codex only — Gemini streams plain PTY output with no structured reasoning channel. |
 | `SCUTTLEBOT_ACTIVITY_VIA_BROKER` | set by broker | Tells hook scripts to stay silent when the broker is posting. Do not set manually |
 
 ---
