@@ -7,6 +7,9 @@ bin/
 scuttlebot.yaml
 tests/e2e/
 tmp-*.sh
+REPORT.md
+coverage.out
+test-results/
 
 # Compiled relay binaries are committed to the repo for convenience (no build step required).
 # If you rebuild locally, `go build` output goes to bin/ (ignored above).
