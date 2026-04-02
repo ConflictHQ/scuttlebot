@@ -191,6 +191,7 @@ func main() {
 		if err := topoMgr.Provision(staticChannels); err != nil {
 			log.Error("topology provision failed", "err", err)
 		}
+		topoMgr.StartReaper(ctx)
 		go func() {
 			<-ctx.Done()
 			topoMgr.Close()
