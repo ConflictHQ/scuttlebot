@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -31,12 +32,20 @@ type Envelope struct {
 	Type    string          `json:"type"`
 	ID      string          `json:"id"`
 	From    string          `json:"from"`
+	To      []string        `json:"to,omitempty"`
 	TS      int64           `json:"ts"`
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 // New creates a new Envelope with a generated ID and current timestamp.
+// To is left empty (unaddressed — matches all recipients).
 func New(msgType, from string, payload any) (*Envelope, error) {
+	return NewTo(msgType, from, nil, payload)
+}
+
+// NewTo creates a new Envelope addressed to specific recipients.
+// See MatchesRecipient for supported To patterns.
+func NewTo(msgType, from string, to []string, payload any) (*Envelope, error) {
 	var raw json.RawMessage
 	if payload != nil {
 		b, err := json.Marshal(payload)
@@ -50,6 +59,7 @@ func New(msgType, from string, payload any) (*Envelope, error) {
 		Type:    msgType,
 		ID:      newID(),
 		From:    from,
+		To:      to,
 		TS:      time.Now().UnixMilli(),
 		Payload: raw,
 	}, nil
@@ -101,6 +111,66 @@ func validate(e *Envelope) error {
 		return fmt.Errorf("protocol: missing from")
 	}
 	return nil
+}
+
+// Group addressing tokens for use in Envelope.To.
+const (
+	ToAll           = "@all"
+	ToOperators     = "@operators"
+	ToOrchestrators = "@orchestrators"
+	ToWorkers       = "@workers"
+	ToObservers     = "@observers"
+)
+
+// MatchesRecipient reports whether env is addressed to the agent identified by
+// nick and agentType.
+//
+// Matching rules (OR'd across all To entries):
+//   - empty/nil To        → true (unaddressed = broadcast, backwards compat)
+//   - "@all"              → true
+//   - "@operators" etc.   → agentType == "operator" etc.
+//   - "@prefix-*"         → strings.HasPrefix(nick, "prefix-")
+//   - bare string         → nick == token
+func MatchesRecipient(env *Envelope, nick, agentType string) bool {
+	if len(env.To) == 0 {
+		return true
+	}
+	for _, token := range env.To {
+		switch token {
+		case ToAll:
+			return true
+		case ToOperators:
+			if agentType == "operator" {
+				return true
+			}
+		case ToOrchestrators:
+			if agentType == "orchestrator" {
+				return true
+			}
+		case ToWorkers:
+			if agentType == "worker" {
+				return true
+			}
+		case ToObservers:
+			if agentType == "observer" {
+				return true
+			}
+		default:
+			if strings.HasPrefix(token, "@") {
+				// @prefix-* glob: strip leading "@" and trailing "-*"
+				prefix := strings.TrimPrefix(token, "@")
+				if strings.HasSuffix(prefix, "-*") {
+					prefix = strings.TrimSuffix(prefix, "*")
+					if strings.HasPrefix(nick, prefix) {
+						return true
+					}
+				}
+			} else if token == nick {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newID() string {
