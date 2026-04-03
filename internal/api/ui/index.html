@@ -31,6 +31,7 @@ nav { display:flex; align-items:stretch; flex:1; }
 .card-header { padding:12px 16px; border-bottom:1px solid #30363d; display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
 .card-header:hover { background:#1c2128; }
 .card-header h2 { font-size:14px; font-weight:600; }
+.card-header .card-desc { font-size:11px; color:#6e7681; font-weight:400; }
 .card-header .collapse-icon { font-size:11px; color:#8b949e; margin-left:2px; transition:transform .15s; }
 .card.collapsed .card-header { border-bottom:none; }
 .card.collapsed .card-body { display:none; }
@@ -432,7 +433,7 @@ canvas { display:block; width:100% !important; }
 
     <!-- connection -->
     <div class="card" id="card-connection">
-      <div class="card-header" style="cursor:default"><h2>connection</h2></div>
+      <div class="card-header" style="cursor:default"><h2>connection</h2><span class="card-desc">current session and server endpoints</span></div>
       <div class="card-body">
         <div class="setting-row">
           <div class="setting-label">signed in as</div>
@@ -460,7 +461,7 @@ canvas { display:block; width:100% !important; }
 
     <!-- admin accounts -->
     <div class="card" id="card-admins">
-      <div class="card-header" onclick="toggleCard('card-admins',event)"><h2>admin accounts</h2><span class="collapse-icon">▾</span></div>
+      <div class="card-header" onclick="toggleCard('card-admins',event)"><h2>admin accounts</h2><span class="card-desc">who can sign in to this UI</span><span class="collapse-icon">▾</span></div>
       <div id="admins-list-container"></div>
       <div class="card-body" style="border-top:1px solid #21262d">
         <p style="font-size:12px;color:#8b949e;margin-bottom:12px">Add an admin account. Admins sign in at the login screen with username + password.</p>
@@ -475,7 +476,7 @@ canvas { display:block; width:100% !important; }
 
     <!-- tls -->
     <div class="card" id="card-tls">
-      <div class="card-header" onclick="toggleCard('card-tls',event)"><h2>TLS / SSL</h2><span class="collapse-icon">▾</span><div class="spacer"></div><span id="tls-badge" class="badge">loading…</span></div>
+      <div class="card-header" onclick="toggleCard('card-tls',event)"><h2>TLS / SSL</h2><span class="card-desc">certificate status</span><span class="collapse-icon">▾</span><div class="spacer"></div><span id="tls-badge" class="badge">loading…</span></div>
       <div class="card-body">
         <div id="tls-status-rows"></div>
         <div class="alert info" style="margin-top:12px;font-size:12px">
@@ -489,7 +490,7 @@ canvas { display:block; width:100% !important; }
     <!-- system behaviors -->
     <div class="card" id="card-behaviors">
       <div class="card-header" onclick="toggleCard('card-behaviors',event)">
-        <h2>system behaviors</h2><span class="collapse-icon">▾</span>
+        <h2>system behaviors</h2><span class="card-desc">bot toggles, rate limits, and default channel</span><span class="collapse-icon">▾</span>
         <div class="spacer"></div>
         <button class="sm primary" onclick="savePolicies()">save</button>
       </div>
@@ -500,7 +501,7 @@ canvas { display:block; width:100% !important; }
 
     <!-- agent policy -->
     <div class="card" id="card-agentpolicy">
-      <div class="card-header" onclick="toggleCard('card-agentpolicy',event)"><h2>agent policy</h2><span class="collapse-icon">▾</span><div class="spacer"></div><button class="sm primary" onclick="savePolicies()">save</button></div>
+      <div class="card-header" onclick="toggleCard('card-agentpolicy',event)"><h2>agent policy</h2><span class="card-desc">autojoin and check-in rules for all agents</span><span class="collapse-icon">▾</span><div class="spacer"></div><button class="sm primary" onclick="event.stopPropagation();saveAgentPolicy()">save</button></div>
       <div class="card-body">
         <div class="setting-row">
           <div class="setting-label">require check-in</div>
@@ -521,12 +522,39 @@ canvas { display:block; width:100% !important; }
           <input type="text" id="policy-required-channels" placeholder="#fleet, #alerts" style="width:220px;padding:4px 8px;font-size:12px">
         </div>
       </div>
+      <div id="agentpolicy-save-result" style="display:none;margin:0 16px 12px"></div>
     </div>
 
     <!-- bridge -->
     <div class="card" id="card-bridgepolicy">
-      <div class="card-header" onclick="toggleCard('card-bridgepolicy',event)"><h2>web bridge</h2><span class="collapse-icon">▾</span><div class="spacer"></div><button class="sm primary" onclick="savePolicies()">save</button></div>
+      <div class="card-header" onclick="toggleCard('card-bridgepolicy',event)"><h2>web bridge</h2><span class="card-desc">IRC bot that powers the web chat UI</span><span class="collapse-icon">▾</span><div class="spacer"></div><button class="sm primary" onclick="event.stopPropagation();saveBridgeConfig()">save</button></div>
       <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-label">enabled</div>
+          <div class="setting-desc">Start the bridge bot that powers the web chat UI.</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="bridge-enabled">
+            <span style="font-size:12px">enabled</span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">nick</div>
+          <div class="setting-desc">IRC nick for the bridge bot. Requires restart.</div>
+          <input type="text" id="bridge-nick" placeholder="bridge" style="width:160px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">channels</div>
+          <div class="setting-desc">Channels the bridge joins at startup.</div>
+          <input type="text" id="bridge-channels" placeholder="#general, #fleet" style="width:280px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">message buffer</div>
+          <div class="setting-desc">Messages to keep per channel in memory.</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="bridge-buffer-size" placeholder="200" min="1" style="width:80px;padding:4px 8px;font-size:12px">
+            <span style="font-size:12px;color:#8b949e">messages</span>
+          </div>
+        </div>
         <div class="setting-row">
           <div class="setting-label">web user TTL</div>
           <div class="setting-desc">How long HTTP-posted nicks stay visible in the channel user list after their last message.</div>
@@ -536,11 +564,12 @@ canvas { display:block; width:100% !important; }
           </div>
         </div>
       </div>
+      <div id="bridge-save-result" style="display:none;margin:0 16px 12px"></div>
     </div>
 
     <!-- logging -->
     <div class="card" id="card-logging">
-      <div class="card-header" onclick="toggleCard('card-logging',event)"><h2>message logging</h2><span class="collapse-icon">▾</span><div class="spacer"></div><button class="sm primary" onclick="savePolicies()">save</button></div>
+      <div class="card-header" onclick="toggleCard('card-logging',event)"><h2>message logging</h2><span class="card-desc">write channel traffic to disk</span><span class="collapse-icon">▾</span><div class="spacer"></div><button class="sm primary" onclick="event.stopPropagation();saveLogging()">save</button></div>
       <div class="card-body">
         <div class="setting-row">
           <div class="setting-label">enabled</div>
@@ -603,9 +632,144 @@ canvas { display:block; width:100% !important; }
           </div>
         </div>
       </div>
+      <div id="logging-save-result" style="display:none;margin:0 16px 12px"></div>
     </div>
 
     <div id="policies-save-result" style="display:none"></div>
+
+    <!-- general -->
+    <div class="card" id="card-general">
+      <div class="card-header" onclick="toggleCard('card-general',event)">
+        <h2>general</h2><span class="card-desc">API and MCP server addresses</span><span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <button class="sm primary" onclick="event.stopPropagation();saveGeneralConfig()">save</button>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-label">API address</div>
+          <div class="setting-desc">Address scuttlebot listens on for HTTP API requests. Requires restart.</div>
+          <input type="text" id="general-api-addr" placeholder=":8080" style="width:160px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">MCP address</div>
+          <div class="setting-desc">Address for the Model Context Protocol server. Requires restart.</div>
+          <input type="text" id="general-mcp-addr" placeholder=":8081" style="width:160px;padding:4px 8px;font-size:12px">
+        </div>
+      </div>
+      <div id="general-save-result" style="display:none;margin:0 16px 12px"></div>
+    </div>
+
+    <!-- ergo -->
+    <div class="card" id="card-ergo">
+      <div class="card-header" onclick="toggleCard('card-ergo',event)">
+        <h2>IRC server (ergo)</h2><span class="card-desc">embedded IRC server settings</span><span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <button class="sm primary" onclick="event.stopPropagation();saveErgoConfig()">save</button>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-label">network name</div>
+          <div class="setting-desc">Human-readable IRC network name. Requires restart.</div>
+          <input type="text" id="ergo-network-name" placeholder="scuttlebot" style="width:220px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">server name</div>
+          <div class="setting-desc">IRC server hostname (e.g. irc.example.com). Requires restart.</div>
+          <input type="text" id="ergo-server-name" placeholder="irc.scuttlebot.local" style="width:220px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">IRC address</div>
+          <div class="setting-desc">Address Ergo listens on for IRC connections. Requires restart.</div>
+          <input type="text" id="ergo-irc-addr" placeholder="127.0.0.1:6667" style="width:180px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">external mode</div>
+          <div class="setting-desc">Disable subprocess management — scuttlebot expects Ergo to already be running. Requires restart.</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="ergo-external">
+            <span style="font-size:12px">external</span>
+          </label>
+        </div>
+      </div>
+      <div id="ergo-save-result" style="display:none;margin:0 16px 12px"></div>
+    </div>
+
+    <!-- TLS -->
+    <div class="card" id="card-tls-config">
+      <div class="card-header" onclick="toggleCard('card-tls-config',event)">
+        <h2>TLS / HTTPS</h2><span class="card-desc">HTTPS and Let's Encrypt configuration</span><span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <button class="sm primary" onclick="event.stopPropagation();saveTLSConfig()">save</button>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-label">domain</div>
+          <div class="setting-desc">Domain for Let's Encrypt certificate. Leave blank for HTTP only. Requires restart.</div>
+          <input type="text" id="tls-domain" placeholder="scuttlebot.example.com" style="width:240px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">email</div>
+          <div class="setting-desc">Sent to Let's Encrypt for expiry notifications.</div>
+          <input type="email" id="tls-email" placeholder="admin@example.com" style="width:240px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">allow insecure</div>
+          <div class="setting-desc">Keep HTTP running on :80 alongside HTTPS.</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tls-allow-insecure">
+            <span style="font-size:12px">enabled</span>
+          </label>
+        </div>
+      </div>
+      <div id="tls-config-save-result" style="display:none;margin:0 16px 12px"></div>
+    </div>
+
+    <!-- topology -->
+    <div class="card" id="card-topology">
+      <div class="card-header" onclick="toggleCard('card-topology',event)">
+        <h2>topology</h2><span class="card-desc">static channels and prefix-based channel rules</span><span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <button class="sm" onclick="event.stopPropagation();loadConfigCards()">↺ refresh</button>
+        <button class="sm primary" onclick="event.stopPropagation();saveTopologyConfig()">save</button>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-label">manager nick</div>
+          <div class="setting-desc">IRC nick used by the topology manager to register channels via ChanServ.</div>
+          <input type="text" id="topo-nick" placeholder="topology" style="width:160px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">config history</div>
+          <div class="setting-desc">Number of scuttlebot.yaml snapshots to keep before pruning.</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="topo-history-keep" placeholder="20" min="0" style="width:80px;padding:4px 8px;font-size:12px">
+            <span style="font-size:12px;color:#8b949e">snapshots</span>
+          </div>
+        </div>
+
+        <!-- static channels -->
+        <div style="margin-top:20px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
+          <strong style="font-size:13px">static channels</strong>
+          <span style="font-size:11px;color:#8b949e;flex:1">Provisioned at startup. ChanServ registers these channels and invites the listed bots.</span>
+          <button class="sm" onclick="topoAddStaticChannel()">+ add</button>
+        </div>
+        <div id="topo-static-channels">
+          <div class="empty-state" style="padding:12px;font-size:12px">no static channels configured</div>
+        </div>
+
+        <!-- channel types -->
+        <div style="margin-top:20px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
+          <strong style="font-size:13px">channel types</strong>
+          <span style="font-size:11px;color:#8b949e;flex:1">Prefix-based rules applied when agents create channels.</span>
+          <button class="sm" onclick="topoAddChannelType()">+ add</button>
+        </div>
+        <div id="topo-channel-types">
+          <div class="empty-state" style="padding:12px;font-size:12px">no channel types configured</div>
+        </div>
+
+        <div id="topo-save-result" style="display:none;margin-top:12px"></div>
+      </div>
+    </div>
 
     <!-- about -->
     <div class="card">
@@ -631,7 +795,7 @@ canvas { display:block; width:100% !important; }
     <!-- LLM backends -->
     <div class="card" id="card-ai-backends">
       <div class="card-header" style="cursor:default">
-        <h2>LLM backends</h2>
+        <h2>LLM backends</h2><span class="card-desc">configured providers for oracle and other LLM bots</span>
         <div class="spacer"></div>
         <button class="sm" onclick="loadAI()">↺ refresh</button>
         <button class="sm primary" onclick="openAddBackend()">+ add backend</button>
@@ -770,7 +934,7 @@ canvas { display:block; width:100% !important; }
 
     <!-- supported backends reference -->
     <div class="card" id="card-ai-supported">
-      <div class="card-header" onclick="toggleCard('card-ai-supported',event)"><h2>supported backends</h2><span class="collapse-icon">▾</span></div>
+      <div class="card-header" onclick="toggleCard('card-ai-supported',event)"><h2>supported backends</h2><span class="card-desc">all available provider types</span><span class="collapse-icon">▾</span></div>
       <div class="card-body" id="ai-supported-list">
         <div class="empty-state">loading…</div>
       </div>
@@ -778,7 +942,7 @@ canvas { display:block; width:100% !important; }
 
     <!-- config example -->
     <div class="card" id="card-ai-example" style="display:none">
-      <div class="card-header" onclick="toggleCard('card-ai-example',event)"><h2>YAML example</h2><span class="collapse-icon">▾</span></div>
+      <div class="card-header" onclick="toggleCard('card-ai-example',event)"><h2>YAML example</h2><span class="card-desc">copy-paste starter config</span><span class="collapse-icon">▾</span></div>
       <div class="card-body">
         <pre style="font-size:12px;color:#a5d6ff;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px;overflow-x:auto;white-space:pre">llm:
   backends:
@@ -2323,6 +2487,7 @@ async function loadSettings() {
     renderBridgePolicy(s.policies.bridge || {});
     renderLoggingPolicy(s.policies.logging || {});
     loadAdmins();
+    loadConfigCards();
   } catch(e) {
     document.getElementById('tls-badge').textContent = 'error';
   }
@@ -2439,35 +2604,288 @@ function toggleRotationOptions() {
 }
 
 async function savePolicies() {
+  // Saves behaviors only — agent_policy, logging, and bridge are now
+  // persisted to scuttlebot.yaml via PUT /v1/config.
   if (!currentPolicies) return;
   const p = JSON.parse(JSON.stringify(currentPolicies)); // deep copy
-  p.agent_policy = {
-    require_checkin:   document.getElementById('policy-checkin-enabled').checked,
-    checkin_channel:   document.getElementById('policy-checkin-channel').value.trim(),
-    required_channels: document.getElementById('policy-required-channels').value.split(',').map(s=>s.trim()).filter(Boolean),
-  };
-  p.bridge = {
-    web_user_ttl_minutes: parseInt(document.getElementById('policy-bridge-web-user-ttl').value, 10) || 5,
-  };
-  p.logging = {
-    enabled:      document.getElementById('policy-logging-enabled').checked,
-    dir:          document.getElementById('policy-log-dir').value.trim(),
-    format:       document.getElementById('policy-log-format').value,
-    rotation:     document.getElementById('policy-log-rotation').value,
-    max_size_mb:  parseInt(document.getElementById('policy-log-max-size').value, 10) || 0,
-    per_channel:  document.getElementById('policy-log-per-channel').checked,
-    max_age_days: parseInt(document.getElementById('policy-log-max-age').value, 10) || 0,
-  };
   const resultEl = document.getElementById('policies-save-result');
   try {
     currentPolicies = await api('PUT', '/v1/settings/policies', p);
     resultEl.style.display = 'block';
-    resultEl.innerHTML = renderAlert('success', 'Settings saved.');
+    resultEl.innerHTML = renderAlert('success', 'Behaviors saved.');
     setTimeout(() => { resultEl.style.display = 'none'; }, 3000);
   } catch(e) {
     resultEl.style.display = 'block';
     resultEl.innerHTML = renderAlert('error', e.message);
   }
+}
+
+// --- topology config ---
+let _topoChannels = [];
+let _topoTypes    = [];
+
+function renderTopoStaticChannels() {
+  const el = document.getElementById('topo-static-channels');
+  if (!_topoChannels.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:12px;font-size:12px">no static channels configured</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table style="width:100%;font-size:12px;border-collapse:collapse">
+      <thead>
+        <tr style="color:#8b949e;border-bottom:1px solid #30363d">
+          <th style="text-align:left;padding:4px 8px;font-weight:500">name</th>
+          <th style="text-align:left;padding:4px 8px;font-weight:500">topic</th>
+          <th style="text-align:left;padding:4px 8px;font-weight:500">autojoin</th>
+          <th style="padding:4px 8px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${_topoChannels.map((c, i) => `
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px 8px">
+              <input type="text" value="${esc(c.name||'')}" style="width:120px;padding:2px 6px;font-size:11px"
+                onchange="_topoChannels[${i}].name=this.value">
+            </td>
+            <td style="padding:4px 8px">
+              <input type="text" value="${esc(c.topic||'')}" style="width:160px;padding:2px 6px;font-size:11px"
+                onchange="_topoChannels[${i}].topic=this.value">
+            </td>
+            <td style="padding:4px 8px">
+              <input type="text" value="${esc((c.autojoin||[]).join(', '))}" placeholder="bridge, sentinel"
+                style="width:160px;padding:2px 6px;font-size:11px"
+                onchange="_topoChannels[${i}].autojoin=this.value.split(',').map(s=>s.trim()).filter(Boolean)">
+            </td>
+            <td style="padding:4px 8px;text-align:right">
+              <button class="sm" onclick="topoDeleteStaticChannel(${i})">✕</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+}
+
+function renderTopoChannelTypes() {
+  const el = document.getElementById('topo-channel-types');
+  if (!_topoTypes.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:12px;font-size:12px">no channel types configured</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table style="width:100%;font-size:12px;border-collapse:collapse">
+      <thead>
+        <tr style="color:#8b949e;border-bottom:1px solid #30363d">
+          <th style="text-align:left;padding:4px 8px;font-weight:500">name</th>
+          <th style="text-align:left;padding:4px 8px;font-weight:500">prefix</th>
+          <th style="text-align:left;padding:4px 8px;font-weight:500">ttl</th>
+          <th style="text-align:left;padding:4px 8px;font-weight:500">ephemeral</th>
+          <th style="padding:4px 8px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${_topoTypes.map((x, i) => `
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px 8px">
+              <input type="text" value="${esc(x.name||'')}" style="width:100px;padding:2px 6px;font-size:11px"
+                onchange="_topoTypes[${i}].name=this.value">
+            </td>
+            <td style="padding:4px 8px">
+              <input type="text" value="${esc(x.prefix||'')}" placeholder="task." style="width:100px;padding:2px 6px;font-size:11px"
+                onchange="_topoTypes[${i}].prefix=this.value">
+            </td>
+            <td style="padding:4px 8px">
+              <input type="text" value="${esc(x.ttl||'')}" placeholder="24h" style="width:80px;padding:2px 6px;font-size:11px"
+                title="Duration string e.g. 1h, 24h, 72h"
+                onchange="_topoTypes[${i}].ttl=this.value">
+            </td>
+            <td style="padding:4px 8px;text-align:center">
+              <input type="checkbox" ${x.ephemeral ? 'checked' : ''} style="width:auto"
+                onchange="_topoTypes[${i}].ephemeral=this.checked">
+            </td>
+            <td style="padding:4px 8px;text-align:right">
+              <button class="sm" onclick="topoDeleteChannelType(${i})">✕</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+}
+
+function topoAddStaticChannel() {
+  _topoChannels.push({name: '', topic: '', autojoin: []});
+  renderTopoStaticChannels();
+  // focus the last name input
+  const rows = document.querySelectorAll('#topo-static-channels tbody tr');
+  if (rows.length) rows[rows.length-1].querySelector('input').focus();
+}
+
+function topoAddChannelType() {
+  _topoTypes.push({name: '', prefix: '', ephemeral: false, ttl: ''});
+  renderTopoChannelTypes();
+  const rows = document.querySelectorAll('#topo-channel-types tbody tr');
+  if (rows.length) rows[rows.length-1].querySelector('input').focus();
+}
+
+function topoDeleteStaticChannel(idx) {
+  _topoChannels.splice(idx, 1);
+  renderTopoStaticChannels();
+}
+
+function topoDeleteChannelType(idx) {
+  _topoTypes.splice(idx, 1);
+  renderTopoChannelTypes();
+}
+
+async function saveTopologyConfig() {
+  const resultEl = document.getElementById('topo-save-result');
+  const channels = _topoChannels.filter(c => c.name.trim());
+  const types    = _topoTypes.filter(x => x.name.trim() && x.prefix.trim());
+  const payload  = {
+    topology: {
+      nick:     document.getElementById('topo-nick').value.trim() || 'topology',
+      channels: channels,
+      types:    types,
+    },
+    config_history: {
+      keep: parseInt(document.getElementById('topo-history-keep').value, 10) || 20,
+    },
+  };
+  try {
+    const res = await api('PUT', '/v1/config', payload);
+    resultEl.style.display = 'block';
+    let msg = 'Topology config saved.';
+    if (res.restart_required && res.restart_required.length) {
+      msg += ' Restart required for: ' + res.restart_required.join(', ') + '.';
+    }
+    resultEl.innerHTML = renderAlert('success', msg);
+    setTimeout(() => { resultEl.style.display = 'none'; }, 4000);
+  } catch(e) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = renderAlert('error', e.message);
+  }
+}
+
+// --- shared config save helper ---
+async function saveConfigPatch(patch, resultElId) {
+  const resultEl = document.getElementById(resultElId);
+  try {
+    const res = await api('PUT', '/v1/config', patch);
+    let msg = 'Saved.';
+    if (res.restart_required && res.restart_required.length) {
+      msg += ' Restart required for: ' + res.restart_required.join(', ') + '.';
+    }
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = renderAlert('success', msg);
+    setTimeout(() => { resultEl.style.display = 'none'; }, 4000);
+  } catch(e) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = renderAlert('error', e.message);
+  }
+}
+
+// --- config-backed cards ---
+async function loadConfigCards() {
+  try {
+    const cfg = await api('GET', '/v1/config');
+    // general
+    document.getElementById('general-api-addr').value = cfg.api_addr || '';
+    document.getElementById('general-mcp-addr').value = cfg.mcp_addr || '';
+    // ergo
+    const e = cfg.ergo || {};
+    document.getElementById('ergo-network-name').value = e.network_name || '';
+    document.getElementById('ergo-server-name').value  = e.server_name  || '';
+    document.getElementById('ergo-irc-addr').value     = e.irc_addr     || '';
+    document.getElementById('ergo-external').checked   = !!e.external;
+    // tls
+    const t = cfg.tls || {};
+    document.getElementById('tls-domain').value           = t.domain  || '';
+    document.getElementById('tls-email').value            = t.email   || '';
+    document.getElementById('tls-allow-insecure').checked = !!t.allow_insecure;
+    // bridge (full)
+    const b = cfg.bridge || {};
+    document.getElementById('bridge-enabled').checked       = b.enabled !== false;
+    document.getElementById('bridge-nick').value            = b.nick || '';
+    document.getElementById('bridge-channels').value        = (b.channels || []).join(', ');
+    document.getElementById('bridge-buffer-size').value     = b.buffer_size || '';
+    document.getElementById('policy-bridge-web-user-ttl').value = b.web_user_ttl_minutes || 5;
+    // topology + history
+    const topo = cfg.topology || {};
+    const h    = cfg.config_history || {};
+    _topoChannels = (topo.channels || []).map(c => Object.assign({}, c));
+    _topoTypes    = (topo.types    || []).map(x => Object.assign({}, x));
+    document.getElementById('topo-nick').value         = topo.nick || 'topology';
+    document.getElementById('topo-history-keep').value = h.keep != null ? h.keep : 20;
+    renderTopoStaticChannels();
+    renderTopoChannelTypes();
+  } catch(e) {
+    console.error('loadConfigCards:', e);
+  }
+}
+
+function saveAgentPolicy() {
+  saveConfigPatch({
+    agent_policy: {
+      require_checkin:   document.getElementById('policy-checkin-enabled').checked,
+      checkin_channel:   document.getElementById('policy-checkin-channel').value.trim(),
+      required_channels: document.getElementById('policy-required-channels').value.split(',').map(s=>s.trim()).filter(Boolean),
+    }
+  }, 'agentpolicy-save-result');
+}
+
+function saveBridgeConfig() {
+  saveConfigPatch({
+    bridge: {
+      enabled:             document.getElementById('bridge-enabled').checked,
+      nick:                document.getElementById('bridge-nick').value.trim() || undefined,
+      channels:            document.getElementById('bridge-channels').value.split(',').map(s=>s.trim()).filter(Boolean),
+      buffer_size:         parseInt(document.getElementById('bridge-buffer-size').value, 10) || undefined,
+      web_user_ttl_minutes: parseInt(document.getElementById('policy-bridge-web-user-ttl').value, 10) || 5,
+    }
+  }, 'bridge-save-result');
+}
+
+function saveLogging() {
+  saveConfigPatch({
+    logging: {
+      enabled:     document.getElementById('policy-logging-enabled').checked,
+      dir:         document.getElementById('policy-log-dir').value.trim(),
+      format:      document.getElementById('policy-log-format').value,
+      rotation:    document.getElementById('policy-log-rotation').value,
+      max_size_mb: parseInt(document.getElementById('policy-log-max-size').value, 10) || 0,
+      per_channel: document.getElementById('policy-log-per-channel').checked,
+      max_age_days: parseInt(document.getElementById('policy-log-max-age').value, 10) || 0,
+    }
+  }, 'logging-save-result');
+}
+
+function saveGeneralConfig() {
+  const patch = {};
+  const addr = document.getElementById('general-api-addr').value.trim();
+  const mcp  = document.getElementById('general-mcp-addr').value.trim();
+  if (addr) patch.api_addr = addr;
+  if (mcp)  patch.mcp_addr = mcp;
+  saveConfigPatch(patch, 'general-save-result');
+}
+
+function saveErgoConfig() {
+  saveConfigPatch({
+    ergo: {
+      network_name: document.getElementById('ergo-network-name').value.trim() || undefined,
+      server_name:  document.getElementById('ergo-server-name').value.trim()  || undefined,
+      irc_addr:     document.getElementById('ergo-irc-addr').value.trim()     || undefined,
+      external:     document.getElementById('ergo-external').checked,
+    }
+  }, 'ergo-save-result');
+}
+
+function saveTLSConfig() {
+  saveConfigPatch({
+    tls: {
+      domain:         document.getElementById('tls-domain').value.trim()  || undefined,
+      email:          document.getElementById('tls-email').value.trim()   || undefined,
+      allow_insecure: document.getElementById('tls-allow-insecure').checked,
+    }
+  }, 'tls-config-save-result');
 }
 
 // --- init ---
