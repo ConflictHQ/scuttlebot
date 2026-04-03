@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-scuttlebot exposes a REST API at the address configured in `api_addr` (default `:8080`).
+scuttlebot exposes a REST API at the address configured in `api_addr` (default `127.0.0.1:8080`).
 
 All `/v1/` endpoints require a valid **Bearer token** in the `Authorization` header, except for the SSE stream endpoint which uses a `?token=` query parameter (browser `EventSource` cannot send headers).
 

@@ -51,11 +51,12 @@ accounts:
             enabled: false
     authentication-enabled: true
     require-sasl:
-        enabled: false
+        enabled: {{.RequireSASL}}
 
 channels:
     registration:
         enabled: true
+    default-modes: "{{.DefaultChannelModes}}"
 
 history:
     enabled: {{.HistoryEnabled}}
@@ -97,31 +98,35 @@ limits:
 `))
 
 type ircdTemplateData struct {
-	NetworkName    string
-	ServerName     string
-	IRCAddr        string
-	DataDir        string
-	APIAddr        string
-	APIToken       string
-	HistoryEnabled bool
-	PostgresDSN    string
-	MySQLEnabled   bool
-	MySQL          config.MySQLConfig
+	NetworkName         string
+	ServerName          string
+	IRCAddr             string
+	DataDir             string
+	APIAddr             string
+	APIToken            string
+	HistoryEnabled      bool
+	PostgresDSN         string
+	MySQLEnabled        bool
+	MySQL               config.MySQLConfig
+	RequireSASL         bool
+	DefaultChannelModes string
 }
 
 // GenerateConfig renders an ircd.yaml from the given ErgoConfig.
 func GenerateConfig(cfg config.ErgoConfig) ([]byte, error) {
 	data := ircdTemplateData{
-		NetworkName:    cfg.NetworkName,
-		ServerName:     cfg.ServerName,
-		IRCAddr:        cfg.IRCAddr,
-		DataDir:        cfg.DataDir,
-		APIAddr:        cfg.APIAddr,
-		APIToken:       cfg.APIToken,
-		HistoryEnabled: cfg.History.Enabled,
-		PostgresDSN:    cfg.History.PostgresDSN,
-		MySQLEnabled:   cfg.History.MySQL.Host != "" && cfg.History.PostgresDSN == "",
-		MySQL:          cfg.History.MySQL,
+		NetworkName:         cfg.NetworkName,
+		ServerName:          cfg.ServerName,
+		IRCAddr:             cfg.IRCAddr,
+		DataDir:             cfg.DataDir,
+		APIAddr:             cfg.APIAddr,
+		APIToken:            cfg.APIToken,
+		HistoryEnabled:      cfg.History.Enabled,
+		PostgresDSN:         cfg.History.PostgresDSN,
+		MySQLEnabled:        cfg.History.MySQL.Host != "" && cfg.History.PostgresDSN == "",
+		MySQL:               cfg.History.MySQL,
+		RequireSASL:         cfg.RequireSASL,
+		DefaultChannelModes: cfg.DefaultChannelModes,
 	}
 
 	var buf bytes.Buffer

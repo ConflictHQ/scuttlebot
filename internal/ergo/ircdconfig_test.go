@@ -95,3 +95,45 @@ func TestGenerateConfigNoHistory(t *testing.T) {
 		t.Error("postgres config should not appear when history disabled")
 	}
 }
+
+func TestGenerateConfigRequireSASL(t *testing.T) {
+	cfg := config.ErgoConfig{
+		NetworkName: "testnet",
+		ServerName:  "irc.test.local",
+		IRCAddr:     "127.0.0.1:6667",
+		APIAddr:     "127.0.0.1:8089",
+		APIToken:    "tok",
+		RequireSASL: true,
+	}
+
+	data, err := ergo.GenerateConfig(cfg)
+	if err != nil {
+		t.Fatalf("GenerateConfig: %v", err)
+	}
+
+	yaml := string(data)
+	if !strings.Contains(yaml, "enabled: true") {
+		t.Error("require-sasl.enabled should be true")
+	}
+}
+
+func TestGenerateConfigDefaultChannelModes(t *testing.T) {
+	cfg := config.ErgoConfig{
+		NetworkName:         "testnet",
+		ServerName:          "irc.test.local",
+		IRCAddr:             "127.0.0.1:6667",
+		APIAddr:             "127.0.0.1:8089",
+		APIToken:            "tok",
+		DefaultChannelModes: "+Rn",
+	}
+
+	data, err := ergo.GenerateConfig(cfg)
+	if err != nil {
+		t.Fatalf("GenerateConfig: %v", err)
+	}
+
+	yaml := string(data)
+	if !strings.Contains(yaml, `default-modes: "+Rn"`) {
+		t.Errorf("default-modes not set correctly\ngot:\n%s", yaml)
+	}
+}

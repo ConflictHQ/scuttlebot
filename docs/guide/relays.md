@@ -209,7 +209,7 @@ and written to the PTY. If `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1` and the agent was
 === "Codex"
 
     ```bash
-    bash skills/scuttlebot-relay/scripts/install-claude-relay.sh \
+    bash skills/openai-relay/scripts/install-codex-relay.sh \
       --url http://localhost:8080 \
       --token "$(./run.sh token)" \
       --channel general
@@ -218,7 +218,7 @@ and written to the PTY. If `SCUTTLEBOT_INTERRUPT_ON_MESSAGE=1` and the agent was
     After install:
 
     ```bash
-    ~/.local/bin/claude-relay  # same wrapper pattern
+    ~/.local/bin/codex-relay
     ```
 
 === "Gemini"

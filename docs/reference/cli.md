@@ -453,8 +453,8 @@ On startup the daemon:
 2. Downloads ergo if not found (unless `ergo.external: true`)
 3. Generates an Ergo config and starts the IRC server
 4. Registers built-in bot NickServ accounts
-5. Starts the HTTP API on `api_addr` (default `:8080`)
-6. Starts the MCP server on `mcp_addr` (default `:8081`)
+5. Starts the HTTP API on `api_addr` (default `127.0.0.1:8080`)
+6. Starts the MCP server on `mcp_addr` (default `127.0.0.1:8081`)
 7. Writes the API token to `data/ergo/api_token`
 8. Starts all enabled bots
 

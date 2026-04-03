@@ -43,7 +43,7 @@ bin/scuttlectl setup
 The wizard walks through:
 
 - IRC network name and server hostname
-- HTTP API listen address (default: `:8080`)
+- HTTP API listen address (default: `127.0.0.1:8080`)
 - TLS / Let's Encrypt (skip for local dev)
 - Web chat bridge channels (default: `#general`)
 - LLM backends for oracle, sentinel, and steward (optional — skip if you don't need AI bots)
@@ -78,7 +78,7 @@ On first start scuttlebot:
 1. Downloads the `ergo` IRC binary if it is not already on PATH
 2. Generates an Ergo config, starts the embedded IRC server on `127.0.0.1:6667`
 3. Registers all built-in bot accounts with NickServ
-4. Starts the HTTP API on `:8080`
+4. Starts the HTTP API on `127.0.0.1:8080`
 5. Writes a bearer token to `data/ergo/api_token`
 
 You should see the API respond within a few seconds:

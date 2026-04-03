@@ -34,8 +34,8 @@ The variable is expanded at load time. If the variable is unset the empty string
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `api_addr` | string | `:8080` | Listen address for scuttlebot's HTTP API and web UI. Overridden by `SCUTTLEBOT_API_ADDR`. When `tls.domain` is set this is ignored — HTTPS runs on `:443` and HTTP on `:80`. |
-| `mcp_addr` | string | `:8081` | Listen address for the MCP server. Overridden by `SCUTTLEBOT_MCP_ADDR`. |
+| `api_addr` | string | `127.0.0.1:8080` | Listen address for scuttlebot's HTTP API and web UI. Binds to loopback by default — use a reverse proxy (nginx, Caddy) to expose publicly. Overridden by `SCUTTLEBOT_API_ADDR`. When `tls.domain` is set this is ignored — HTTPS runs on `:443` and HTTP on `:80`. |
+| `mcp_addr` | string | `127.0.0.1:8081` | Listen address for the MCP server. Binds to loopback by default. Overridden by `SCUTTLEBOT_MCP_ADDR`. |
 
 ---
 
@@ -68,6 +68,8 @@ ergo:
 | `irc_addr` | string | `127.0.0.1:6667` | Address ergo listens for IRC connections. Loopback by default — agents connect here. Overridden by `SCUTTLEBOT_ERGO_IRC_ADDR`. |
 | `api_addr` | string | `127.0.0.1:8089` | Address of ergo's HTTP management API. loopback only by default. Overridden by `SCUTTLEBOT_ERGO_API_ADDR`. |
 | `api_token` | string | *(auto-generated)* | Bearer token for ergo's HTTP API. scuttlebot generates this on first start and stores it in `data/ergo/api_token`. Overridden by `SCUTTLEBOT_ERGO_API_TOKEN`. |
+| `require_sasl` | bool | `false` | Require SASL authentication for all IRC connections. When `true`, only accounts registered through scuttlebot can connect — unregistered clients are rejected at connection time. Recommended for public deployments. |
+| `default_channel_modes` | string | `+n` | Channel modes applied when a new channel is created. `+n` prevents external messages. Set to `+Rn` to additionally require a registered NickServ account to join. |
 
 ### `ergo.history`
 
@@ -87,7 +89,7 @@ Persistent message history is stored by ergo (separate from scribe's structured 
 
 ## `datastore`
 
-scuttlebot's own state database — stores agent registry, admin accounts, and audit log. Separate from ergo's `ircd.db`.
+scuttlebot's own persistent state store — agent registry, admin accounts, and policies. When configured, this supersedes the default JSON file storage in `data/`.
 
 ```yaml
 datastore:
@@ -97,8 +99,10 @@ datastore:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `driver` | string | `sqlite` | `"sqlite"` or `"postgres"`. Overridden by `SCUTTLEBOT_DB_DRIVER`. |
+| `driver` | string | — | `"sqlite"` or `"postgres"`. Leave empty to use JSON files (default). Overridden by `SCUTTLEBOT_DB_DRIVER`. |
 | `dsn` | string | `./data/scuttlebot.db` | Data source name. For SQLite: path to the `.db` file. For PostgreSQL: a standard `postgres://` connection string. Overridden by `SCUTTLEBOT_DB_DSN`. |
+
+When `driver` is unset (the default), state is stored as JSON files (`registry.json`, `admins.json`, `policies.json`) in the Ergo data directory. JSON file storage requires no additional configuration and is suitable for most deployments. Configure `datastore` when you need SQL-level access, multi-instance deployments sharing a database, or PostgreSQL for larger fleets.
 
 ---
 
@@ -147,7 +151,7 @@ tls:
 | `allow_insecure` | bool | `true` | Keep HTTP running on `:80` alongside HTTPS. The ACME HTTP-01 challenge always runs on `:80` regardless of this setting. |
 
 !!! note "Local dev"
-    Leave `tls.domain` empty for local development. The HTTP API on `:8080` is used instead.
+    Leave `tls.domain` empty for local development. The HTTP API on `127.0.0.1:8080` is used instead.
 
 ---
 
@@ -289,10 +293,10 @@ In addition, `${ENV_VAR}` placeholders in any YAML string value are expanded at 
 # scuttlebot.yaml
 
 # HTTP API and web UI
-api_addr: :8080
+api_addr: 127.0.0.1:8080
 
 # MCP server
-mcp_addr: :8081
+mcp_addr: 127.0.0.1:8081
 
 ergo:
   # Manage ergo as a subprocess (default).
@@ -300,9 +304,13 @@ ergo:
   external: false
   network_name: myfleet
   server_name: irc.myfleet.internal
-  irc_addr: 127.0.0.1:6667
-  api_addr: 127.0.0.1:8089
+  irc_addr: 127.0.0.1:6667   # set to :6667 or :6697 to expose IRC publicly
+  api_addr: 127.0.0.1:8089   # keep on loopback — no auth layer on this port
   # api_token is auto-generated on first start
+
+  # Security (recommended for public deployments):
+  require_sasl: false          # set to true to reject unauthenticated IRC connections
+  default_channel_modes: "+n"  # set to "+Rn" to restrict joins to registered nicks
 
   # Optional: persistent IRC history in PostgreSQL
   history:

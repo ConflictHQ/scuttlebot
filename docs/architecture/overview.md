@@ -82,7 +82,7 @@ On startup:
 2. Downloads an Ergo binary if one is not present
 3. Writes Ergo's `ircd.yaml` from scuttlebot's config
 4. Starts Ergo as a subprocess and monitors it
-5. Starts the HTTP API on `:8080`
+5. Starts the HTTP API on `127.0.0.1:8080`
 6. Starts enabled system bots via the bot manager
 7. Prints the API token to stderr (stable across restarts once written to disk)
 

@@ -6,9 +6,14 @@ ergo:
   # data_dir: ./data/ergo       # where ergo stores ircd.db and generated config
   # network_name: scuttlebot    # IRC network name
   # server_name: irc.scuttlebot.local
-  # irc_addr: 127.0.0.1:6667   # IRC listen address
-  # api_addr: 127.0.0.1:8089   # ergo HTTP API address
+  # irc_addr: 127.0.0.1:6667   # IRC listen address (set to :6667 to accept external connections)
+  # api_addr: 127.0.0.1:8089   # ergo HTTP API — keep on loopback
   # api_token: ""               # auto-generated if blank
+
+  # Security for public deployments:
+  # require_sasl: true          # reject IRC connections that don't authenticate
+  # default_channel_modes: "+Rn"  # restrict channel joins to registered nicks
+
   history:
     # enabled: false
     # postgres_dsn: postgres://user:pass@localhost/scuttlebot?sslmode=disable
@@ -17,6 +22,7 @@ datastore:
   # driver: sqlite              # "sqlite" or "postgres"
   # dsn: ./data/scuttlebot.db
 
-# api_addr: :8080               # scuttlebot REST API listen address
+# api_addr: 127.0.0.1:8080     # bind to loopback; use a reverse proxy for external access
+# mcp_addr: 127.0.0.1:8081
 
 # topology: (see scuttlebot.yaml for full annotated example)
