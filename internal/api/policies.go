@@ -27,9 +27,10 @@ type BehaviorConfig struct {
 
 // AgentPolicy defines requirements applied to all registering agents.
 type AgentPolicy struct {
-	RequireCheckin   bool     `json:"require_checkin"`
-	CheckinChannel   string   `json:"checkin_channel"`
-	RequiredChannels []string `json:"required_channels"`
+	RequireCheckin     bool     `json:"require_checkin"`
+	CheckinChannel     string   `json:"checkin_channel"`
+	RequiredChannels   []string `json:"required_channels"`
+	OnlineTimeoutSecs  int      `json:"online_timeout_secs,omitempty"`
 }
 
 // LoggingPolicy configures message logging.

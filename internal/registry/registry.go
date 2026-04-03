@@ -74,12 +74,13 @@ type AccountProvisioner interface {
 
 // Registry manages registered agents and their credentials.
 type Registry struct {
-	mu          sync.RWMutex
-	agents      map[string]*Agent // keyed by nick
-	provisioner AccountProvisioner
-	signingKey  []byte
-	dataPath    string       // path to persist agents JSON; empty = no persistence
-	db          *store.Store // when non-nil, supersedes dataPath
+	mu               sync.RWMutex
+	agents           map[string]*Agent // keyed by nick
+	provisioner      AccountProvisioner
+	signingKey       []byte
+	dataPath         string       // path to persist agents JSON; empty = no persistence
+	db               *store.Store // when non-nil, supersedes dataPath
+	onlineTimeout    time.Duration
 }
 
 // New creates a new Registry with the given provisioner and HMAC signing key.
@@ -386,16 +387,32 @@ func (r *Registry) Touch(nick string) {
 	// Don't persist every heartbeat — just keep in memory.
 }
 
-const onlineThreshold = 2 * time.Minute
+const defaultOnlineTimeout = 2 * time.Minute
+
+// SetOnlineTimeout configures how long since last_seen before an agent
+// is considered offline. Pass 0 to reset to the default (2 minutes).
+func (r *Registry) SetOnlineTimeout(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onlineTimeout = d
+}
+
+func (r *Registry) getOnlineTimeout() time.Duration {
+	if r.onlineTimeout > 0 {
+		return r.onlineTimeout
+	}
+	return defaultOnlineTimeout
+}
 
 // List returns all registered agents with computed online status.
 func (r *Registry) List() []*Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	threshold := r.getOnlineTimeout()
 	now := time.Now()
 	var out []*Agent
 	for _, a := range r.agents {
-		a.Online = a.LastSeen != nil && now.Sub(*a.LastSeen) < onlineThreshold
+		a.Online = a.LastSeen != nil && now.Sub(*a.LastSeen) < threshold
 		out = append(out, a)
 	}
 	return out
