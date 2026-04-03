@@ -99,6 +99,9 @@ func (s *Server) handleChannelPresence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.bridge.TouchUser(channel, req.Nick)
+	if s.registry != nil {
+		s.registry.Touch(req.Nick)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
