@@ -21,6 +21,7 @@ import (
 	"github.com/conflicthq/scuttlebot/pkg/sessionrelay"
 	"github.com/creack/pty"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -494,6 +495,11 @@ func loadConfig(args []string) (config, error) {
 	}
 	cfg.TargetCWD = target
 
+	// Merge per-repo config if present.
+	if rc, err := loadRepoConfig(target); err == nil && rc != nil {
+		cfg.Channels = mergeChannels(cfg.Channels, rc.allChannels())
+	}
+
 	sessionID := getenvOr(fileConfig, "SCUTTLEBOT_SESSION_ID", "")
 	if sessionID == "" {
 		sessionID = getenvOr(fileConfig, "GEMINI_SESSION_ID", "")
@@ -715,4 +721,64 @@ func exitStatus(err error) int {
 		return exitErr.ExitCode()
 	}
 	return 1
+}
+
+// repoConfig is the per-repo .scuttlebot.yaml format.
+type repoConfig struct {
+	Channel  string   `yaml:"channel"`
+	Channels []string `yaml:"channels"`
+}
+
+// allChannels returns the singular channel (if set) prepended to the channels list.
+func (rc *repoConfig) allChannels() []string {
+	if rc.Channel == "" {
+		return rc.Channels
+	}
+	return append([]string{rc.Channel}, rc.Channels...)
+}
+
+// loadRepoConfig walks up from dir looking for .scuttlebot.yaml.
+// Stops at the git root (directory containing .git) or the filesystem root.
+// Returns nil, nil if no config file is found.
+func loadRepoConfig(dir string) (*repoConfig, error) {
+	current := dir
+	for {
+		candidate := filepath.Join(current, ".scuttlebot.yaml")
+		if data, err := os.ReadFile(candidate); err == nil {
+			var rc repoConfig
+			if err := yaml.Unmarshal(data, &rc); err != nil {
+				return nil, fmt.Errorf("loadRepoConfig: parse %s: %w", candidate, err)
+			}
+			fmt.Fprintf(os.Stderr, "scuttlebot: loaded repo config from %s\n", candidate)
+			return &rc, nil
+		}
+
+		// Stop if this directory is a git root.
+		if info, err := os.Stat(filepath.Join(current, ".git")); err == nil && info.IsDir() {
+			return nil, nil
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil, nil
+		}
+		current = parent
+	}
+}
+
+// mergeChannels appends extra channels to existing, deduplicating.
+func mergeChannels(existing, extra []string) []string {
+	seen := make(map[string]struct{}, len(existing))
+	for _, ch := range existing {
+		seen[ch] = struct{}{}
+	}
+	merged := append([]string(nil), existing...)
+	for _, ch := range extra {
+		if _, ok := seen[ch]; ok {
+			continue
+		}
+		seen[ch] = struct{}{}
+		merged = append(merged, ch)
+	}
+	return merged
 }

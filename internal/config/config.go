@@ -178,6 +178,16 @@ type ErgoConfig struct {
 	// users only). Default: "+n"
 	DefaultChannelModes string `yaml:"default_channel_modes"`
 
+	// TLSDomain enables a public TLS listener on TLSAddr with Let's Encrypt
+	// (ACME TLS-ALPN-01). When set, IRCAddr is kept as an internal plaintext
+	// listener for system bots, and a second TLS listener is added for
+	// external agents. Leave empty to use IRCAddr as the only listener.
+	TLSDomain string `yaml:"tls_domain"`
+
+	// TLSAddr is the address for the public TLS IRC listener.
+	// Only used when TLSDomain is set. Default: "0.0.0.0:6697"
+	TLSAddr string `yaml:"tls_addr"`
+
 	// History configures persistent message history storage.
 	History HistoryConfig `yaml:"history"`
 }
@@ -378,6 +388,9 @@ func (c *Config) Defaults() {
 	}
 	if c.Ergo.IRCAddr == "" {
 		c.Ergo.IRCAddr = "127.0.0.1:6667"
+	}
+	if c.Ergo.TLSDomain != "" && c.Ergo.TLSAddr == "" {
+		c.Ergo.TLSAddr = "0.0.0.0:6697"
 	}
 	if c.Ergo.APIAddr == "" {
 		c.Ergo.APIAddr = "127.0.0.1:8089"

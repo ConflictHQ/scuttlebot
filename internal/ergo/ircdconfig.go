@@ -15,6 +15,12 @@ server:
     name: {{.ServerName}}
     listeners:
         "{{.IRCAddr}}": {}
+{{- if .TLSDomain}}
+        "{{.TLSAddr}}":
+            tls:
+                autocert: true
+            min-tls-version: 1.2
+{{- end}}
     casemapping: ascii
     enforce-utf8: true
     max-sendq: 96k
@@ -101,6 +107,8 @@ type ircdTemplateData struct {
 	NetworkName         string
 	ServerName          string
 	IRCAddr             string
+	TLSDomain           string
+	TLSAddr             string
 	DataDir             string
 	APIAddr             string
 	APIToken            string
@@ -118,6 +126,8 @@ func GenerateConfig(cfg config.ErgoConfig) ([]byte, error) {
 		NetworkName:         cfg.NetworkName,
 		ServerName:          cfg.ServerName,
 		IRCAddr:             cfg.IRCAddr,
+		TLSDomain:           cfg.TLSDomain,
+		TLSAddr:             cfg.TLSAddr,
 		DataDir:             cfg.DataDir,
 		APIAddr:             cfg.APIAddr,
 		APIToken:            cfg.APIToken,

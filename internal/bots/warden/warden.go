@@ -12,6 +12,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -305,10 +307,13 @@ func (b *Bot) enforce(cl *girc.Client, channel, nick string, action Action, reas
 }
 
 func splitHostPort(addr string) (string, int, error) {
-	var host string
-	var port int
-	if _, err := fmt.Sscanf(addr, "%[^:]:%d", &host, &port); err != nil {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
 		return "", 0, fmt.Errorf("invalid address %q: %w", addr, err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid port in %q: %w", addr, err)
 	}
 	return host, port, nil
 }

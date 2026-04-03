@@ -6,6 +6,7 @@ bin/*
 *.log
 *.pid
 scuttlebot.yaml
+.scuttlebot.yaml
 tests/e2e/
 tmp-*.sh
 REPORT.md
