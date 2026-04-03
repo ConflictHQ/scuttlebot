@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -182,6 +183,23 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 			return
 		case <-time.After(wait):
 		}
+
+		// Re-register to get fresh SASL credentials in case the server
+		// restarted and the Ergo database was reset.
+		c.pass = "" // clear stale creds
+		if err := c.ensureCredentials(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "sessionrelay: reconnect credential refresh failed: %v\n", err)
+			wait = min(wait*2, ircReconnectMax)
+			// Push a synthetic error so the loop retries.
+			go func() {
+				select {
+				case c.errCh <- err:
+				default:
+				}
+			}()
+			continue
+		}
+
 		wait = min(wait*2, ircReconnectMax)
 		c.dial(host, port, func() { wait = ircReconnectMin })
 	}
