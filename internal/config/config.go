@@ -11,13 +11,15 @@ import (
 
 // Config is the top-level scuttlebot configuration.
 type Config struct {
-	Ergo      ErgoConfig          `yaml:"ergo"`
-	Datastore DatastoreConfig     `yaml:"datastore"`
-	Bridge    BridgeConfig        `yaml:"bridge"`
-	TLS       TLSConfig           `yaml:"tls"`
-	LLM       LLMConfig           `yaml:"llm"`
-	Topology  TopologyConfig      `yaml:"topology"`
-	History   ConfigHistoryConfig `yaml:"config_history"`
+	Ergo        ErgoConfig          `yaml:"ergo"`
+	Datastore   DatastoreConfig     `yaml:"datastore"`
+	Bridge      BridgeConfig        `yaml:"bridge"`
+	TLS         TLSConfig           `yaml:"tls"`
+	LLM         LLMConfig           `yaml:"llm"`
+	Topology    TopologyConfig      `yaml:"topology"`
+	History     ConfigHistoryConfig `yaml:"config_history"`
+	AgentPolicy AgentPolicyConfig   `yaml:"agent_policy" json:"agent_policy"`
+	Logging     LoggingConfig       `yaml:"logging" json:"logging"`
 
 	// APIAddr is the address for scuttlebot's own HTTP management API.
 	// Ignored when TLS.Domain is set (HTTPS runs on :443, HTTP on :80).
@@ -27,6 +29,24 @@ type Config struct {
 	// MCPAddr is the address for the MCP server.
 	// Default: ":8081"
 	MCPAddr string `yaml:"mcp_addr"`
+}
+
+// AgentPolicyConfig defines requirements applied to all registering agents.
+type AgentPolicyConfig struct {
+	RequireCheckin   bool     `yaml:"require_checkin" json:"require_checkin"`
+	CheckinChannel   string   `yaml:"checkin_channel" json:"checkin_channel"`
+	RequiredChannels []string `yaml:"required_channels" json:"required_channels"`
+}
+
+// LoggingConfig configures message logging.
+type LoggingConfig struct {
+	Enabled    bool   `yaml:"enabled" json:"enabled"`
+	Dir        string `yaml:"dir" json:"dir"`
+	Format     string `yaml:"format" json:"format"`       // "jsonl" | "csv" | "text"
+	Rotation   string `yaml:"rotation" json:"rotation"`   // "none" | "daily" | "weekly" | "size"
+	MaxSizeMB  int    `yaml:"max_size_mb" json:"max_size_mb"`
+	PerChannel bool   `yaml:"per_channel" json:"per_channel"`
+	MaxAgeDays int    `yaml:"max_age_days" json:"max_age_days"`
 }
 
 // ConfigHistoryConfig controls config write-back history retention.

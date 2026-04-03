@@ -106,6 +106,7 @@ func run(cfg config) error {
 
 	var relay sessionrelay.Connector
 	relayActive := false
+	var onlineAt time.Time
 	if relayRequested {
 		conn, err := sessionrelay.New(sessionrelay.Config{
 			Transport: cfg.Transport,
@@ -134,6 +135,7 @@ func run(cfg config) error {
 				if err := sessionrelay.WriteChannelStateFile(cfg.ChannelStateFile, relay.ControlChannel(), relay.Channels()); err != nil {
 					fmt.Fprintf(os.Stderr, "gemini-relay: channel state disabled: %v\n", err)
 				}
+				onlineAt = time.Now()
 				_ = relay.Post(context.Background(), fmt.Sprintf(
 					"online in %s; mention %s to interrupt before the next action",
 					filepath.Base(cfg.TargetCWD), cfg.Nick,
@@ -217,7 +219,7 @@ func run(cfg config) error {
 		copyPTYOutput(ptmx, os.Stdout, state)
 	}()
 	if relayActive {
-		go relayInputLoop(ctx, relay, cfg, state, ptmx)
+		go relayInputLoop(ctx, relay, cfg, state, ptmx, onlineAt)
 	}
 
 	err = cmd.Wait()
@@ -230,8 +232,8 @@ func run(cfg config) error {
 	return err
 }
 
-func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, state *relayState, ptyFile *os.File) {
-	lastSeen := time.Now()
+func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, state *relayState, ptyFile *os.File, since time.Time) {
+	lastSeen := since
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
 

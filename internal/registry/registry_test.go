@@ -257,3 +257,161 @@ func TestRegisterInvalidConfig(t *testing.T) {
 		t.Error("account should not be created when config is invalid")
 	}
 }
+
+func TestAdopt(t *testing.T) {
+	p := newMockProvisioner()
+	r := registry.New(p, testKey)
+
+	payload, err := r.Adopt("preexisting-bot", registry.AgentTypeWorker,
+		cfg([]string{"#fleet"}, []string{"read"}))
+	if err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
+	if payload.Payload.Nick != "preexisting-bot" {
+		t.Errorf("payload Nick = %q, want preexisting-bot", payload.Payload.Nick)
+	}
+	// Adopt must NOT create a NickServ account (password should be empty in mock).
+	if p.passphrase("preexisting-bot") != "" {
+		t.Error("Adopt should not create a NickServ account")
+	}
+	// Agent should be visible in the registry.
+	agent, err := r.Get("preexisting-bot")
+	if err != nil {
+		t.Fatalf("Get after Adopt: %v", err)
+	}
+	if agent.Nick != "preexisting-bot" {
+		t.Errorf("Get Nick = %q", agent.Nick)
+	}
+}
+
+func TestAdoptDuplicate(t *testing.T) {
+	p := newMockProvisioner()
+	r := registry.New(p, testKey)
+
+	if _, err := r.Adopt("bot-dup", registry.AgentTypeWorker, registry.EngagementConfig{}); err != nil {
+		t.Fatalf("first Adopt: %v", err)
+	}
+	if _, err := r.Adopt("bot-dup", registry.AgentTypeWorker, registry.EngagementConfig{}); err == nil {
+		t.Error("expected error on duplicate Adopt, got nil")
+	}
+}
+
+func TestDelete(t *testing.T) {
+	p := newMockProvisioner()
+	r := registry.New(p, testKey)
+
+	if _, _, err := r.Register("del-agent", registry.AgentTypeWorker, registry.EngagementConfig{}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	if err := r.Delete("del-agent"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	// Agent must no longer appear in List.
+	for _, a := range r.List() {
+		if a.Nick == "del-agent" {
+			t.Error("deleted agent should not appear in List()")
+		}
+	}
+
+	// Get must fail.
+	if _, err := r.Get("del-agent"); err == nil {
+		t.Error("Get should fail for deleted agent")
+	}
+}
+
+func TestDeleteRevoked(t *testing.T) {
+	// Deleting a revoked agent should succeed (lockout step skipped).
+	p := newMockProvisioner()
+	r := registry.New(p, testKey)
+
+	if _, _, err := r.Register("rev-del", registry.AgentTypeWorker, registry.EngagementConfig{}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := r.Revoke("rev-del"); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if err := r.Delete("rev-del"); err != nil {
+		t.Fatalf("Delete of revoked agent: %v", err)
+	}
+}
+
+func TestDeleteNotFound(t *testing.T) {
+	p := newMockProvisioner()
+	r := registry.New(p, testKey)
+	if err := r.Delete("nobody"); err == nil {
+		t.Error("expected error deleting non-existent agent, got nil")
+	}
+}
+
+func TestUpdateChannels(t *testing.T) {
+	p := newMockProvisioner()
+	r := registry.New(p, testKey)
+
+	if _, _, err := r.Register("chan-agent", registry.AgentTypeWorker,
+		cfg([]string{"#fleet"}, nil)); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	newChans := []string{"#fleet", "#project.foo"}
+	if err := r.UpdateChannels("chan-agent", newChans); err != nil {
+		t.Fatalf("UpdateChannels: %v", err)
+	}
+
+	agent, err := r.Get("chan-agent")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(agent.Channels) != 2 {
+		t.Errorf("Channels len = %d, want 2", len(agent.Channels))
+	}
+	if agent.Channels[1] != "#project.foo" {
+		t.Errorf("Channels[1] = %q, want #project.foo", agent.Channels[1])
+	}
+}
+
+func TestUpdateChannelsNotFound(t *testing.T) {
+	p := newMockProvisioner()
+	r := registry.New(p, testKey)
+	if err := r.UpdateChannels("ghost", []string{"#fleet"}); err == nil {
+		t.Error("expected error for unknown agent, got nil")
+	}
+}
+
+func TestSetDataPathPersistence(t *testing.T) {
+	dataPath := t.TempDir() + "/agents.json"
+	p := newMockProvisioner()
+	r := registry.New(p, testKey)
+
+	if err := r.SetDataPath(dataPath); err != nil {
+		t.Fatalf("SetDataPath: %v", err)
+	}
+
+	if _, _, err := r.Register("persist-me", registry.AgentTypeWorker,
+		cfg([]string{"#fleet"}, nil)); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// New registry loaded from the same path — must contain the persisted agent.
+	r2 := registry.New(newMockProvisioner(), testKey)
+	if err := r2.SetDataPath(dataPath); err != nil {
+		t.Fatalf("SetDataPath (r2): %v", err)
+	}
+
+	agent, err := r2.Get("persist-me")
+	if err != nil {
+		t.Fatalf("Get after reload: %v", err)
+	}
+	if agent.Nick != "persist-me" {
+		t.Errorf("reloaded Nick = %q, want persist-me", agent.Nick)
+	}
+}
+
+func TestSetDataPathMissingFileOK(t *testing.T) {
+	r := registry.New(newMockProvisioner(), testKey)
+	// Path doesn't exist yet — should not error.
+	if err := r.SetDataPath(t.TempDir() + "/agents.json"); err != nil {
+		t.Errorf("SetDataPath on missing file: %v", err)
+	}
+}
