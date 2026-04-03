@@ -63,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 		apiMux.HandleFunc("GET /v1/settings", s.handleGetSettings)
 		apiMux.HandleFunc("GET /v1/settings/policies", s.handleGetPolicies)
 		apiMux.HandleFunc("PUT /v1/settings/policies", s.handlePutPolicies)
+		apiMux.HandleFunc("PATCH /v1/settings/policies", s.handlePatchPolicies)
 	}
 	apiMux.HandleFunc("GET /v1/agents", s.handleListAgents)
 	apiMux.HandleFunc("GET /v1/agents/{nick}", s.handleGetAgent)
