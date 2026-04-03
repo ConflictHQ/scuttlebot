@@ -27,11 +27,11 @@ type BehaviorConfig struct {
 
 // AgentPolicy defines requirements applied to all registering agents.
 type AgentPolicy struct {
-	RequireCheckin     bool     `json:"require_checkin"`
-	CheckinChannel     string   `json:"checkin_channel"`
-	RequiredChannels   []string `json:"required_channels"`
-	OnlineTimeoutSecs  int      `json:"online_timeout_secs,omitempty"`
-	ReapAfterDays      int      `json:"reap_after_days,omitempty"`
+	RequireCheckin    bool     `json:"require_checkin"`
+	CheckinChannel    string   `json:"checkin_channel"`
+	RequiredChannels  []string `json:"required_channels"`
+	OnlineTimeoutSecs int      `json:"online_timeout_secs,omitempty"`
+	ReapAfterDays     int      `json:"reap_after_days,omitempty"`
 }
 
 // LoggingPolicy configures message logging.

@@ -724,23 +724,6 @@ func presenceLoopPtr(ctx context.Context, relayPtr *sessionrelay.Connector, inte
 	}
 }
 
-func presenceLoop(ctx context.Context, relay sessionrelay.Connector, interval time.Duration) {
-	if interval <= 0 {
-		return
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			_ = relay.Touch(ctx)
-		}
-	}
-}
-
 func injectMessages(writer io.Writer, cfg config, state *relayState, controlChannel string, batch []message) error {
 	lines := make([]string, 0, len(batch))
 	for _, msg := range batch {

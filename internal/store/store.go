@@ -102,6 +102,7 @@ func (s *Store) migrate() error {
 	}
 	return nil
 }
+
 // AgentUpsert inserts or updates an agent row by nick.
 func (s *Store) AgentUpsert(r *AgentRow) error {
 	revoked := 0

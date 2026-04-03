@@ -153,11 +153,11 @@ func (b *Bot) Start(ctx context.Context) error {
 	}
 
 	c := girc.New(girc.Config{
-		Server: host,
-		Port:   port,
-		Nick:   b.nick,
-		User:   b.nick,
-		Name:   "scuttlebot bridge",
+		Server:      host,
+		Port:        port,
+		Nick:        b.nick,
+		User:        b.nick,
+		Name:        "scuttlebot bridge",
 		SASL:        &girc.SASLPlain{User: b.nick, Pass: b.password},
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,

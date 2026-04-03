@@ -205,7 +205,7 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 			}()
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "sessionrelay: credentials refreshed, dialing...\n", )
+		fmt.Fprintf(os.Stderr, "sessionrelay: credentials refreshed, dialing...\n")
 
 		wait = min(wait*2, ircReconnectMax)
 		c.dial(host, port, func() {

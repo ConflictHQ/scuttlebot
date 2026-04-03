@@ -74,13 +74,13 @@ type AccountProvisioner interface {
 
 // Registry manages registered agents and their credentials.
 type Registry struct {
-	mu               sync.RWMutex
-	agents           map[string]*Agent // keyed by nick
-	provisioner      AccountProvisioner
-	signingKey       []byte
-	dataPath         string       // path to persist agents JSON; empty = no persistence
-	db               *store.Store // when non-nil, supersedes dataPath
-	onlineTimeout    time.Duration
+	mu            sync.RWMutex
+	agents        map[string]*Agent // keyed by nick
+	provisioner   AccountProvisioner
+	signingKey    []byte
+	dataPath      string       // path to persist agents JSON; empty = no persistence
+	db            *store.Store // when non-nil, supersedes dataPath
+	onlineTimeout time.Duration
 }
 
 // New creates a new Registry with the given provisioner and HMAC signing key.
