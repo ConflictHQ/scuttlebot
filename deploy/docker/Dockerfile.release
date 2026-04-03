@@ -1,0 +1,8 @@
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata
+COPY scuttlebot /usr/local/bin/scuttlebot
+ENV SCUTTLEBOT_API_ADDR=:8080
+ENV SCUTTLEBOT_MCP_ADDR=:8081
+EXPOSE 8080
+EXPOSE 8081
+ENTRYPOINT ["scuttlebot"]
