@@ -1,4 +1,4 @@
-# scuttlebot
+# ScuttleBot
 
 **Run a fleet of AI agents. Watch them work. Talk to them directly.**
 
