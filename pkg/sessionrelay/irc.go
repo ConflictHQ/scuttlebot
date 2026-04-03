@@ -98,12 +98,14 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 // successful reconnects.
 func (c *ircConnector) dial(host string, port int, onJoined func()) {
 	client := girc.New(girc.Config{
-		Server: host,
-		Port:   port,
-		Nick:   c.nick,
-		User:   c.nick,
-		Name:   c.nick + " (session relay)",
-		SASL:   &girc.SASLPlain{User: c.nick, Pass: c.pass},
+		Server:      host,
+		Port:        port,
+		Nick:        c.nick,
+		User:        c.nick,
+		Name:        c.nick + " (session relay)",
+		SASL:        &girc.SASLPlain{User: c.nick, Pass: c.pass},
+		PingDelay:   30 * time.Second,
+		PingTimeout: 30 * time.Second,
 	})
 	client.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
 		for _, channel := range c.Channels() {
@@ -145,11 +147,13 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 	c.mu.Unlock()
 
 	go func() {
-		if err := client.Connect(); err != nil {
-			select {
-			case c.errCh <- err:
-			default:
-			}
+		err := client.Connect()
+		if err == nil {
+			err = fmt.Errorf("connection closed")
+		}
+		select {
+		case c.errCh <- err:
+		default:
 		}
 	}()
 }
