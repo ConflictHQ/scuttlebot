@@ -142,12 +142,19 @@ select option { background:#161b22; }
 .chat-ch-name { font-weight:600; color:#58a6ff; }
 .stream-badge { font-size:11px; color:#8b949e; margin-left:auto; }
 .chat-msgs { flex:1; overflow-y:auto; padding:4px 8px; display:flex; flex-direction:column; gap:0; }
-.msg-row { display:flex; gap:6px; font-size:13px; line-height:1.4; padding:1px 0; }
-.msg-time { color:#8b949e; font-size:11px; flex-shrink:0; padding-top:2px; min-width:36px; }
-.msg-nick { font-weight:600; flex-shrink:0; min-width:80px; text-align:right; }
-.msg-grouped .msg-nick { visibility:hidden; }
-.msg-grouped .msg-time { color:transparent; }
-.msg-grouped:hover .msg-time { color:#8b949e; transition:color .1s; }
+.msg-row { font-size:13px; line-height:1.4; padding:1px 0; }
+.msg-time { color:#8b949e; font-size:11px; margin-right:6px; }
+.msg-nick { font-weight:600; margin-right:6px; }
+.msg-grouped .msg-nick { display:none; }
+.msg-grouped .msg-time { display:none; }
+/* columnar layout mode */
+.chat-msgs.columnar .msg-row { display:flex; gap:6px; }
+.chat-msgs.columnar .msg-time { flex-shrink:0; min-width:36px; padding-top:2px; margin-right:0; }
+.chat-msgs.columnar .msg-nick { flex-shrink:0; min-width:80px; text-align:right; margin-right:0; }
+.chat-msgs.columnar .msg-text { word-break:break-word; }
+.chat-msgs.columnar .msg-grouped .msg-nick { display:inline; visibility:hidden; }
+.chat-msgs.columnar .msg-grouped .msg-time { display:inline; color:transparent; }
+.chat-msgs.columnar .msg-grouped:hover .msg-time { color:#8b949e; }
 .chat-nicklist { width:148px; min-width:0; flex-shrink:0; border-left:1px solid #30363d; display:flex; flex-direction:column; background:#161b22; overflow-y:auto; overflow-x:hidden; transition:width .15s; }
 .chat-nicklist.collapsed { width:28px; overflow:hidden; }
 .chat-nicklist.collapsed #nicklist-users { display:none; }
@@ -250,9 +257,8 @@ canvas { display:block; width:100% !important; }
 
   /* chat: tighter on mobile */
   .chat-msgs { padding:2px 4px; }
-  .msg-row { gap:4px; font-size:12px; line-height:1.3; }
-  .msg-nick { min-width:0; max-width:70px; overflow:hidden; text-overflow:ellipsis; }
-  .msg-time { min-width:28px; font-size:10px; }
+  .msg-row { font-size:12px; line-height:1.3; }
+  .msg-time { font-size:10px; }
   .chat-input { padding:6px 8px; }
   .chat-topbar { padding:6px 10px; gap:6px; font-size:12px; }
 }
@@ -469,6 +475,7 @@ canvas { display:block; width:100% !important; }
       <select id="chat-identity" style="width:140px;padding:3px 6px;font-size:12px" onchange="saveChatIdentity()">
         <option value="">— pick a user —</option>
       </select>
+      <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="toggle compact/columnar" style="font-size:11px;padding:2px 6px">☰</button>
       <span class="stream-badge" id="chat-stream-status" style="margin-left:8px"></span>
     </div>
     <div class="chat-msgs" id="chat-msgs">
@@ -1803,6 +1810,16 @@ function populateChatIdentity() {
     options.map(a => `<option value="${esc(a.nick)}"${a.nick===current?' selected':''}>${esc(a.nick)} (${esc(a.type)})</option>`).join('');
   // Restore saved selection.
   if (current) sel.value = current;
+}
+
+function toggleChatLayout() {
+  const el = document.getElementById('chat-msgs');
+  const columnar = el.classList.toggle('columnar');
+  localStorage.setItem('sb_chat_columnar', columnar ? '1' : '0');
+}
+// Restore layout preference on load.
+if (localStorage.getItem('sb_chat_columnar') === '1') {
+  document.getElementById('chat-msgs').classList.add('columnar');
 }
 
 async function sendMsg() {
