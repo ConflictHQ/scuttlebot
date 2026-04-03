@@ -170,8 +170,19 @@ func TestList(t *testing.T) {
 	}
 
 	agents := r.List()
-	if len(agents) != 2 {
-		t.Errorf("List: got %d agents, want 2 (revoked should be excluded)", len(agents))
+	// 3 registered (a, b, c), b revoked — List returns all including revoked.
+	registered := []string{"a", "b", "c"}
+	if len(agents) != len(registered) {
+		t.Errorf("List: got %d agents, want %d", len(agents), len(registered))
+	}
+	var revokedCount int
+	for _, a := range agents {
+		if a.Revoked {
+			revokedCount++
+		}
+	}
+	if revokedCount != 1 {
+		t.Errorf("List: got %d revoked, want 1", revokedCount)
 	}
 }
 

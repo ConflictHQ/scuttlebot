@@ -129,6 +129,7 @@ func (r *Registry) SetStore(db *store.Store) error {
 			Config:      cfg,
 			CreatedAt:   row.CreatedAt,
 			Revoked:     row.Revoked,
+			LastSeen:    row.LastSeen,
 		}
 		r.agents[a.Nick] = a
 	}
@@ -146,6 +147,7 @@ func (r *Registry) saveOne(a *Agent) {
 			Config:    cfg,
 			CreatedAt: a.CreatedAt,
 			Revoked:   a.Revoked,
+			LastSeen:  a.LastSeen,
 		})
 		return
 	}
@@ -374,7 +376,8 @@ func (r *Registry) Get(nick string) (*Agent, error) {
 	return r.get(nick)
 }
 
-// Touch updates the last-seen timestamp for an agent.
+// Touch updates the last-seen timestamp for an agent. Persists to disk
+// at most once per minute to avoid thrashing on frequent heartbeats.
 func (r *Registry) Touch(nick string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -383,8 +386,11 @@ func (r *Registry) Touch(nick string) {
 		return
 	}
 	now := time.Now()
+	shouldPersist := a.LastSeen == nil || now.Sub(*a.LastSeen) >= time.Minute
 	a.LastSeen = &now
-	// Don't persist every heartbeat — just keep in memory.
+	if shouldPersist {
+		r.saveOne(a)
+	}
 }
 
 const defaultOnlineTimeout = 2 * time.Minute

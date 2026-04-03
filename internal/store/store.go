@@ -21,6 +21,7 @@ type AgentRow struct {
 	Config    []byte // JSON-encoded EngagementConfig
 	CreatedAt time.Time
 	Revoked   bool
+	LastSeen  *time.Time
 }
 
 // AdminRow is the flat database representation of an admin account.
@@ -86,31 +87,43 @@ func (s *Store) migrate() error {
 			data TEXT NOT NULL
 		)`,
 	}
+	// Run base schema.
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
+	// Additive migrations — safe to re-run.
+	addColumns := []string{
+		`ALTER TABLE agents ADD COLUMN last_seen TEXT`,
+	}
+	for _, stmt := range addColumns {
+		_, _ = s.db.Exec(stmt) // ignore "column already exists"
+	}
 	return nil
 }
-
 // AgentUpsert inserts or updates an agent row by nick.
 func (s *Store) AgentUpsert(r *AgentRow) error {
 	revoked := 0
 	if r.Revoked {
 		revoked = 1
 	}
+	var lastSeen string
+	if r.LastSeen != nil {
+		lastSeen = r.LastSeen.UTC().Format(time.RFC3339Nano)
+	}
 	q := fmt.Sprintf(
-		`INSERT INTO agents (nick, type, config, created_at, revoked)
-		 VALUES (%s, %s, %s, %s, %s)
+		`INSERT INTO agents (nick, type, config, created_at, revoked, last_seen)
+		 VALUES (%s, %s, %s, %s, %s, %s)
 		 ON CONFLICT(nick) DO UPDATE SET
 		   type=EXCLUDED.type, config=EXCLUDED.config,
-		   created_at=EXCLUDED.created_at, revoked=EXCLUDED.revoked`,
-		s.ph(1), s.ph(2), s.ph(3), s.ph(4), s.ph(5),
+		   created_at=EXCLUDED.created_at, revoked=EXCLUDED.revoked,
+		   last_seen=EXCLUDED.last_seen`,
+		s.ph(1), s.ph(2), s.ph(3), s.ph(4), s.ph(5), s.ph(6),
 	)
 	_, err := s.db.Exec(q,
 		r.Nick, r.Type, string(r.Config),
-		r.CreatedAt.UTC().Format(time.RFC3339), revoked,
+		r.CreatedAt.UTC().Format(time.RFC3339), revoked, lastSeen,
 	)
 	return err
 }
@@ -126,7 +139,7 @@ func (s *Store) AgentDelete(nick string) error {
 
 // AgentList returns all agent rows, including revoked ones.
 func (s *Store) AgentList() ([]*AgentRow, error) {
-	rows, err := s.db.Query(`SELECT nick, type, config, created_at, revoked FROM agents`)
+	rows, err := s.db.Query(`SELECT nick, type, config, created_at, revoked, COALESCE(last_seen,'') FROM agents`)
 	if err != nil {
 		return nil, err
 	}
@@ -135,9 +148,9 @@ func (s *Store) AgentList() ([]*AgentRow, error) {
 	var out []*AgentRow
 	for rows.Next() {
 		var r AgentRow
-		var cfg, ts string
+		var cfg, ts, lastSeenStr string
 		var revokedInt int
-		if err := rows.Scan(&r.Nick, &r.Type, &cfg, &ts, &revokedInt); err != nil {
+		if err := rows.Scan(&r.Nick, &r.Type, &cfg, &ts, &revokedInt, &lastSeenStr); err != nil {
 			return nil, err
 		}
 		r.Config = []byte(cfg)
@@ -145,6 +158,11 @@ func (s *Store) AgentList() ([]*AgentRow, error) {
 		r.CreatedAt, err = time.Parse(time.RFC3339, ts)
 		if err != nil {
 			return nil, fmt.Errorf("store: agent %s timestamp: %w", r.Nick, err)
+		}
+		if lastSeenStr != "" {
+			if t, err := time.Parse(time.RFC3339Nano, lastSeenStr); err == nil {
+				r.LastSeen = &t
+			}
 		}
 		out = append(out, &r)
 	}
