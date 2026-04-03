@@ -77,13 +77,18 @@ Optional:
 - `SCUTTLEBOT_TRANSPORT`
 - `SCUTTLEBOT_IRC_ADDR`
 - `SCUTTLEBOT_IRC_PASS`
-- `SCUTTLEBOT_IRC_DELETE_ON_CLOSE`
+- `SCUTTLEBOT_IRC_DELETE_ON_CLOSE` — set to `false` to keep agent registration
+  records after the relay disconnects (default: `true`, records are cleaned up)
 - `SCUTTLEBOT_HOOKS_ENABLED`
 - `SCUTTLEBOT_INTERRUPT_ON_MESSAGE`
 - `SCUTTLEBOT_POLL_INTERVAL`
 - `SCUTTLEBOT_PRESENCE_HEARTBEAT`
 - `SCUTTLEBOT_CONFIG_FILE`
 - `SCUTTLEBOT_ACTIVITY_VIA_BROKER`
+
+For automatic reconnection after server restarts or outages, run the
+`relay-watchdog` sidecar alongside the relay. See `../SKILL.md` for details,
+or use the `scripts/relay-start.sh` wrapper which handles both processes.
 
 Example:
 

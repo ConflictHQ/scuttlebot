@@ -54,6 +54,54 @@ Live brokers support runtime channel control:
 Use the control channel for operator coordination. Join extra work channels only
 when the session needs to mirror activity there too.
 
+## Connection health and reconnection
+
+All three relay binaries (`claude-relay`, `codex-relay`, `gemini-relay`) handle
+`SIGUSR1` as a reconnect signal. When the relay receives `SIGUSR1` it tears down
+its current IRC/HTTP session and re-establishes the connection from scratch
+without restarting the process.
+
+The `relay-watchdog` sidecar automates this:
+
+- Reads `~/.config/scuttlebot-relay.env` (same env file the relays use).
+- Polls `$SCUTTLEBOT_URL/v1/status` every 10 seconds.
+- Detects server restarts (changed boot ID) and extended outages.
+- Sends `SIGUSR1` to the relay process when a reconnect is needed.
+
+Run the watchdog alongside any relay:
+
+```bash
+relay-watchdog &
+claude-relay "$@"
+```
+
+Or use the convenience wrapper:
+
+```bash
+skills/scuttlebot-relay/scripts/relay-start.sh claude-relay [args...]
+```
+
+Container / fleet pattern: have the entrypoint run both processes, or use
+supervisord. The watchdog exits cleanly when its parent relay exits.
+
+## Per-repo channel config
+
+Drop a `.scuttlebot.yaml` in a repo root (gitignored) to override channel
+settings per project:
+
+```yaml
+# .scuttlebot.yaml
+channel: my-project          # auto-joins this as the control channel
+channels:                     # additional channels joined at startup
+  - my-project
+  - design-review
+```
+
+`channel` sets the primary control channel for the session (equivalent to
+`SCUTTLEBOT_CHANNEL`). The optional `channels` list adds extra work channels
+(equivalent to `SCUTTLEBOT_CHANNELS`). Values in the file override the
+environment for that repo only.
+
 ## Transport conventions
 
 Use one broker contract for both transport modes:
