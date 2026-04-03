@@ -42,8 +42,8 @@ type AgentPolicyConfig struct {
 type LoggingConfig struct {
 	Enabled    bool   `yaml:"enabled" json:"enabled"`
 	Dir        string `yaml:"dir" json:"dir"`
-	Format     string `yaml:"format" json:"format"`       // "jsonl" | "csv" | "text"
-	Rotation   string `yaml:"rotation" json:"rotation"`   // "none" | "daily" | "weekly" | "size"
+	Format     string `yaml:"format" json:"format"`     // "jsonl" | "csv" | "text"
+	Rotation   string `yaml:"rotation" json:"rotation"` // "none" | "daily" | "weekly" | "size"
 	MaxSizeMB  int    `yaml:"max_size_mb" json:"max_size_mb"`
 	PerChannel bool   `yaml:"per_channel" json:"per_channel"`
 	MaxAgeDays int    `yaml:"max_age_days" json:"max_age_days"`

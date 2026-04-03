@@ -38,7 +38,7 @@ type ChannelConfig struct {
 
 // channelRecord tracks a provisioned channel for TTL-based reaping.
 type channelRecord struct {
-	name        string
+	name          string
 	provisionedAt time.Time
 }
 

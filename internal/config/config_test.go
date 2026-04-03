@@ -175,9 +175,9 @@ func TestDurationJSONRoundTrip(t *testing.T) {
 
 func TestDurationJSONUnmarshalErrors(t *testing.T) {
 	cases := []struct{ input string }{
-		{`123`},         // not a quoted string
-		{`"notadur"`},   // not parseable
-		{`""`},          // empty string
+		{`123`},       // not a quoted string
+		{`"notadur"`}, // not parseable
+		{`""`},        // empty string
 	}
 	for _, tc := range cases {
 		var d Duration
