@@ -31,6 +31,7 @@ type AgentPolicy struct {
 	CheckinChannel     string   `json:"checkin_channel"`
 	RequiredChannels   []string `json:"required_channels"`
 	OnlineTimeoutSecs  int      `json:"online_timeout_secs,omitempty"`
+	ReapAfterDays      int      `json:"reap_after_days,omitempty"`
 }
 
 // LoggingPolicy configures message logging.

@@ -410,6 +410,39 @@ func (r *Registry) getOnlineTimeout() time.Duration {
 	return defaultOnlineTimeout
 }
 
+// Reap removes agents that haven't been seen in maxAge. Revoked agents
+// are always reaped if older than maxAge. Returns the number of agents removed.
+func (r *Registry) Reap(maxAge time.Duration) int {
+	if maxAge <= 0 {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cutoff := time.Now().Add(-maxAge)
+	var reaped int
+	for nick, a := range r.agents {
+		if a.Online {
+			continue
+		}
+		// Use last_seen if available, otherwise fall back to created_at.
+		ref := a.CreatedAt
+		if a.LastSeen != nil {
+			ref = *a.LastSeen
+		}
+		if ref.Before(cutoff) {
+			delete(r.agents, nick)
+			if r.db != nil {
+				_ = r.db.AgentDelete(nick)
+			}
+			reaped++
+		}
+	}
+	if reaped > 0 && r.db == nil {
+		r.save()
+	}
+	return reaped
+}
+
 // List returns all registered agents with computed online status.
 func (r *Registry) List() []*Agent {
 	r.mu.RLock()

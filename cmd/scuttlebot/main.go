@@ -297,6 +297,26 @@ func main() {
 		botMgr.Sync(ctx, specs)
 	}
 
+	// Agent reaper — periodically removes stale agents based on policy.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				p := policyStore.Get()
+				if p.AgentPolicy.ReapAfterDays > 0 {
+					maxAge := time.Duration(p.AgentPolicy.ReapAfterDays) * 24 * time.Hour
+					if n := reg.Reap(maxAge); n > 0 {
+						log.Info("reaped stale agents", "count", n, "max_age_days", p.AgentPolicy.ReapAfterDays)
+					}
+				}
+			}
+		}
+	}()
+
 	// Config store — owns write-back to scuttlebot.yaml with history snapshots.
 	cfgStore := api.NewConfigStore(*configPath, *cfg)
 	cfgStore.OnChange(func(updated config.Config) {

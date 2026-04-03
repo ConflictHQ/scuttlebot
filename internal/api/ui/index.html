@@ -607,6 +607,11 @@ canvas { display:block; width:100% !important; }
           <div class="setting-desc">Seconds since last heartbeat before an agent is considered offline. Default: 120.</div>
           <input type="number" id="policy-online-timeout" placeholder="120" min="10" max="3600" style="width:100px;padding:4px 8px;font-size:12px">
         </div>
+        <div class="setting-row">
+          <div class="setting-label">reap after days</div>
+          <div class="setting-desc">Remove stale agents not seen in this many days. 0 = never reap.</div>
+          <input type="number" id="policy-reap-days" placeholder="0" min="0" max="365" style="width:100px;padding:4px 8px;font-size:12px">
+        </div>
       </div>
       <div id="agentpolicy-save-result" style="display:none;margin:0 16px 12px"></div>
     </div>
@@ -2769,6 +2774,7 @@ function renderAgentPolicy(p) {
   document.getElementById('policy-checkin-channel').value   = p.checkin_channel || '';
   document.getElementById('policy-required-channels').value = (p.required_channels||[]).join(', ');
   document.getElementById('policy-online-timeout').value    = p.online_timeout_secs || '';
+  document.getElementById('policy-reap-days').value        = p.reap_after_days || '';
   toggleCheckinChannel();
 }
 function toggleCheckinChannel() {
@@ -3026,6 +3032,7 @@ function saveAgentPolicy() {
       checkin_channel:   document.getElementById('policy-checkin-channel').value.trim(),
       required_channels: document.getElementById('policy-required-channels').value.split(',').map(s=>s.trim()).filter(Boolean),
       online_timeout_secs: parseInt(document.getElementById('policy-online-timeout').value) || 0,
+      reap_after_days: parseInt(document.getElementById('policy-reap-days').value) || 0,
     }
   }, 'agentpolicy-save-result');
 }
