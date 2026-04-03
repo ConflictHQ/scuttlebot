@@ -2255,7 +2255,7 @@ async function openEditBackend(name) {
   document.getElementById('ai-form-title').textContent = 'edit backend — ' + esc(name);
   document.getElementById('bf-submit-btn').textContent = 'save changes';
   document.getElementById('bf-name').value = name;
-  document.getElementById('bf-name').disabled = true; // name is immutable
+  document.getElementById('bf-name').disabled = false; // allow rename
   document.getElementById('bf-backend').value = b.backend || '';
   document.getElementById('bf-apikey').value = ''; // never pre-fill secrets
   document.getElementById('bf-baseurl').value = b.base_url || '';
@@ -2432,7 +2432,11 @@ async function submitBackendForm() {
   const btn = document.getElementById('bf-submit-btn');
   btn.disabled = true;
   try {
-    if (_editingBackend) {
+    if (_editingBackend && name !== _editingBackend) {
+      // Rename: delete old, create new.
+      await api('DELETE', `/v1/llm/backends/${encodeURIComponent(_editingBackend)}`);
+      await api('POST', '/v1/llm/backends', payload);
+    } else if (_editingBackend) {
       await api('PUT', `/v1/llm/backends/${encodeURIComponent(_editingBackend)}`, payload);
     } else {
       await api('POST', '/v1/llm/backends', payload);
