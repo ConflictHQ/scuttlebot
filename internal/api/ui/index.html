@@ -1347,7 +1347,8 @@ async function loadStatus() {
     // Status card.
     document.getElementById('stat-status').innerHTML = '<span class="dot green"></span>'+s.status;
     document.getElementById('stat-uptime').textContent = s.uptime;
-    document.getElementById('stat-agents').textContent = s.agents;
+    const onlineAgents = allAgents.filter(a => a.online).length;
+    document.getElementById('stat-agents').textContent = onlineAgents + '/' + s.agents;
     const d = new Date(s.started);
     document.getElementById('stat-started').textContent = d.toLocaleTimeString();
     document.getElementById('stat-started-rel').textContent = d.toLocaleDateString();
@@ -1449,6 +1450,27 @@ function renderUsersTable() {
     ['nick','type','channels','registered','']);
 }
 
+function relTime(ts) {
+  if (!ts) return 'never';
+  const ms = Date.now() - new Date(ts).getTime();
+  if (ms < 0) return 'just now';
+  const s = Math.floor(ms/1000), m = Math.floor(s/60), h = Math.floor(m/60), d = Math.floor(h/24);
+  if (d > 0) return d + 'd ago';
+  if (h > 0) return h + 'h ago';
+  if (m > 0) return m + 'm ago';
+  return s + 's ago';
+}
+
+function presenceDot(a) {
+  if (a.revoked) return '<span style="color:#f85149" title="revoked">◼</span>';
+  if (a.online) return '<span style="color:#3fb950" title="online">●</span>';
+  if (a.last_seen) {
+    const mins = (Date.now() - new Date(a.last_seen).getTime()) / 60000;
+    if (mins < 10) return '<span style="color:#d29922" title="idle">●</span>';
+  }
+  return '<span style="color:#484f58" title="offline">●</span>';
+}
+
 function renderAgentTable() {
   const q = (document.getElementById('agent-search').value||'').toLowerCase();
   const bots = allAgents.filter(a => a.type !== 'operator');
@@ -1457,17 +1479,27 @@ function renderAgentTable() {
     a.type.toLowerCase().includes(q) ||
     (a.config?.channels||[]).some(c => c.toLowerCase().includes(q)) ||
     (a.config?.permissions||[]).some(p => p.toLowerCase().includes(q)));
-  document.getElementById('agent-count').textContent = bots.length + (agents.length !== bots.length ? ' / '+agents.length+' shown' : '');
+  // Sort: online first, then by last_seen descending, then by nick.
+  agents.sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    const aT = a.last_seen ? new Date(a.last_seen).getTime() : 0;
+    const bT = b.last_seen ? new Date(b.last_seen).getTime() : 0;
+    if (aT !== bT) return bT - aT;
+    return a.nick.localeCompare(b.nick);
+  });
+  const onlineCount = bots.filter(a => a.online).length;
+  document.getElementById('agent-count').textContent = onlineCount + '/' + bots.length + ' online' + (agents.length !== bots.length ? ' ('+agents.length+' shown)' : '');
   const rows = agents.map(a => {
     const chs   = (a.config?.channels||[]).map(c=>`<span class="tag ch">${esc(c)}</span>`).join('');
     const perms = (a.config?.permissions||[]).map(p=>`<span class="tag perm">${esc(p)}</span>`).join('');
     const rev   = a.revoked ? '<span class="tag revoked">revoked</span>' : '';
-    return `<tr>
-      <td><strong>${esc(a.nick)}</strong></td>
+    const seen  = a.last_seen ? relTime(a.last_seen) : 'never';
+    const seenStyle = a.online ? 'color:#3fb950' : 'color:#8b949e';
+    return `<tr${a.revoked?' style="opacity:0.5"':''}>
+      <td>${presenceDot(a)} <strong>${esc(a.nick)}</strong></td>
       <td><span class="tag type-${a.type}">${esc(a.type)}</span>${rev}</td>
       <td>${chs||'<span style="color:#8b949e">—</span>'}</td>
-      <td>${perms||'<span style="color:#8b949e">—</span>'}</td>
-      <td style="white-space:nowrap">${fmtTime(a.created_at)}</td>
+      <td style="white-space:nowrap;${seenStyle}">${seen}</td>
       <td><div class="actions">${!a.revoked?`
         <button class="sm" onclick="rotateAgent('${esc(a.nick)}')">rotate</button>
         <button class="sm danger" onclick="revokeAgent('${esc(a.nick)}')">revoke</button>`:``}
@@ -1476,7 +1508,7 @@ function renderAgentTable() {
   });
   renderTable('agents-container', null, rows,
     bots.length ? 'no agents match the filter' : 'no agents registered yet',
-    ['nick','type','channels','permissions','registered','']);
+    ['nick','type','channels','last seen','']);
 }
 
 async function revokeAgent(nick) {
