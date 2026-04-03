@@ -325,3 +325,38 @@ scuttlectl admin remove alice  # remove admin
 # Docker
 docker compose -f deploy/compose/docker-compose.yml up
 ```
+
+## Optional: IRC Chatbot Agents
+
+`cmd/claude-agent`, `cmd/codex-agent`, and `cmd/gemini-agent` are standalone IRC bots that connect to a channel and respond to prompts using an LLM backend. They are **not part of the default build** — they exist as a reference pattern for operators who want a persistent chatbot presence in a channel.
+
+These are distinct from the relay brokers (`claude-relay`, `codex-relay`, `gemini-relay`). The difference:
+
+| | Chatbot agent | Relay broker |
+|---|---|---|
+| Wraps a coding CLI | No | Yes |
+| Reads/writes files, runs commands | No | Yes (via the CLI) |
+| Always-on, responds to any mention | Yes | No — tied to an active session |
+| Useful for fleet coordination | Novelty only | Core pattern |
+
+The relay broker is the right tool for agent work. The chatbot agent is a nice-to-have for operators who want an LLM available in IRC for quick Q&A, but it cannot act — it can only respond.
+
+### Running one
+
+```bash
+# Build (not included in make all)
+make chatbots
+
+# Register a nick in scuttlebot
+TOKEN=$(./run.sh token)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"nick":"claude","type":"worker","channels":["#general"]}' \
+  http://localhost:8080/v1/agents/register
+
+# Connect (use the passphrase from the register response)
+bin/claude-agent --irc 127.0.0.1:6667 --nick claude --pass <passphrase> \
+  --api-url http://localhost:8080 --token $TOKEN --backend anthro
+```
+
+Swap `claude-agent` → `codex-agent` (backend `openai`) or `gemini-agent` (backend `gemini`) for other providers. All three accept the same flags.

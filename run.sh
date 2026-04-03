@@ -4,15 +4,11 @@
 #   (no args)   build and start scuttlebot
 #   stop        kill running scuttlebot
 #   restart     stop + build + start
-#   agent       build and run a claude IRC agent with a fleet-style nick
 #   token       print the current API token
 #   log         tail the log (if logging to file is configured)
 #   test        run Go unit tests
 #   e2e         run Playwright e2e tests (requires scuttlebot running)
 #   clean       remove built binaries
-#
-# After start/restart, if ~/Library/LaunchAgents/io.conflict.claude-agent.plist
-# exists, the claude IRC agent credentials are rotated and the LaunchAgent reloaded.
 
 set -euo pipefail
 
@@ -21,9 +17,6 @@ CONFIG=${SCUTTLEBOT_CONFIG:-scuttlebot.yaml}
 TOKEN_FILE=data/ergo/api_token
 PID_FILE=.scuttlebot.pid
 LOG_FILE=.scuttlebot.log
-CLAUDE_AGENT_ENV="${CLAUDE_AGENT_ENV:-$HOME/.config/scuttlebot-claude-agent.env}"
-CLAUDE_AGENT_PLIST="${CLAUDE_AGENT_PLIST:-$HOME/Library/LaunchAgents/io.conflict.claude-agent.plist}"
-
 cmd=${1:-start}
 
 _pid() { cat "$PID_FILE" 2>/dev/null || echo ""; }
@@ -88,81 +81,11 @@ _token() {
   fi
 }
 
-# _sync_claude_agent rotates the claude IRC agent's credentials, updates the
-# env file, and reloads the LaunchAgent. No-ops silently if the plist or env
-# file don't exist (agent not installed on this machine).
-_sync_claude_agent() {
-  [[ -f "$CLAUDE_AGENT_PLIST" ]] || return 0
-  [[ -f "$CLAUDE_AGENT_ENV" ]] || return 0
-
-  local token; token=$(_token 2>/dev/null) || return 0
-
-  # Wait up to 15s for the HTTP API, then give ergo another 5s to finish
-  # starting NickServ before we attempt a password rotation.
-  local ready=0
-  for i in $(seq 1 15); do
-    curl -sf -H "Authorization: Bearer $token" "http://localhost:8080/v1/status" >/dev/null 2>&1 && ready=1 && break
-    sleep 1
-  done
-  [[ $ready -eq 1 ]] || { echo "warning: scuttlebot API not ready, skipping claude-agent sync" >&2; return 0; }
-  sleep 5
-
-  echo "syncing claude-agent credentials..."
-  local resp; resp=$(curl -sf -X POST \
-    -H "Authorization: Bearer $token" \
-    "http://localhost:8080/v1/agents/claude/rotate" 2>/dev/null) || {
-    echo "warning: could not rotate claude-agent credentials (API not ready?)" >&2
-    return 0
-  }
-
-  local pass; pass=$(echo "$resp" | grep -o '"passphrase":"[^"]*"' | cut -d'"' -f4)
-  [[ -n "$pass" ]] || { echo "warning: empty passphrase in rotate response" >&2; return 0; }
-
-  # Rewrite only the CLAUDE_AGENT_PASS line; preserve everything else.
-  sed -i '' "s|^CLAUDE_AGENT_PASS=.*|CLAUDE_AGENT_PASS=$pass|" "$CLAUDE_AGENT_ENV"
-
-  launchctl unload "$CLAUDE_AGENT_PLIST" 2>/dev/null || true
-  launchctl load  "$CLAUDE_AGENT_PLIST"
-  echo "claude-agent reloaded"
-}
-
-_run_agent() {
-  local token; token=$(_token)
-  local base; base=$(basename "$(pwd)" | tr -cs '[:alnum:]_-' '-' | tr '[:upper:]' '[:lower:]')
-  local session; session=$(printf '%s' "$$|$PPID|$(date +%s)" | cksum | awk '{printf "%08x\n", $1}')
-  local nick="claude-${base}-${session}"
-
-  echo "registering agent nick: $nick"
-  local resp; resp=$(curl -sf -X POST \
-    -H "Authorization: Bearer $token" \
-    -H "Content-Type: application/json" \
-    -d "{\"nick\":\"$nick\",\"type\":\"worker\",\"channels\":[\"#general\"]}" \
-    "http://localhost:8080/v1/agents/register")
-  local pass; pass=$(echo "$resp" | grep -o '"passphrase":"[^"]*"' | cut -d'"' -f4)
-  [[ -n "$pass" ]] || { echo "error: failed to register agent" >&2; exit 1; }
-
-  # Clean up registration on exit.
-  trap 'echo "removing agent $nick..."; curl -sf -X DELETE \
-    -H "Authorization: Bearer '"$token"'" \
-    "http://localhost:8080/v1/agents/$nick" >/dev/null || true' EXIT INT TERM
-
-  echo "connecting as $nick..."
-  local backend="${SCUTTLEBOT_BACKEND:-anthro}"
-  bin/claude-agent \
-    --irc 127.0.0.1:6667 \
-    --nick "$nick" \
-    --pass "$pass" \
-    --channels "#general" \
-    --api-url "http://localhost:8080" \
-    --token "$token" \
-    --backend "$backend"
-}
 
 case "$cmd" in
   start)
     _build
     _start
-    _sync_claude_agent
     ;;
   stop)
     _stop
@@ -171,14 +94,9 @@ case "$cmd" in
     _stop || true
     _build
     _start
-    _sync_claude_agent
     ;;
   build)
     _build
-    ;;
-  agent)
-    go build -o bin/claude-agent ./cmd/claude-agent
-    _run_agent "${@:2}"
     ;;
   token)
     _token
@@ -201,7 +119,7 @@ case "$cmd" in
     echo "clean"
     ;;
   *)
-    echo "usage: $0 {start|stop|restart|agent|build|token|log|test|e2e|clean}"
+    echo "usage: $0 {start|stop|restart|build|token|log|test|e2e|clean}"
     exit 1
     ;;
 esac

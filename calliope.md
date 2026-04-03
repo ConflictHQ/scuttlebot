@@ -2,19 +2,19 @@
 <!-- Agent shim for https://github.com/calliopeai/calliope-cli -->
 
 Primary conventions doc: [`bootstrap.md`](bootstrap.md)
-Context seed: [`memory.md`](memory.md)
 
-Read both before writing any code.
+Read it before writing any code.
 
 ---
 
 ## Project-specific notes
 
-- Language: Python 3.12+
-- Transport: IRC — all agent coordination flows through IRC channels and messages
-- Async runtime: asyncio throughout; IRC library TBD (irc3 or similar)
-- No web layer, no database — pure message-passing over IRC
+- Language: Go 1.22+
+- Transport: IRC — all agent coordination flows through Ergo IRC channels and messages
+- HTTP API: `internal/api/` — Bearer token auth, JSON, serves the web UI at `/ui/`
+- No ORM, no database — state persisted as YAML/JSON files
 - Human observable by design: everything an agent does is visible in IRC
-- Test runner: pytest + pytest-asyncio
-- Formatter/linter: Ruff (replaces black, flake8, isort)
-- Package manager: uv (`uv sync`, `uv run pytest`)
+- Test runner: `go test ./...`
+- Formatter: `gofmt` (enforced)
+- Linter: `golangci-lint run`
+- Dev helper: `./run.sh` (start / stop / restart / token / log / test / e2e / clean)

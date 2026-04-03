@@ -1,11 +1,17 @@
 .PHONY: all build fmt vet lint test test-smoke clean install \
-        install-claude-relay install-codex-relay install-gemini-relay
+        install-claude-relay install-codex-relay install-gemini-relay \
+        chatbots
 
 BINS := bin/scuttlebot bin/scuttlectl bin/claude-relay bin/codex-relay \
-        bin/gemini-relay bin/claude-agent bin/codex-agent bin/gemini-agent \
-        bin/fleet-cmd
+        bin/gemini-relay bin/fleet-cmd
+
+CHATBOT_BINS := bin/claude-agent bin/codex-agent bin/gemini-agent
 
 all: $(BINS)
+
+# chatbots builds the optional IRC chatbot agents (claude-agent, codex-agent,
+# gemini-agent). These are not part of the default build — see docs/chatbot-agents.md.
+chatbots: $(CHATBOT_BINS)
 
 build:
 	go build ./...
@@ -30,7 +36,7 @@ install:
 	go install ./cmd/scuttlebot ./cmd/scuttlectl
 
 clean:
-	rm -f $(BINS)
+	rm -f $(BINS) $(CHATBOT_BINS)
 
 # --- relay install helpers ---
 

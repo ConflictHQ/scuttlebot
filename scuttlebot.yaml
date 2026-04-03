@@ -1,78 +1,62 @@
-# scuttlebot.yaml — example standalone config.
-# Copy to scuttlebot.yaml and edit. All fields are optional; defaults shown.
-
 ergo:
-  # binary_path: ergo           # path to ergo binary; auto-downloaded if not found
-  # data_dir: ./data/ergo       # where ergo stores ircd.db and generated config
-  # network_name: scuttlebot    # IRC network name
-  # server_name: irc.scuttlebot.local
-  # irc_addr: 127.0.0.1:6667   # IRC listen address
-  # api_addr: 127.0.0.1:8089   # ergo HTTP API address
-  # api_token: ""               # auto-generated if blank
-  history:
-    # enabled: false
-    # postgres_dsn: postgres://user:pass@localhost/scuttlebot?sslmode=disable
-
+    external: false
+    binary_path: /Users/ragelink/repos/conflict/scuttlebot/data/ergo/ergo
+    data_dir: ./data/ergo
+    network_name: scuttlebot
+    server_name: irc.scuttlebot.local
+    irc_addr: 127.0.0.1:6667
+    api_addr: 127.0.0.1:8089
+    api_token: 40f721538f6720ddca1ee02c7e58fee8f75b4d46287fb5bd
+    history:
+        enabled: false
+        postgres_dsn: ""
+        mysql:
+            host: ""
+            port: 0
+            user: ""
+            password: ""
+            database: ""
 datastore:
-  # driver: sqlite              # "sqlite" or "postgres"
-  # dsn: ./data/scuttlebot.db
-
+    driver: sqlite
+    dsn: ./data/scuttlebot.db
 bridge:
-  # enabled: true
-  # nick: bridge
-  # channels: ["#general"]
-  # buffer_size: 200
-  # web_user_ttl_minutes: 5     # keep HTTP bridge nicks visible in /users after their last post
-
-# api_addr: :8080               # scuttlebot REST API listen address
-
-# topology defines channel structure and autojoin policy.
-# Static channels are provisioned at startup; types apply to agent-created channels.
-# This is domain-agnostic — replace the example types with whatever fits your workflow.
-#
-# topology:
-#   channels:
-#     - name: "#general"
-#       topic: "Fleet coordination"
-#       ops: [bridge, oracle]
-#       autojoin: [bridge, oracle, scribe, herald]
-#     - name: "#alerts"
-#       topic: "Alerts and incidents"
-#       autojoin: [bridge, sentinel, steward, oracle]
-#
-#   types:
-#     # --- software development (default example) ---
-#     - name: task
-#       prefix: "task."            # matches #task.gh-42, #task.JIRA-99, etc.
-#       autojoin: [bridge, scribe]
-#       supervision: "#general"   # where summaries surface; agents post here too
-#       ephemeral: true
-#       ttl: 72h
-#     - name: sprint
-#       prefix: "sprint."
-#       autojoin: [bridge, oracle, herald]
-#     - name: feature
-#       prefix: "feature."
-#       autojoin: [bridge, scribe, herald]
-#       supervision: "#general"
-#     - name: infra
-#       prefix: "infra."
-#       autojoin: [bridge, sentinel, steward]
-#       supervision: "#alerts"
-#     - name: incident
-#       prefix: "incident."
-#       autojoin: [bridge, sentinel, steward, oracle, auditbot]
-#       supervision: "#alerts"
-#       ephemeral: true
-#       ttl: 168h                 # 1 week
-#
-#     # --- other domain examples (uncomment/replace as needed) ---
-#     # - name: experiment        # data science
-#     #   prefix: "experiment."
-#     #   autojoin: [bridge, scribe]
-#     # - name: ticket            # customer support
-#     #   prefix: "ticket."
-#     #   autojoin: [bridge, scribe]
-#     #   supervision: "#general"
-#     #   ephemeral: true
-#     #   ttl: 48h
+    enabled: true
+    nick: bridge
+    password: f7496206ad3969190cd0f7eb8accb79ec249c1b908484ae4
+    channels: []
+    buffer_size: 200
+    web_user_ttl_minutes: 8
+tls:
+    domain: ""
+    email: ""
+    cert_dir: ""
+    allow_insecure: false
+llm:
+    backends: []
+topology:
+    nick: topology
+    channels:
+        - name: '#general'
+          topic: Fleet coordination
+          ops: []
+          voice: []
+          autojoin:
+            - bridge
+    types: []
+config_history:
+    keep: 20
+    dir: ""
+agent_policy:
+    require_checkin: true
+    checkin_channel: '#fleet'
+    required_channels: []
+logging:
+    enabled: false
+    dir: ""
+    format: jsonl
+    rotation: none
+    max_size_mb: 0
+    per_channel: false
+    max_age_days: 0
+api_addr: :8080
+mcp_addr: :8081
