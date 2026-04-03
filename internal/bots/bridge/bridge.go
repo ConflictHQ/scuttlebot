@@ -109,6 +109,12 @@ func New(ircAddr, nick, password string, channels []string, bufSize int, webUser
 	if webUserTTL <= 0 {
 		webUserTTL = defaultWebUserTTL
 	}
+	// Normalize channel names: ensure # prefix.
+	for i, ch := range channels {
+		if ch != "" && ch[0] != '#' {
+			channels[i] = "#" + ch
+		}
+	}
 	return &Bot{
 		ircAddr:      ircAddr,
 		nick:         nick,
