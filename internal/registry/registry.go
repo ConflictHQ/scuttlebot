@@ -39,6 +39,8 @@ type Agent struct {
 	Config      EngagementConfig `json:"config"`
 	CreatedAt   time.Time        `json:"created_at"`
 	Revoked     bool             `json:"revoked"`
+	LastSeen    *time.Time       `json:"last_seen,omitempty"`
+	Online      bool             `json:"online"`
 }
 
 // Credentials are the SASL credentials an agent uses to connect to Ergo.
@@ -371,15 +373,30 @@ func (r *Registry) Get(nick string) (*Agent, error) {
 	return r.get(nick)
 }
 
-// List returns all registered, non-revoked agents.
+// Touch updates the last-seen timestamp for an agent.
+func (r *Registry) Touch(nick string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	a, ok := r.agents[nick]
+	if !ok || a.Revoked {
+		return
+	}
+	now := time.Now()
+	a.LastSeen = &now
+	// Don't persist every heartbeat — just keep in memory.
+}
+
+const onlineThreshold = 2 * time.Minute
+
+// List returns all registered agents with computed online status.
 func (r *Registry) List() []*Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	now := time.Now()
 	var out []*Agent
 	for _, a := range r.agents {
-		if !a.Revoked {
-			out = append(out, a)
-		}
+		a.Online = a.LastSeen != nil && now.Sub(*a.LastSeen) < onlineThreshold
+		out = append(out, a)
 	}
 	return out
 }
