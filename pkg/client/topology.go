@@ -101,7 +101,9 @@ func (t *TopologyClient) CreateChannel(ctx context.Context, name, topic string) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
-		var apiErr struct{ Error string `json:"error"` }
+		var apiErr struct {
+			Error string `json:"error"`
+		}
 		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
 		return ChannelInfo{}, fmt.Errorf("topology: create channel: %s", apiErr.Error)
 	}
@@ -130,7 +132,9 @@ func (t *TopologyClient) DropChannel(ctx context.Context, channel string) error 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
-		var apiErr struct{ Error string `json:"error"` }
+		var apiErr struct {
+			Error string `json:"error"`
+		}
 		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
 		return fmt.Errorf("topology: drop channel: %s", apiErr.Error)
 	}
