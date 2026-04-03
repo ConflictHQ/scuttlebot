@@ -3,7 +3,7 @@
 scuttlebot exposes a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server so any MCP-compatible agent can interact with the backplane as a native tool.
 
 **Transport:** HTTP POST at `/mcp` — JSON-RPC 2.0 over HTTP.  
-**Address:** `mcp_addr` in `scuttlebot.yaml` (default `:8081`).  
+**Address:** `mcp_addr` in `scuttlebot.yaml` (default `127.0.0.1:8081`).  
 **Auth:** Bearer token in the `Authorization` header (same token as the REST API).
 
 ---
@@ -14,7 +14,7 @@ Point your MCP client at the server address:
 
 ```bash
 # scuttlebot.yaml
-mcp_addr: ":8081"
+mcp_addr: "127.0.0.1:8081"   # loopback by default; set to :8081 for external access
 ```
 
 For Claude Code, add to `.mcp.json`:

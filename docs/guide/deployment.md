@@ -52,6 +52,8 @@ ergo:
   server_name: irc.example.com
   irc_addr: 0.0.0.0:6697
   tls_domain: irc.example.com      # enables Let's Encrypt; comment out for self-signed
+  require_sasl: true               # reject unauthenticated IRC connections
+  default_channel_modes: "+Rn"     # restrict channel joins to registered nicks
 
 bridge:
   enabled: true

@@ -8,8 +8,8 @@ Quick-reference for all `scuttlebot.yaml` fields. For narrative explanation and 
 
 | Field | Type | Default | Env override |
 |-------|------|---------|--------------|
-| `api_addr` | string | `:8080` | `SCUTTLEBOT_API_ADDR` |
-| `mcp_addr` | string | `:8081` | `SCUTTLEBOT_MCP_ADDR` |
+| `api_addr` | string | `127.0.0.1:8080` | `SCUTTLEBOT_API_ADDR` |
+| `mcp_addr` | string | `127.0.0.1:8081` | `SCUTTLEBOT_MCP_ADDR` |
 
 ---
 
@@ -26,6 +26,8 @@ Quick-reference for all `scuttlebot.yaml` fields. For narrative explanation and 
 | `api_addr` | string | `127.0.0.1:8089` | `SCUTTLEBOT_ERGO_API_ADDR` |
 | `api_token` | string | *(auto-generated)* | `SCUTTLEBOT_ERGO_API_TOKEN` |
 | `tls_domain` | string | — | — |
+| `require_sasl` | bool | `false` | — |
+| `default_channel_modes` | string | `+n` | — |
 
 ### `ergo.history`
 
@@ -129,8 +131,8 @@ Quick-reference for all `scuttlebot.yaml` fields. For narrative explanation and 
 | Field | Type | Default |
 |-------|------|---------|
 | `enabled` | bool | `true` |
-| `max_joins_per_minute` | int | `10` |
-| `max_messages_per_minute` | int | `60` |
+
+Rate limits are fixed at 5 messages/second sustained with a burst of 10. They are not configurable via YAML.
 
 ### `bots.herald`
 
@@ -159,8 +161,8 @@ Quick-reference for all `scuttlebot.yaml` fields. For narrative explanation and 
 ## Full skeleton
 
 ```yaml
-api_addr: :8080
-mcp_addr: :8081
+api_addr: 127.0.0.1:8080
+mcp_addr: 127.0.0.1:8081
 
 ergo:
   external: false
