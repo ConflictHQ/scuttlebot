@@ -43,6 +43,10 @@ func (s *Server) handleProvisionChannel(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if s.topoMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "topology not configured")
+		return
+	}
 
 	policy := s.topoMgr.Policy()
 
@@ -98,6 +102,10 @@ func (s *Server) handleDropChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if s.topoMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "topology not configured")
+		return
+	}
 	s.topoMgr.DropChannel(channel)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -105,6 +113,10 @@ func (s *Server) handleDropChannel(w http.ResponseWriter, r *http.Request) {
 // handleGetTopology handles GET /v1/topology.
 // Returns the channel type rules and static channel names declared in config.
 func (s *Server) handleGetTopology(w http.ResponseWriter, r *http.Request) {
+	if s.topoMgr == nil {
+		writeJSON(w, http.StatusOK, topologyResponse{})
+		return
+	}
 	policy := s.topoMgr.Policy()
 	if policy == nil {
 		writeJSON(w, http.StatusOK, topologyResponse{})
