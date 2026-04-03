@@ -424,11 +424,22 @@ canvas { display:block; width:100% !important; }
 <!-- AGENTS -->
 <div class="tab-pane" id="pane-agents">
   <div class="filter-bar">
-    <input type="text" id="agent-search" placeholder="search by nick, type, channel…" oninput="renderAgentTable()" style="max-width:320px">
+    <input type="text" id="agent-search" placeholder="search by nick, type, channel…" oninput="agentPage=0;renderAgentTable()" style="max-width:280px">
+    <select id="agent-status-filter" onchange="agentPage=0;renderAgentTable()" style="padding:5px 8px;font-size:12px">
+      <option value="all">all</option>
+      <option value="online">online</option>
+      <option value="offline">offline</option>
+      <option value="revoked">revoked</option>
+    </select>
     <div class="spacer"></div>
     <span class="badge" id="agent-count" style="margin-right:4px">0</span>
     <button class="sm" onclick="loadAgents()">↻ refresh</button>
     <button class="sm primary" onclick="openDrawer()">+ register agent</button>
+  </div>
+  <div id="agent-pagination" style="display:none;padding:4px 16px;font-size:12px;color:#8b949e;display:flex;align-items:center;gap:8px">
+    <button class="sm" id="agent-prev" onclick="agentPage--;renderAgentTable()">← prev</button>
+    <span id="agent-page-info"></span>
+    <button class="sm" id="agent-next" onclick="agentPage++;renderAgentTable()">next →</button>
   </div>
   <div style="flex:1;overflow-y:auto">
     <div id="agents-container"></div>
@@ -443,8 +454,9 @@ canvas { display:block; width:100% !important; }
         <h2>channels</h2>
         <span class="badge" id="chan-count">0</span>
         <div class="spacer"></div>
+        <input type="text" id="chan-search" placeholder="filter…" oninput="renderChanList()" style="width:120px;padding:5px 8px;font-size:12px">
         <div style="display:flex;gap:6px;align-items:center">
-          <input type="text" id="quick-join-input" placeholder="#channel" style="width:160px;padding:5px 8px;font-size:12px" autocomplete="off">
+          <input type="text" id="quick-join-input" placeholder="#channel" style="width:140px;padding:5px 8px;font-size:12px" autocomplete="off">
           <button class="sm primary" onclick="quickJoin()">join</button>
         </div>
       </div>
@@ -1476,14 +1488,27 @@ function presenceDot(a) {
   return '<span style="color:#484f58" title="offline">●</span>';
 }
 
+let agentPage = 0;
+const AGENTS_PER_PAGE = 25;
+
 function renderAgentTable() {
   const q = (document.getElementById('agent-search').value||'').toLowerCase();
+  const statusFilter = document.getElementById('agent-status-filter').value;
   const bots = allAgents.filter(a => a.type !== 'operator');
-  const agents = bots.filter(a => !q ||
+
+  // Status filter.
+  let filtered = bots;
+  if (statusFilter === 'online') filtered = bots.filter(a => a.online);
+  else if (statusFilter === 'offline') filtered = bots.filter(a => !a.online && !a.revoked);
+  else if (statusFilter === 'revoked') filtered = bots.filter(a => a.revoked);
+
+  // Text search.
+  const agents = filtered.filter(a => !q ||
     a.nick.toLowerCase().includes(q) ||
     a.type.toLowerCase().includes(q) ||
     (a.config?.channels||[]).some(c => c.toLowerCase().includes(q)) ||
     (a.config?.permissions||[]).some(p => p.toLowerCase().includes(q)));
+
   // Sort: online first, then by last_seen descending, then by nick.
   agents.sort((a, b) => {
     if (a.online !== b.online) return a.online ? -1 : 1;
@@ -1492,11 +1517,30 @@ function renderAgentTable() {
     if (aT !== bT) return bT - aT;
     return a.nick.localeCompare(b.nick);
   });
+
+  // Pagination.
+  const totalPages = Math.max(1, Math.ceil(agents.length / AGENTS_PER_PAGE));
+  if (agentPage >= totalPages) agentPage = totalPages - 1;
+  if (agentPage < 0) agentPage = 0;
+  const start = agentPage * AGENTS_PER_PAGE;
+  const pageAgents = agents.slice(start, start + AGENTS_PER_PAGE);
+
   const onlineCount = bots.filter(a => a.online).length;
-  document.getElementById('agent-count').textContent = onlineCount + '/' + bots.length + ' online' + (agents.length !== bots.length ? ' ('+agents.length+' shown)' : '');
-  const rows = agents.map(a => {
+  document.getElementById('agent-count').textContent = onlineCount + '/' + bots.length + ' online' + (agents.length !== bots.length ? ' (' + agents.length + ' shown)' : '');
+
+  // Pagination controls.
+  const pagEl = document.getElementById('agent-pagination');
+  if (agents.length > AGENTS_PER_PAGE) {
+    pagEl.style.display = 'flex';
+    document.getElementById('agent-prev').disabled = agentPage === 0;
+    document.getElementById('agent-next').disabled = agentPage >= totalPages - 1;
+    document.getElementById('agent-page-info').textContent = `page ${agentPage+1}/${totalPages}`;
+  } else {
+    pagEl.style.display = 'none';
+  }
+
+  const rows = pageAgents.map(a => {
     const chs   = (a.config?.channels||[]).map(c=>`<span class="tag ch">${esc(c)}</span>`).join('');
-    const perms = (a.config?.permissions||[]).map(p=>`<span class="tag perm">${esc(p)}</span>`).join('');
     const rev   = a.revoked ? '<span class="tag revoked">revoked</span>' : '';
     const seen  = a.last_seen ? relTime(a.last_seen) : 'never';
     const seenStyle = a.online ? 'color:#3fb950' : 'color:#8b949e';
@@ -1638,29 +1682,41 @@ function showCredentials(nick, creds, payload, mode) {
 }
 
 // --- channels tab ---
+let allChannels = [];
+
 async function loadChanTab() {
   if (!getToken()) return;
   try {
     const data = await api('GET', '/v1/channels');
-    const channels = data.channels || [];
-    document.getElementById('chan-count').textContent = channels.length;
-    if (channels.length === 0) {
-      document.getElementById('channels-list').innerHTML = '<div class="empty">no channels joined yet — type a channel name above and click join</div>';
-      return;
-    }
-    document.getElementById('channels-list').innerHTML = channels.sort().map(ch =>
-      `<div class="chan-card">
-        <div>
-          <div class="chan-name">${esc(ch)}</div>
-          <div class="chan-meta">joined</div>
-        </div>
-        <div class="spacer"></div>
-        <button class="sm" onclick="switchTab('chat');setTimeout(()=>selectChannel('${esc(ch)}'),50)">open chat →</button>
-      </div>`
-    ).join('');
+    allChannels = (data.channels || []).sort();
+    renderChanList();
   } catch(e) {
     document.getElementById('channels-list').innerHTML = '<div style="padding:16px">'+renderAlert('error', e.message)+'</div>';
   }
+}
+
+function renderChanList() {
+  const q = (document.getElementById('chan-search').value||'').toLowerCase();
+  const filtered = allChannels.filter(ch => !q || ch.toLowerCase().includes(q));
+  document.getElementById('chan-count').textContent = filtered.length + (filtered.length !== allChannels.length ? '/' + allChannels.length : '');
+  if (allChannels.length === 0) {
+    document.getElementById('channels-list').innerHTML = '<div class="empty">no channels joined yet — type a channel name above and click join</div>';
+    return;
+  }
+  if (filtered.length === 0) {
+    document.getElementById('channels-list').innerHTML = '<div class="empty">no channels match the filter</div>';
+    return;
+  }
+  document.getElementById('channels-list').innerHTML = filtered.map(ch =>
+    `<div class="chan-card">
+      <div>
+        <div class="chan-name">${esc(ch)}</div>
+        <div class="chan-meta">joined</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="sm" onclick="switchTab('chat');setTimeout(()=>selectChannel('${esc(ch)}'),50)">open chat →</button>
+    </div>`
+  ).join('');
 }
 async function quickJoin() {
   let ch = document.getElementById('quick-join-input').value.trim();
