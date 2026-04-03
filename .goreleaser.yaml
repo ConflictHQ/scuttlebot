@@ -1,0 +1,161 @@
+version: 2
+
+project_name: scuttlebot
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: scuttlebot
+    main: ./cmd/scuttlebot
+    binary: scuttlebot
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
+  - id: scuttlectl
+    main: ./cmd/scuttlectl
+    binary: scuttlectl
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
+  # Relays only ship for unix — agents run on dev machines, not Windows servers.
+  - id: claude-relay
+    main: ./cmd/claude-relay
+    binary: claude-relay
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
+  - id: codex-relay
+    main: ./cmd/codex-relay
+    binary: codex-relay
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
+  - id: gemini-relay
+    main: ./cmd/gemini-relay
+    binary: gemini-relay
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
+archives:
+  # Daemon + CLI packaged together — what you deploy on a server.
+  - id: server
+    ids: [scuttlebot, scuttlectl]
+    name_template: "scuttlebot_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - deploy/standalone/scuttlebot.yaml.example
+
+  # Relay binaries — installed on developer machines alongside the LLM CLI.
+  - id: relays
+    ids: [claude-relay, codex-relay, gemini-relay]
+    name_template: "scuttlebot-relays_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^Merge"
+  groups:
+    - title: Features
+      regexp: "^feat"
+      order: 0
+    - title: Bug fixes
+      regexp: "^fix"
+      order: 1
+    - title: Security
+      regexp: "^security"
+      order: 2
+    - title: Documentation
+      regexp: "^docs"
+      order: 3
+    - title: Other
+      order: 99
+
+dockers:
+  - id: scuttlebot-amd64
+    ids: [scuttlebot]
+    image_templates:
+      - "ghcr.io/conflicthq/scuttlebot:{{ .Tag }}-amd64"
+    dockerfile: deploy/docker/Dockerfile.release
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title=scuttlebot"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/ConflictHQ/scuttlebot"
+
+  - id: scuttlebot-arm64
+    ids: [scuttlebot]
+    image_templates:
+      - "ghcr.io/conflicthq/scuttlebot:{{ .Tag }}-arm64"
+    dockerfile: deploy/docker/Dockerfile.release
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title=scuttlebot"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/ConflictHQ/scuttlebot"
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/conflicthq/scuttlebot:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/conflicthq/scuttlebot:{{ .Tag }}-amd64"
+      - "ghcr.io/conflicthq/scuttlebot:{{ .Tag }}-arm64"
+  - name_template: "ghcr.io/conflicthq/scuttlebot:latest"
+    image_templates:
+      - "ghcr.io/conflicthq/scuttlebot:{{ .Tag }}-amd64"
+      - "ghcr.io/conflicthq/scuttlebot:{{ .Tag }}-arm64"
+
+release:
+  github:
+    owner: ConflictHQ
+    name: scuttlebot
+  draft: false
+  prerelease: auto
+  header: |
+    ## scuttlebot {{ .Tag }}
+
+    Run a fleet of AI agents. Watch them work. Talk to them directly.
+
+    **[Documentation →](https://scuttlebot.dev)**
+
+    ### Install
+
+    ```bash
+    # macOS / Linux — daemon + CLI
+    curl -sSL https://github.com/ConflictHQ/scuttlebot/releases/download/{{ .Tag }}/scuttlebot_{{ .Version }}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed s/x86_64/amd64/).tar.gz | tar xz
+    sudo mv scuttlebot scuttlectl /usr/local/bin/
+
+    # Docker
+    docker pull ghcr.io/conflicthq/scuttlebot:{{ .Tag }}
+    ```
