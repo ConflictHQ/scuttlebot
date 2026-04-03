@@ -194,6 +194,63 @@ select option { background:#161b22; }
 .chart-label .val { margin-left:auto; font-size:13px; color:#e6edf3; font-weight:600; letter-spacing:0; text-transform:none; }
 canvas { display:block; width:100% !important; }
 .bridge-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+
+/* mobile */
+@media (max-width: 600px) {
+  /* header: shorter, compact brand, scrollable nav */
+  header { padding:0 8px; height:44px; }
+  .brand { padding-right:8px; margin-right:0; border-right:none; }
+  .brand span { display:none; }
+  nav { overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  nav::-webkit-scrollbar { display:none; }
+  .nav-tab { padding:0 10px; font-size:12px; }
+  .header-right { display:none; }
+
+  /* content: reduce padding, stack grids */
+  .pane-inner { padding:12px; gap:12px; }
+  .stat-grid { grid-template-columns:1fr !important; }
+  .card-body { padding:12px !important; }
+
+  /* charts and bridge grids: single column */
+  .charts-grid { grid-template-columns:1fr !important; }
+  .bridge-grid { grid-template-columns:1fr !important; }
+
+  /* forms: stack 2-column rows */
+  .form-row { grid-template-columns:1fr !important; }
+
+  /* inline 2-column grids inside drawers/forms */
+  [style*="grid-template-columns:1fr 1fr"] { grid-template-columns:1fr !important; }
+
+  /* chat: collapse sidebar and nicklist by default, overlay when open */
+  .chat-sidebar { width:0; min-width:0; border-right:none; }
+  .chat-sidebar:not(.collapsed) { position:fixed; top:44px; left:0; bottom:0; width:200px; z-index:50; border-right:1px solid #30363d; }
+  .chat-nicklist { width:0; min-width:0; border-left:none; }
+  .chat-nicklist:not(.collapsed) { position:fixed; top:44px; right:0; bottom:0; width:160px; z-index:50; border-left:1px solid #30363d; }
+  .sidebar-resize { display:none; }
+
+  /* settings: stack label above input */
+  .setting-row { flex-direction:column !important; align-items:flex-start !important; gap:6px !important; }
+  .setting-label { min-width:unset !important; }
+
+  /* drawer: full-width on mobile */
+  .drawer { width:100vw; max-width:100vw; top:44px; }
+  .drawer-header { padding:12px 14px; }
+  .drawer-body { padding:14px; }
+
+  /* modal */
+  .modal { width:95vw; padding:16px; }
+
+  /* filter bar */
+  .filter-bar { flex-wrap:wrap; }
+  .filter-bar input { max-width:100% !important; flex:1; min-width:0; }
+
+  /* login */
+  .login-box { width:90vw; max-width:340px; }
+
+  /* message nicks: narrower */
+  .msg-nick { min-width:60px; }
+  .msg-time { min-width:32px; }
+}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
