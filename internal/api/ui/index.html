@@ -44,7 +44,7 @@ nav { display:flex; align-items:stretch; flex:1; }
 .beh-field input[type=text],.beh-field input[type=number],.beh-field select { width:100%; }
 .beh-field .hint { font-size:10px; color:#6e7681; margin-top:2px; }
 .spacer { flex:1; }
-.badge { background:#1f6feb22; border:1px solid #1f6feb44; color:#58a6ff; border-radius:999px; padding:1px 8px; font-size:12px; }
+.badge { background:#1f6feb22; border:1px solid #1f6feb44; color:#58a6ff; border-radius:999px; padding:1px 8px; font-size:12px; white-space:nowrap; }
 
 /* status */
 .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
@@ -425,7 +425,7 @@ canvas { display:block; width:100% !important; }
 <div class="tab-pane" id="pane-agents">
   <div class="filter-bar">
     <input type="text" id="agent-search" placeholder="search by nick, type, channel…" oninput="agentPage=0;renderAgentTable()" style="max-width:280px">
-    <select id="agent-status-filter" onchange="agentPage=0;renderAgentTable()" style="padding:5px 8px;font-size:12px">
+    <select id="agent-status-filter" onchange="agentPage=0;renderAgentTable()" style="padding:5px 8px;font-size:12px;width:90px">
       <option value="all">all</option>
       <option value="online">online</option>
       <option value="offline">offline</option>
@@ -1526,7 +1526,9 @@ function renderAgentTable() {
   const pageAgents = agents.slice(start, start + AGENTS_PER_PAGE);
 
   const onlineCount = bots.filter(a => a.online).length;
-  document.getElementById('agent-count').textContent = onlineCount + '/' + bots.length + ' online' + (agents.length !== bots.length ? ' (' + agents.length + ' shown)' : '');
+  let countText = onlineCount + '/' + bots.length;
+  if (agents.length !== bots.length) countText = agents.length + ' of ' + bots.length;
+  document.getElementById('agent-count').textContent = countText;
 
   // Pagination controls.
   const pagEl = document.getElementById('agent-pagination');
