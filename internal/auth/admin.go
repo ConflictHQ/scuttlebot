@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/conflicthq/scuttlebot/internal/store"
 )
 
 // Admin is a single admin account record.
@@ -18,11 +20,12 @@ type Admin struct {
 	Created  time.Time `json:"created"`
 }
 
-// AdminStore persists admin accounts to a JSON file.
+// AdminStore persists admin accounts to a JSON file or database.
 type AdminStore struct {
 	mu   sync.RWMutex
 	path string
 	data []Admin
+	db   *store.Store // when non-nil, supersedes path
 }
 
 // NewAdminStore loads (or creates) the admin store at the given path.
@@ -32,6 +35,23 @@ func NewAdminStore(path string) (*AdminStore, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// SetStore switches the admin store to database-backed persistence. All current
+// in-memory state is replaced with rows loaded from the store.
+func (s *AdminStore) SetStore(db *store.Store) error {
+	rows, err := db.AdminList()
+	if err != nil {
+		return fmt.Errorf("admin store: load from db: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.db = db
+	s.data = make([]Admin, len(rows))
+	for i, r := range rows {
+		s.data[i] = Admin{Username: r.Username, Hash: r.Hash, Created: r.CreatedAt}
+	}
+	return nil
 }
 
 // IsEmpty reports whether there are no admin accounts.
@@ -57,11 +77,11 @@ func (s *AdminStore) Add(username, password string) error {
 		return fmt.Errorf("admin: hash password: %w", err)
 	}
 
-	s.data = append(s.data, Admin{
-		Username: username,
-		Hash:     hash,
-		Created:  time.Now().UTC(),
-	})
+	a := Admin{Username: username, Hash: hash, Created: time.Now().UTC()}
+	s.data = append(s.data, a)
+	if s.db != nil {
+		return s.db.AdminUpsert(&store.AdminRow{Username: a.Username, Hash: a.Hash, CreatedAt: a.Created})
+	}
 	return s.save()
 }
 
@@ -77,6 +97,9 @@ func (s *AdminStore) SetPassword(username, password string) error {
 				return fmt.Errorf("admin: hash password: %w", err)
 			}
 			s.data[i].Hash = hash
+			if s.db != nil {
+				return s.db.AdminUpsert(&store.AdminRow{Username: a.Username, Hash: hash, CreatedAt: a.Created})
+			}
 			return s.save()
 		}
 	}
@@ -91,6 +114,9 @@ func (s *AdminStore) Remove(username string) error {
 	for i, a := range s.data {
 		if a.Username == username {
 			s.data = append(s.data[:i], s.data[i+1:]...)
+			if s.db != nil {
+				return s.db.AdminDelete(username)
+			}
 			return s.save()
 		}
 	}

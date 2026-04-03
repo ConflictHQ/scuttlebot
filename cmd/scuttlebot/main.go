@@ -26,6 +26,7 @@ import (
 	"github.com/conflicthq/scuttlebot/internal/ergo"
 	"github.com/conflicthq/scuttlebot/internal/mcp"
 	"github.com/conflicthq/scuttlebot/internal/registry"
+	"github.com/conflicthq/scuttlebot/internal/store"
 	"github.com/conflicthq/scuttlebot/internal/topology"
 )
 
@@ -107,6 +108,20 @@ func main() {
 	}
 	log.Info("ergo healthy")
 
+	// Open datastore if configured (SQLite or PostgreSQL).
+	// When not configured, all stores fall back to JSON files in data/.
+	var dataStore *store.Store
+	if cfg.Datastore.Driver != "" && cfg.Datastore.DSN != "" {
+		ds, err := store.Open(cfg.Datastore.Driver, cfg.Datastore.DSN)
+		if err != nil {
+			log.Error("datastore open", "driver", cfg.Datastore.Driver, "err", err)
+			os.Exit(1)
+		}
+		defer ds.Close()
+		dataStore = ds
+		log.Info("datastore open", "driver", cfg.Datastore.Driver)
+	}
+
 	// Build registry backed by Ergo's NickServ API.
 	// Signing key persists so issued payloads stay valid across restarts.
 	signingKeyHex, err := loadOrCreateToken(filepath.Join(cfg.Ergo.DataDir, "signing_key"))
@@ -115,7 +130,12 @@ func main() {
 		os.Exit(1)
 	}
 	reg := registry.New(ergoMgr.API(), []byte(signingKeyHex))
-	if err := reg.SetDataPath(filepath.Join(cfg.Ergo.DataDir, "registry.json")); err != nil {
+	if dataStore != nil {
+		if err := reg.SetStore(dataStore); err != nil {
+			log.Error("registry load from store", "err", err)
+			os.Exit(1)
+		}
+	} else if err := reg.SetDataPath(filepath.Join(cfg.Ergo.DataDir, "registry.json")); err != nil {
 		log.Error("registry load", "err", err)
 		os.Exit(1)
 	}
@@ -204,6 +224,12 @@ func main() {
 		log.Error("policy store", "err", err)
 		os.Exit(1)
 	}
+	if dataStore != nil {
+		if err := policyStore.SetStore(dataStore); err != nil {
+			log.Error("policy store load from db", "err", err)
+			os.Exit(1)
+		}
+	}
 	if bridgeBot != nil {
 		bridgeBot.SetWebUserTTL(time.Duration(policyStore.Get().Bridge.WebUserTTLMinutes) * time.Minute)
 	}
@@ -213,6 +239,12 @@ func main() {
 	if err != nil {
 		log.Error("admin store", "err", err)
 		os.Exit(1)
+	}
+	if dataStore != nil {
+		if err := adminStore.SetStore(dataStore); err != nil {
+			log.Error("admin store load from db", "err", err)
+			os.Exit(1)
+		}
 	}
 	if adminStore.IsEmpty() {
 		password := mustGenToken()[:16]

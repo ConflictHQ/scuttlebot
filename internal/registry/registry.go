@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/conflicthq/scuttlebot/internal/store"
 )
 
 // AgentType describes an agent's role and authority level.
@@ -74,7 +76,8 @@ type Registry struct {
 	agents      map[string]*Agent // keyed by nick
 	provisioner AccountProvisioner
 	signingKey  []byte
-	dataPath    string // path to persist agents JSON; empty = no persistence
+	dataPath    string       // path to persist agents JSON; empty = no persistence
+	db          *store.Store // when non-nil, supersedes dataPath
 }
 
 // New creates a new Registry with the given provisioner and HMAC signing key.
@@ -87,13 +90,73 @@ func New(provisioner AccountProvisioner, signingKey []byte) *Registry {
 	}
 }
 
-// SetDataPath enables persistence. The registry is loaded from path immediately
-// (non-fatal if the file doesn't exist yet) and saved there after every mutation.
+// SetDataPath enables file-based persistence. The registry is loaded from path
+// immediately (non-fatal if the file doesn't exist yet) and saved there after
+// every mutation. Mutually exclusive with SetStore.
 func (r *Registry) SetDataPath(path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.dataPath = path
 	return r.load()
+}
+
+// SetStore switches the registry to database-backed persistence. All current
+// in-memory state is replaced with rows loaded from the store. Mutually
+// exclusive with SetDataPath.
+func (r *Registry) SetStore(db *store.Store) error {
+	rows, err := db.AgentList()
+	if err != nil {
+		return fmt.Errorf("registry: load from store: %w", err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.db = db
+	r.dataPath = "" // DB takes over
+	r.agents = make(map[string]*Agent, len(rows))
+	for _, row := range rows {
+		var cfg EngagementConfig
+		if err := json.Unmarshal(row.Config, &cfg); err != nil {
+			return fmt.Errorf("registry: decode agent %s config: %w", row.Nick, err)
+		}
+		a := &Agent{
+			Nick:        row.Nick,
+			Type:        AgentType(row.Type),
+			Channels:    cfg.Channels,
+			Permissions: cfg.Permissions,
+			Config:      cfg,
+			CreatedAt:   row.CreatedAt,
+			Revoked:     row.Revoked,
+		}
+		r.agents[a.Nick] = a
+	}
+	return nil
+}
+
+// saveOne persists a single agent. Uses the DB when available, otherwise
+// falls back to a full file rewrite.
+func (r *Registry) saveOne(a *Agent) {
+	if r.db != nil {
+		cfg, _ := json.Marshal(a.Config)
+		_ = r.db.AgentUpsert(&store.AgentRow{
+			Nick:      a.Nick,
+			Type:      string(a.Type),
+			Config:    cfg,
+			CreatedAt: a.CreatedAt,
+			Revoked:   a.Revoked,
+		})
+		return
+	}
+	r.save()
+}
+
+// deleteOne removes a single agent from the store. Uses the DB when available,
+// otherwise falls back to a full file rewrite (agent already removed from map).
+func (r *Registry) deleteOne(nick string) {
+	if r.db != nil {
+		_ = r.db.AgentDelete(nick)
+		return
+	}
+	r.save()
 }
 
 func (r *Registry) load() error {
@@ -169,7 +232,7 @@ func (r *Registry) Register(nick string, agentType AgentType, cfg EngagementConf
 		CreatedAt:   time.Now(),
 	}
 	r.agents[nick] = agent
-	r.save()
+	r.saveOne(agent)
 
 	payload, err := r.signPayload(agent)
 	if err != nil {
@@ -204,7 +267,7 @@ func (r *Registry) Adopt(nick string, agentType AgentType, cfg EngagementConfig)
 		CreatedAt:   time.Now(),
 	}
 	r.agents[nick] = agent
-	r.save()
+	r.saveOne(agent)
 
 	return r.signPayload(agent)
 }
@@ -227,6 +290,8 @@ func (r *Registry) Rotate(nick string) (*Credentials, error) {
 		return nil, fmt.Errorf("registry: rotate credentials: %w", err)
 	}
 
+	// Rotation doesn't change stored agent data, but bump a file save for
+	// consistency; DB backends are unaffected since nothing persisted changed.
 	r.save()
 	return &Credentials{Nick: nick, Passphrase: passphrase}, nil
 }
@@ -252,7 +317,7 @@ func (r *Registry) Revoke(nick string) error {
 	}
 
 	agent.Revoked = true
-	r.save()
+	r.saveOne(agent)
 	return nil
 }
 
@@ -280,7 +345,7 @@ func (r *Registry) Delete(nick string) error {
 	}
 
 	delete(r.agents, nick)
-	r.save()
+	r.deleteOne(nick)
 	return nil
 }
 
@@ -295,7 +360,7 @@ func (r *Registry) UpdateChannels(nick string, channels []string) error {
 	}
 	agent.Channels = append([]string(nil), channels...)
 	agent.Config.Channels = append([]string(nil), channels...)
-	r.save()
+	r.saveOne(agent)
 	return nil
 }
 

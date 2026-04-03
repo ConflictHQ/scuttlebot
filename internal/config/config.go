@@ -156,6 +156,7 @@ type ErgoConfig struct {
 
 	// IRCAddr is the address Ergo listens for IRC connections on.
 	// Default: "127.0.0.1:6667" (loopback plaintext for private networks).
+	// Set to ":6667" or ":6697" to accept connections from outside the host.
 	IRCAddr string `yaml:"irc_addr"`
 
 	// APIAddr is the address of Ergo's HTTP management API.
@@ -165,6 +166,17 @@ type ErgoConfig struct {
 	// APIToken is the bearer token for Ergo's HTTP API.
 	// scuttlebot generates this on first start and stores it.
 	APIToken string `yaml:"api_token"`
+
+	// RequireSASL enforces SASL authentication for all IRC connections.
+	// When true, only agents and users with registered NickServ accounts
+	// can connect. Recommended for public deployments.
+	// Default: false
+	RequireSASL bool `yaml:"require_sasl"`
+
+	// DefaultChannelModes sets channel modes applied when a new channel is
+	// created. Common values: "+n" (no external messages), "+Rn" (registered
+	// users only). Default: "+n"
+	DefaultChannelModes string `yaml:"default_channel_modes"`
 
 	// History configures persistent message history storage.
 	History HistoryConfig `yaml:"history"`
@@ -377,10 +389,13 @@ func (c *Config) Defaults() {
 		c.Datastore.DSN = "./data/scuttlebot.db"
 	}
 	if c.APIAddr == "" {
-		c.APIAddr = ":8080"
+		c.APIAddr = "127.0.0.1:8080"
 	}
 	if c.MCPAddr == "" {
-		c.MCPAddr = ":8081"
+		c.MCPAddr = "127.0.0.1:8081"
+	}
+	if c.Ergo.DefaultChannelModes == "" {
+		c.Ergo.DefaultChannelModes = "+n"
 	}
 	if !c.Bridge.Enabled && c.Bridge.Nick == "" {
 		c.Bridge.Enabled = true // enabled by default

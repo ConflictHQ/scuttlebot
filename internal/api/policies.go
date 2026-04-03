@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"sync"
+
+	"github.com/conflicthq/scuttlebot/internal/store"
 )
 
 // BehaviorConfig defines a pre-registered system bot behavior.
@@ -149,13 +151,14 @@ var defaultBehaviors = []BehaviorConfig{
 	},
 }
 
-// PolicyStore persists Policies to a JSON file.
+// PolicyStore persists Policies to a JSON file or database.
 type PolicyStore struct {
 	mu                      sync.RWMutex
 	path                    string
 	data                    Policies
 	defaultBridgeTTLMinutes int
 	onChange                func(Policies)
+	db                      *store.Store // when non-nil, supersedes path
 }
 
 func NewPolicyStore(path string, defaultBridgeTTLMinutes int) (*PolicyStore, error) {
@@ -182,6 +185,28 @@ func (ps *PolicyStore) load() error {
 	if err != nil {
 		return fmt.Errorf("policies: read %s: %w", ps.path, err)
 	}
+	return ps.applyRaw(raw)
+}
+
+// SetStore switches the policy store to database-backed persistence. The
+// current in-memory defaults are merged with any saved policies in the store.
+func (ps *PolicyStore) SetStore(db *store.Store) error {
+	raw, err := db.PolicyGet()
+	if err != nil {
+		return fmt.Errorf("policies: load from db: %w", err)
+	}
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.db = db
+	if raw == nil {
+		return nil // no saved policies yet; keep defaults
+	}
+	return ps.applyRaw(raw)
+}
+
+// applyRaw merges a JSON blob into the in-memory policy state.
+// Caller must hold ps.mu if called after initialisation.
+func (ps *PolicyStore) applyRaw(raw []byte) error {
 	var p Policies
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return fmt.Errorf("policies: parse: %w", err)
@@ -208,6 +233,9 @@ func (ps *PolicyStore) save() error {
 	raw, err := json.MarshalIndent(ps.data, "", "  ")
 	if err != nil {
 		return err
+	}
+	if ps.db != nil {
+		return ps.db.PolicySet(raw)
 	}
 	return os.WriteFile(ps.path, raw, 0600)
 }
