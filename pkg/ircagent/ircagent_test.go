@@ -85,3 +85,30 @@ func TestTrimAddressedText(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchesGroupMention(t *testing.T) {
+	tests := []struct {
+		name, text, nick, agentType string
+		want                        bool
+	}{
+		{"@all matches everyone", "@all stop working", "claude-kohakku-abc", "worker", true},
+		{"@all mid-sentence", "hey @all check this", "gemini-foo-123", "worker", true},
+		{"@worker matches worker type", "@worker report status", "claude-kohakku-abc", "worker", true},
+		{"@worker doesn't match observer", "@worker report", "obs-bot", "observer", false},
+		{"@observer matches observer", "@observer watch this", "obs-bot", "observer", true},
+		{"@claude-* matches claude agents", "@claude-* pause", "claude-kohakku-abc", "worker", true},
+		{"@claude-* doesn't match gemini", "@claude-* pause", "gemini-kohakku-abc", "worker", false},
+		{"@claude-kohakku-* matches specific", "@claude-kohakku-* stop", "claude-kohakku-abc", "worker", true},
+		{"@gemini-* matches gemini", "@gemini-* summarize", "gemini-proj-123", "worker", true},
+		{"no mention no match", "hello world", "claude-abc", "worker", false},
+		{"partial @all no match", "install @alloy", "claude-abc", "worker", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MatchesGroupMention(tt.text, tt.nick, tt.agentType)
+			if got != tt.want {
+				t.Errorf("MatchesGroupMention(%q, %q, %q) = %v, want %v", tt.text, tt.nick, tt.agentType, got, tt.want)
+			}
+		})
+	}
+}

@@ -16,7 +16,7 @@ func TestFilterMessages(t *testing.T) {
 		{Nick: "bridge", Text: "system message", At: now},   // service bot
 	}
 
-	filtered, _ := filterMessages(messages, now.Add(-time.Minute), nick)
+	filtered, _ := filterMessages(messages, now.Add(-time.Minute), nick, "worker")
 	if len(filtered) != 1 {
 		t.Errorf("expected 1 filtered message, got %d", len(filtered))
 	}

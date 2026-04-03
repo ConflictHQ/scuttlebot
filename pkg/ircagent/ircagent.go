@@ -416,6 +416,59 @@ func MentionsNick(text, nick string) bool {
 	}
 }
 
+// MatchesGroupMention checks if text contains a group mention that applies
+// to an agent with the given nick and type. Supported patterns:
+//
+//   - @all — matches every agent
+//   - @worker, @observer, @orchestrator, @operator — matches by agent type
+//   - @prefix-* — matches agents whose nick starts with prefix- (e.g. @claude-* matches claude-kohakku-abc)
+func MatchesGroupMention(text, nick, agentType string) bool {
+	lower := strings.ToLower(text)
+
+	// @all
+	if containsWord(lower, "@all") {
+		return true
+	}
+
+	// @role — e.g. @worker, @observer
+	if agentType != "" && containsWord(lower, "@"+strings.ToLower(agentType)) {
+		return true
+	}
+
+	// @prefix-* patterns — find all @word-* tokens in the text.
+	for i := 0; i < len(lower); i++ {
+		if lower[i] != '@' {
+			continue
+		}
+		// Extract the token after @.
+		j := i + 1
+		for j < len(lower) && (isAlNum(lower[j]) || lower[j] == '*') {
+			j++
+		}
+		token := lower[i+1 : j]
+		if !strings.HasSuffix(token, "*") || len(token) < 2 {
+			continue
+		}
+		prefix := token[:len(token)-1] // remove the *
+		if strings.HasPrefix(strings.ToLower(nick), prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func containsWord(text, word string) bool {
+	idx := strings.Index(text, word)
+	if idx < 0 {
+		return false
+	}
+	end := idx + len(word)
+	before := idx == 0 || !isAlNum(text[idx-1])
+	after := end >= len(text) || !isAlNum(text[end])
+	return before && after
+}
+
 // TrimAddressedText removes an initial nick address from text when present.
 func TrimAddressedText(text, nick string) string {
 	cleaned := text

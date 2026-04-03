@@ -248,7 +248,7 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 			if err != nil {
 				continue
 			}
-			batch, newest := filterMessages(messages, lastSeen, cfg.Nick)
+			batch, newest := filterMessages(messages, lastSeen, cfg.Nick, cfg.IRCAgentType)
 			if len(batch) == 0 {
 				continue
 			}
@@ -517,7 +517,7 @@ func (s *relayState) shouldInterrupt(now time.Time) bool {
 	return !lastBusy.IsZero() && now.Sub(lastBusy) <= defaultBusyWindow
 }
 
-func filterMessages(messages []message, since time.Time, nick string) ([]message, time.Time) {
+func filterMessages(messages []message, since time.Time, nick, agentType string) ([]message, time.Time) {
 	filtered := make([]message, 0, len(messages))
 	newest := since
 	for _, msg := range messages {
@@ -536,7 +536,7 @@ func filterMessages(messages []message, since time.Time, nick string) ([]message
 		if ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes()) {
 			continue
 		}
-		if !ircagent.MentionsNick(msg.Text, nick) {
+		if !ircagent.MentionsNick(msg.Text, nick) && !ircagent.MatchesGroupMention(msg.Text, nick, agentType) {
 			continue
 		}
 		filtered = append(filtered, msg)

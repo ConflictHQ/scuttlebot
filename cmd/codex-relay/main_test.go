@@ -23,7 +23,7 @@ func TestFilterMessages(t *testing.T) {
 		{Nick: "glengoolie", Text: nick + ": and inspect bridge.go", At: base.Add(4 * time.Second)},
 	}
 
-	got, newest := filterMessages(messages, since, nick)
+	got, newest := filterMessages(messages, since, nick, "worker")
 	if len(got) != 2 {
 		t.Fatalf("len(filterMessages) = %d, want 2", len(got))
 	}
