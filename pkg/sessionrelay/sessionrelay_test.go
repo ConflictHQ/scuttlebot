@@ -59,6 +59,8 @@ func TestHTTPConnectorPostMessagesAndTouch(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"messages": []map[string]string{
 				{"at": base.Add(2 * time.Second).Format(time.RFC3339Nano), "nick": "glengoolie", "text": "codex-test: /join #task-42"},
 			}})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/agents/register":
+			w.WriteHeader(http.StatusCreated)
 		default:
 			http.NotFound(w, r)
 		}

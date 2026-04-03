@@ -56,6 +56,11 @@ func newIRCConnector(cfg Config) (Connector, error) {
 	}, nil
 }
 
+const (
+	ircReconnectMin = 2 * time.Second
+	ircReconnectMax = 30 * time.Second
+)
+
 func (c *ircConnector) Connect(ctx context.Context) error {
 	if err := c.ensureCredentials(ctx); err != nil {
 		return err
@@ -68,6 +73,30 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 
 	joined := make(chan struct{})
 	var joinOnce sync.Once
+	c.dial(host, port, func() { joinOnce.Do(func() { close(joined) }) })
+
+	select {
+	case <-ctx.Done():
+		c.mu.Lock()
+		if c.client != nil {
+			c.client.Close()
+		}
+		c.mu.Unlock()
+		return ctx.Err()
+	case err := <-c.errCh:
+		_ = c.cleanupRegistration(context.Background())
+		return fmt.Errorf("sessionrelay: irc connect: %w", err)
+	case <-joined:
+		go c.keepAlive(ctx, host, port)
+		return nil
+	}
+}
+
+// dial creates a fresh girc client, wires up handlers, and starts the
+// connection goroutine. onJoined fires once when the primary channel is
+// joined — used as the initial-connect signal and to reset backoff on
+// successful reconnects.
+func (c *ircConnector) dial(host string, port int, onJoined func()) {
 	client := girc.New(girc.Config{
 		Server: host,
 		Port:   port,
@@ -88,7 +117,9 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 		if normalizeChannel(e.Params[0]) != c.primary {
 			return
 		}
-		joinOnce.Do(func() { close(joined) })
+		if onJoined != nil {
+			onJoined()
+		}
 	})
 	client.Handlers.AddBg(girc.PRIVMSG, func(_ *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
@@ -109,47 +140,74 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 		c.appendMessage(Message{At: time.Now(), Channel: target, Nick: sender, Text: text})
 	})
 
+	c.mu.Lock()
 	c.client = client
+	c.mu.Unlock()
+
 	go func() {
-		if err := client.Connect(); err != nil && ctx.Err() == nil {
+		if err := client.Connect(); err != nil {
 			select {
 			case c.errCh <- err:
 			default:
 			}
 		}
 	}()
+}
 
-	select {
-	case <-ctx.Done():
-		client.Close()
-		return ctx.Err()
-	case err := <-c.errCh:
-		_ = c.cleanupRegistration(context.Background())
-		return fmt.Errorf("sessionrelay: irc connect: %w", err)
-	case <-joined:
-		return nil
+// keepAlive watches for connection errors and redials with exponential backoff.
+// It stops when ctx is cancelled (i.e. the broker is shutting down).
+func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
+	wait := ircReconnectMin
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.errCh:
+		}
+
+		// Close the dead client before replacing it.
+		c.mu.Lock()
+		if c.client != nil {
+			c.client.Close()
+			c.client = nil
+		}
+		c.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		wait = min(wait*2, ircReconnectMax)
+		c.dial(host, port, func() { wait = ircReconnectMin })
 	}
 }
 
 func (c *ircConnector) Post(_ context.Context, text string) error {
-	if c.client == nil {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+	if client == nil {
 		return fmt.Errorf("sessionrelay: irc client not connected")
 	}
 	for _, channel := range c.Channels() {
-		c.client.Cmd.Message(channel, text)
+		client.Cmd.Message(channel, text)
 	}
 	return nil
 }
 
 func (c *ircConnector) PostTo(_ context.Context, channel, text string) error {
-	if c.client == nil {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+	if client == nil {
 		return fmt.Errorf("sessionrelay: irc client not connected")
 	}
 	channel = normalizeChannel(channel)
 	if channel == "" {
 		return fmt.Errorf("sessionrelay: post channel is required")
 	}
-	c.client.Cmd.Message(channel, text)
+	client.Cmd.Message(channel, text)
 	return nil
 }
 
@@ -255,9 +313,12 @@ func (c *ircConnector) ControlChannel() string {
 }
 
 func (c *ircConnector) Close(ctx context.Context) error {
+	c.mu.Lock()
 	if c.client != nil {
 		c.client.Close()
+		c.client = nil
 	}
+	c.mu.Unlock()
 	return c.cleanupRegistration(ctx)
 }
 

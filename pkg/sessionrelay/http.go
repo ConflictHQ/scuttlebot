@@ -20,6 +20,10 @@ type httpConnector struct {
 	primary string
 	nick    string
 
+	agentType             string
+	deleteOnClose         bool
+	registeredByConnector bool
+
 	mu       sync.RWMutex
 	channels []string
 }
@@ -32,21 +36,58 @@ type httpMessage struct {
 
 func newHTTPConnector(cfg Config) Connector {
 	return &httpConnector{
-		http:     cfg.HTTPClient,
-		baseURL:  stringsTrimRightSlash(cfg.URL),
-		token:    cfg.Token,
-		primary:  normalizeChannel(cfg.Channel),
-		nick:     cfg.Nick,
-		channels: append([]string(nil), cfg.Channels...),
+		http:          cfg.HTTPClient,
+		baseURL:       stringsTrimRightSlash(cfg.URL),
+		token:         cfg.Token,
+		primary:       normalizeChannel(cfg.Channel),
+		nick:          cfg.Nick,
+		agentType:     cfg.IRC.AgentType,
+		deleteOnClose: cfg.IRC.DeleteOnClose,
+		channels:      append([]string(nil), cfg.Channels...),
 	}
 }
 
-func (c *httpConnector) Connect(context.Context) error {
+func (c *httpConnector) Connect(ctx context.Context) error {
 	if c.baseURL == "" {
 		return fmt.Errorf("sessionrelay: http transport requires url")
 	}
 	if c.token == "" {
 		return fmt.Errorf("sessionrelay: http transport requires token")
+	}
+	if c.nick != "" {
+		if err := c.registerAgent(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *httpConnector) registerAgent(ctx context.Context) error {
+	body, _ := json.Marshal(map[string]any{
+		"nick":     c.nick,
+		"type":     c.agentType,
+		"channels": c.Channels(),
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/agents/register", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	c.authorize(req)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		c.registeredByConnector = true
+	case http.StatusConflict:
+		// agent already exists; registration is best-effort, not an error
+	default:
+		return fmt.Errorf("sessionrelay: register %s: %s", c.nick, resp.Status)
 	}
 	return nil
 }
@@ -177,7 +218,23 @@ func (c *httpConnector) ControlChannel() string {
 	return c.primary
 }
 
-func (c *httpConnector) Close(context.Context) error {
+func (c *httpConnector) Close(ctx context.Context) error {
+	if !c.deleteOnClose || !c.registeredByConnector || c.baseURL == "" || c.token == "" {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/v1/agents/"+c.nick, nil)
+	if err != nil {
+		return err
+	}
+	c.authorize(req)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 && resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("sessionrelay: delete %s: %s", c.nick, resp.Status)
+	}
 	return nil
 }
 

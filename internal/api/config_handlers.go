@@ -11,14 +11,16 @@ import (
 // configView is the JSON shape returned by GET /v1/config.
 // Secrets are masked — zero values mean "no change" on PUT.
 type configView struct {
-	APIAddr string                   `json:"api_addr"`
-	MCPAddr string                   `json:"mcp_addr"`
-	Bridge  bridgeConfigView         `json:"bridge"`
-	Ergo    ergoConfigView           `json:"ergo"`
-	TLS     tlsConfigView            `json:"tls"`
-	LLM     llmConfigView            `json:"llm"`
-	Topology config.TopologyConfig   `json:"topology"`
-	History config.ConfigHistoryConfig `json:"config_history"`
+	APIAddr     string                     `json:"api_addr"`
+	MCPAddr     string                     `json:"mcp_addr"`
+	Bridge      bridgeConfigView           `json:"bridge"`
+	Ergo        ergoConfigView             `json:"ergo"`
+	TLS         tlsConfigView              `json:"tls"`
+	LLM         llmConfigView              `json:"llm"`
+	Topology    config.TopologyConfig      `json:"topology"`
+	History     config.ConfigHistoryConfig `json:"config_history"`
+	AgentPolicy config.AgentPolicyConfig   `json:"agent_policy"`
+	Logging     config.LoggingConfig       `json:"logging"`
 }
 
 type bridgeConfigView struct {
@@ -97,9 +99,11 @@ func configToView(cfg config.Config) configView {
 			Email:         cfg.TLS.Email,
 			AllowInsecure: cfg.TLS.AllowInsecure,
 		},
-		LLM:      llmConfigView{Backends: backends},
-		Topology: cfg.Topology,
-		History:  cfg.History,
+		LLM:         llmConfigView{Backends: backends},
+		Topology:    cfg.Topology,
+		History:     cfg.History,
+		AgentPolicy: cfg.AgentPolicy,
+		Logging:     cfg.Logging,
 	}
 }
 
@@ -113,13 +117,30 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 // Only the mutable, hot-reloadable sections. Restart-required fields (ergo IRC
 // addr, TLS domain, api_addr) are accepted but flagged in the response.
 type configUpdateRequest struct {
-	Bridge   *bridgeConfigUpdate           `json:"bridge,omitempty"`
-	Topology *config.TopologyConfig        `json:"topology,omitempty"`
-	History  *config.ConfigHistoryConfig   `json:"config_history,omitempty"`
-	LLM      *llmConfigUpdate              `json:"llm,omitempty"`
+	Bridge      *bridgeConfigUpdate         `json:"bridge,omitempty"`
+	Topology    *config.TopologyConfig      `json:"topology,omitempty"`
+	History     *config.ConfigHistoryConfig `json:"config_history,omitempty"`
+	LLM         *llmConfigUpdate            `json:"llm,omitempty"`
+	AgentPolicy *config.AgentPolicyConfig   `json:"agent_policy,omitempty"`
+	Logging     *config.LoggingConfig       `json:"logging,omitempty"`
+	Ergo        *ergoConfigUpdate           `json:"ergo,omitempty"`
+	TLS         *tlsConfigUpdate            `json:"tls,omitempty"`
 	// These fields trigger a restart_required notice but are still persisted.
 	APIAddr *string `json:"api_addr,omitempty"`
 	MCPAddr *string `json:"mcp_addr,omitempty"`
+}
+
+type ergoConfigUpdate struct {
+	NetworkName *string `json:"network_name,omitempty"`
+	ServerName  *string `json:"server_name,omitempty"`
+	IRCAddr     *string `json:"irc_addr,omitempty"`
+	External    *bool   `json:"external,omitempty"`
+}
+
+type tlsConfigUpdate struct {
+	Domain        *string `json:"domain,omitempty"`
+	Email         *string `json:"email,omitempty"`
+	AllowInsecure *bool   `json:"allow_insecure,omitempty"`
 }
 
 type bridgeConfigUpdate struct {
@@ -190,6 +211,48 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 
 	if req.LLM != nil {
 		next.LLM.Backends = req.LLM.Backends
+	}
+
+	if req.AgentPolicy != nil {
+		next.AgentPolicy = *req.AgentPolicy
+	}
+
+	if req.Logging != nil {
+		next.Logging = *req.Logging
+	}
+
+	if req.Ergo != nil {
+		e := req.Ergo
+		if e.NetworkName != nil {
+			next.Ergo.NetworkName = *e.NetworkName
+			restartRequired = appendUniq(restartRequired, "ergo.network_name")
+		}
+		if e.ServerName != nil {
+			next.Ergo.ServerName = *e.ServerName
+			restartRequired = appendUniq(restartRequired, "ergo.server_name")
+		}
+		if e.IRCAddr != nil {
+			next.Ergo.IRCAddr = *e.IRCAddr
+			restartRequired = appendUniq(restartRequired, "ergo.irc_addr")
+		}
+		if e.External != nil {
+			next.Ergo.External = *e.External
+			restartRequired = appendUniq(restartRequired, "ergo.external")
+		}
+	}
+
+	if req.TLS != nil {
+		t := req.TLS
+		if t.Domain != nil {
+			next.TLS.Domain = *t.Domain
+			restartRequired = appendUniq(restartRequired, "tls.domain")
+		}
+		if t.Email != nil {
+			next.TLS.Email = *t.Email
+		}
+		if t.AllowInsecure != nil {
+			next.TLS.AllowInsecure = *t.AllowInsecure
+		}
 	}
 
 	if req.APIAddr != nil && *req.APIAddr != "" {
