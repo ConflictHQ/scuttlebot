@@ -206,11 +206,6 @@ canvas { display:block; width:100% !important; }
   .nav-tab { padding:0 10px; font-size:12px; }
   .header-right { display:none; }
 
-  /* scroll indicators */
-  .nav-scroll-left, .nav-scroll-right { display:none; position:absolute; top:0; bottom:0; width:28px; pointer-events:none; z-index:2; align-items:center; justify-content:center; font-size:11px; color:#58a6ff; }
-  .nav-scroll-left { left:0; background:linear-gradient(90deg,#161b22 40%,transparent); }
-  .nav-scroll-right { right:0; background:linear-gradient(270deg,#161b22 40%,transparent); }
-  .nav-scroll-left.visible, .nav-scroll-right.visible { display:flex; }
 
   /* content: reduce padding, stack grids */
   .pane-inner { padding:12px; gap:12px; }
@@ -304,8 +299,7 @@ canvas { display:block; width:100% !important; }
     <h1>⬡ scuttlebot</h1>
     <span>agent coordination backplane</span>
   </div>
-  <nav id="main-nav">
-    <span class="nav-scroll-left" id="nav-scroll-left">‹</span>
+  <nav>
     <div class="nav-tab active" id="tab-status"   onclick="switchTab('status')">◈ status</div>
     <div class="nav-tab"        id="tab-users"    onclick="switchTab('users')">◉ users</div>
     <div class="nav-tab"        id="tab-agents"   onclick="switchTab('agents')">◎ agents</div>
@@ -313,7 +307,6 @@ canvas { display:block; width:100% !important; }
     <div class="nav-tab"        id="tab-chat"     onclick="switchTab('chat')">◌ chat</div>
     <div class="nav-tab"        id="tab-ai"       onclick="switchTab('ai')">✦ ai</div>
     <div class="nav-tab"        id="tab-settings" onclick="switchTab('settings')">⚙ settings</div>
-    <span class="nav-scroll-right visible" id="nav-scroll-right">›</span>
   </nav>
   <div class="header-right">
     <span id="header-user-display" style="font-size:12px;color:#8b949e"></span>
@@ -2974,21 +2967,6 @@ function saveTLSConfig() {
     }
   }, 'tls-config-save-result');
 }
-
-// --- nav scroll indicators ---
-(function() {
-  const nav = document.getElementById('main-nav');
-  const left = document.getElementById('nav-scroll-left');
-  const right = document.getElementById('nav-scroll-right');
-  if (!nav || !left || !right) return;
-  function update() {
-    left.classList.toggle('visible', nav.scrollLeft > 4);
-    right.classList.toggle('visible', nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 4);
-  }
-  nav.addEventListener('scroll', update, { passive: true });
-  window.addEventListener('resize', update);
-  update();
-})();
 
 // --- init ---
 function loadAll() { loadStatus(); loadAgents(); loadSettings(); startMetricsPoll(); }
