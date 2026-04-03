@@ -274,6 +274,9 @@ func main() {
 		if bridgeBot != nil {
 			bridgeBot.SetWebUserTTL(time.Duration(p.Bridge.WebUserTTLMinutes) * time.Minute)
 		}
+		if p.AgentPolicy.OnlineTimeoutSecs > 0 {
+			reg.SetOnlineTimeout(time.Duration(p.AgentPolicy.OnlineTimeoutSecs) * time.Second)
+		}
 		botMgr.Sync(ctx, specs)
 	})
 
