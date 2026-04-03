@@ -1,7 +1,8 @@
 data/
 deploy/compose/.env
 .gocache/
-bin/
+bin/*
+!bin/.gitkeep
 *.log
 *.pid
 scuttlebot.yaml
