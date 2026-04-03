@@ -89,6 +89,7 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 		return fmt.Errorf("sessionrelay: irc connect: %w", err)
 	case <-joined:
 		go c.keepAlive(ctx, host, port)
+		go c.watchdog(ctx)
 		return nil
 	}
 }
@@ -167,7 +168,8 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-c.errCh:
+		case err := <-c.errCh:
+			fmt.Fprintf(os.Stderr, "sessionrelay: connection lost: %v\n", err)
 		}
 
 		// Close the dead client before replacing it.
@@ -183,6 +185,7 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 			return
 		case <-time.After(wait):
 		}
+		fmt.Fprintf(os.Stderr, "sessionrelay: reconnecting (backoff %v)...\n", wait)
 
 		// Re-register to get fresh SASL credentials in case the server
 		// restarted and the Ergo database was reset.
@@ -199,9 +202,73 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 			}()
 			continue
 		}
+		fmt.Fprintf(os.Stderr, "sessionrelay: credentials refreshed, dialing...\n", )
 
 		wait = min(wait*2, ircReconnectMax)
-		c.dial(host, port, func() { wait = ircReconnectMin })
+		c.dial(host, port, func() {
+			wait = ircReconnectMin
+			fmt.Fprintf(os.Stderr, "sessionrelay: reconnected successfully\n")
+		})
+	}
+}
+
+// watchdog periodically checks if the IRC client is still connected and
+// if the API is reachable. Forces reconnection when the connection is dead.
+func (c *ircConnector) watchdog(ctx context.Context) {
+	failures := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+
+		c.mu.RLock()
+		client := c.client
+		c.mu.RUnlock()
+		if client == nil {
+			failures = 0
+			continue
+		}
+
+		if !client.IsConnected() {
+			client.Close()
+			select {
+			case c.errCh <- fmt.Errorf("watchdog: client disconnected"):
+			default:
+			}
+			failures = 0
+			continue
+		}
+
+		// Probe the API to detect server restarts.
+		if c.apiURL != "" && c.token != "" {
+			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			req, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, c.apiURL+"/v1/status", nil)
+			if req != nil {
+				req.Header.Set("Authorization", "Bearer "+c.token)
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil || resp.StatusCode != 200 {
+					failures++
+					if resp != nil {
+						resp.Body.Close()
+					}
+				} else {
+					resp.Body.Close()
+					failures = 0
+				}
+			}
+			cancel()
+		}
+
+		if failures >= 3 {
+			client.Close()
+			select {
+			case c.errCh <- fmt.Errorf("watchdog: API unreachable"):
+			default:
+			}
+			failures = 0
+		}
 	}
 }
 
