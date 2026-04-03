@@ -158,8 +158,10 @@ func (b *Bot) Start(ctx context.Context) error {
 		Nick:   b.nick,
 		User:   b.nick,
 		Name:   "scuttlebot bridge",
-		SASL:   &girc.SASLPlain{User: b.nick, Pass: b.password},
-		SSL:    false,
+		SASL:        &girc.SASLPlain{User: b.nick, Pass: b.password},
+		PingDelay:   30 * time.Second,
+		PingTimeout: 30 * time.Second,
+		SSL:         false,
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
