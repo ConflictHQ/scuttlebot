@@ -227,11 +227,11 @@ canvas { display:block; width:100% !important; }
   /* inline 2-column grids inside drawers/forms */
   [style*="grid-template-columns:1fr 1fr"] { grid-template-columns:1fr !important; }
 
-  /* chat: collapse sidebar and nicklist by default, overlay when open */
-  .chat-sidebar { width:0; min-width:0; border-right:none; }
-  .chat-sidebar:not(.collapsed) { position:fixed; top:44px; left:0; bottom:0; width:200px; z-index:50; border-right:1px solid #30363d; }
-  .chat-nicklist { width:0; min-width:0; border-left:none; }
-  .chat-nicklist:not(.collapsed) { position:fixed; top:44px; right:0; bottom:0; width:160px; z-index:50; border-left:1px solid #30363d; }
+  /* chat: hide both panels by default, show as overlay when toggled open */
+  .chat-sidebar { width:0 !important; min-width:0 !important; border-right:none !important; overflow:hidden !important; }
+  .chat-sidebar.mobile-open { position:fixed; top:44px; left:0; bottom:0; width:220px !important; z-index:50; border-right:1px solid #30363d !important; overflow:visible !important; }
+  .chat-nicklist { width:0 !important; min-width:0 !important; border-left:none !important; overflow:hidden !important; }
+  .chat-nicklist.mobile-open { position:fixed; top:44px; right:0; bottom:0; width:160px !important; z-index:50; border-left:1px solid #30363d !important; overflow-y:auto !important; }
   .sidebar-resize { display:none; }
 
   /* settings: stack label above input */
@@ -1871,19 +1871,37 @@ async function sendMsg() {
 })();
 
 // --- sidebar collapse toggles ---
+function isMobile() { return window.matchMedia('(max-width: 600px)').matches; }
+
 function toggleSidebar(side) {
   if (side === 'left') {
     const el = document.getElementById('chat-sidebar-left');
     const btn = document.getElementById('sidebar-left-toggle');
-    const collapsed = el.classList.toggle('collapsed');
-    btn.textContent = collapsed ? '›' : '‹';
-    btn.title = collapsed ? 'expand' : 'collapse';
+    if (isMobile()) {
+      const open = el.classList.toggle('mobile-open');
+      btn.textContent = open ? '‹' : '›';
+      btn.title = open ? 'close' : 'channels';
+      // close other panel
+      document.getElementById('chat-nicklist').classList.remove('mobile-open');
+    } else {
+      const collapsed = el.classList.toggle('collapsed');
+      btn.textContent = collapsed ? '›' : '‹';
+      btn.title = collapsed ? 'expand' : 'collapse';
+    }
   } else {
     const el = document.getElementById('chat-nicklist');
     const btn = document.getElementById('sidebar-right-toggle');
-    const collapsed = el.classList.toggle('collapsed');
-    btn.textContent = collapsed ? '‹' : '›';
-    btn.title = collapsed ? 'expand' : 'collapse';
+    if (isMobile()) {
+      const open = el.classList.toggle('mobile-open');
+      btn.textContent = open ? '›' : '‹';
+      btn.title = open ? 'close' : 'users';
+      // close other panel
+      document.getElementById('chat-sidebar-left').classList.remove('mobile-open');
+    } else {
+      const collapsed = el.classList.toggle('collapsed');
+      btn.textContent = collapsed ? '‹' : '›';
+      btn.title = collapsed ? 'expand' : 'collapse';
+    }
   }
 }
 
