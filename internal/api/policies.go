@@ -270,6 +270,85 @@ func (ps *PolicyStore) Set(p Policies) error {
 	return nil
 }
 
+// Merge applies a partial Policies update over the current state. Only
+// non-zero fields in the patch overwrite existing values. Behaviors are
+// merged by ID — existing behaviors keep their defaults for fields not
+// present in the patch.
+func (ps *PolicyStore) Merge(patch Policies) error {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	if len(patch.Behaviors) > 0 {
+		incoming := make(map[string]BehaviorConfig, len(patch.Behaviors))
+		for _, b := range patch.Behaviors {
+			incoming[b.ID] = b
+		}
+		for i, existing := range ps.data.Behaviors {
+			if patched, ok := incoming[existing.ID]; ok {
+				// Merge: keep existing defaults, overlay patch fields.
+				if patched.Name != "" {
+					existing.Name = patched.Name
+				}
+				if patched.Description != "" {
+					existing.Description = patched.Description
+				}
+				if patched.Nick != "" {
+					existing.Nick = patched.Nick
+				}
+				existing.Enabled = patched.Enabled
+				existing.JoinAllChannels = patched.JoinAllChannels
+				if patched.ExcludeChannels != nil {
+					existing.ExcludeChannels = patched.ExcludeChannels
+				}
+				if patched.RequiredChannels != nil {
+					existing.RequiredChannels = patched.RequiredChannels
+				}
+				if patched.Config != nil {
+					existing.Config = patched.Config
+				}
+				ps.data.Behaviors[i] = existing
+			}
+		}
+	}
+
+	// Merge agent_policy if any field is set.
+	if patch.AgentPolicy.CheckinChannel != "" || patch.AgentPolicy.RequireCheckin || patch.AgentPolicy.RequiredChannels != nil {
+		if patch.AgentPolicy.CheckinChannel != "" {
+			ps.data.AgentPolicy.CheckinChannel = patch.AgentPolicy.CheckinChannel
+		}
+		ps.data.AgentPolicy.RequireCheckin = patch.AgentPolicy.RequireCheckin
+		if patch.AgentPolicy.RequiredChannels != nil {
+			ps.data.AgentPolicy.RequiredChannels = patch.AgentPolicy.RequiredChannels
+		}
+	}
+
+	// Merge bridge if set.
+	if patch.Bridge.WebUserTTLMinutes > 0 {
+		ps.data.Bridge.WebUserTTLMinutes = patch.Bridge.WebUserTTLMinutes
+	}
+
+	// Merge logging if any field is set.
+	if patch.Logging.Dir != "" || patch.Logging.Enabled {
+		ps.data.Logging = patch.Logging
+	}
+
+	// Merge LLM backends if provided.
+	if patch.LLMBackends != nil {
+		ps.data.LLMBackends = patch.LLMBackends
+	}
+
+	ps.normalize(&ps.data)
+	if err := ps.save(); err != nil {
+		return err
+	}
+	if ps.onChange != nil {
+		snap := ps.data
+		fn := ps.onChange
+		go fn(snap)
+	}
+	return nil
+}
+
 func (ps *PolicyStore) normalize(p *Policies) {
 	if p.Bridge.WebUserTTLMinutes <= 0 {
 		p.Bridge.WebUserTTLMinutes = ps.defaultBridgeTTLMinutes
@@ -290,6 +369,20 @@ func (s *Server) handlePutPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.policies.Set(p); err != nil {
 		s.log.Error("save policies", "err", err)
+		writeError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.policies.Get())
+}
+
+func (s *Server) handlePatchPolicies(w http.ResponseWriter, r *http.Request) {
+	var patch Policies
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := s.policies.Merge(patch); err != nil {
+		s.log.Error("merge policies", "err", err)
 		writeError(w, http.StatusInternalServerError, "save failed")
 		return
 	}
