@@ -24,10 +24,10 @@ type provisionChannelRequest struct {
 }
 
 type provisionChannelResponse struct {
-	Channel    string   `json:"channel"`
-	Type       string   `json:"type,omitempty"`
-	Supervision string  `json:"supervision,omitempty"`
-	Autojoin   []string `json:"autojoin,omitempty"`
+	Channel     string   `json:"channel"`
+	Type        string   `json:"type,omitempty"`
+	Supervision string   `json:"supervision,omitempty"`
+	Autojoin    []string `json:"autojoin,omitempty"`
 }
 
 // handleProvisionChannel handles POST /v1/channels.

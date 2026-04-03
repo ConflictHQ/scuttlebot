@@ -148,11 +148,11 @@ func TestHandlePutConfigLogging(t *testing.T) {
 
 	update := map[string]any{
 		"logging": map[string]any{
-			"enabled":     true,
-			"dir":         "./data/logs",
-			"format":      "jsonl",
-			"rotation":    "daily",
-			"per_channel": true,
+			"enabled":      true,
+			"dir":          "./data/logs",
+			"format":       "jsonl",
+			"rotation":     "daily",
+			"per_channel":  true,
 			"max_age_days": 30,
 		},
 	}
