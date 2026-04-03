@@ -285,7 +285,7 @@ Each runtime stores its session data in a different location:
 
 | Runtime | Session log location |
 |---------|---------------------|
-| Claude Code | `~/.claude/projects/{cwd-hash}/` — JSONL files named by session UUID |
+| Claude Code | Claude projects directory — JSONL files named by session UUID |
 | Codex | `~/.codex/sessions/{session-id}.jsonl` |
 | Gemini CLI | `~/.gemini/sessions/{session-id}.jsonl` |
 

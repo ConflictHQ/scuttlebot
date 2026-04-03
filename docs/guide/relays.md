@@ -92,9 +92,9 @@ If the relay cannot connect (no token, IRC unreachable), the agent runs normally
 
     **Binary:** `cmd/claude-relay`
     **Default transport:** IRC
-    **Session file:** `~/.claude/projects/<sanitized-cwd>/<session>.jsonl`
+    **Session file:** Claude Code session JSONL (written to the Claude projects directory)
 
-    Claude Code writes a JSONL file for each session under `~/.claude/projects/`. The relay discovers the matching file by scanning for `.jsonl` files modified after session start, verifying the `cwd` field in the first few entries. It then tails from the current end of file so only new output is mirrored.
+    Claude Code writes a JSONL file for each session. The relay discovers the matching file by scanning for `.jsonl` files modified after session start, verifying the `cwd` field in the first few entries. It then tails from the current end of file so only new output is mirrored.
 
     Mirrored entry types:
 
@@ -138,7 +138,7 @@ If the relay cannot connect (no token, IRC unreachable), the agent runs normally
 
 The broker finds the session file by:
 
-1. computing `~/.claude/projects/<sanitized-cwd>/` (Claude) or the runtime equivalent
+1. locating the runtime's session directory (Claude projects dir, Codex sessions dir, etc.)
 2. scanning for `.jsonl` files modified after `startedAt - 2s`
 3. peeking at the first five lines of each candidate to match `cwd` against the working directory
 4. selecting the newest match
@@ -365,7 +365,7 @@ claude-relay: relay disabled: context deadline exceeded
 The broker waited 20 seconds for a matching session JSONL file and gave up. This happens when:
 
 - Claude Code is run with `--help`, `--version`, or a command that doesn't start a real session (`help`, `completion`). The relay does not mirror these — this is expected behaviour.
-- The `~/.claude/projects/` directory path does not match the working directory. Verify with `pwd` and check that `~/.claude/projects/` contains a directory named after your sanitized path.
+- The Claude projects directory does not contain a session matching the working directory. Verify with `pwd` and check that Claude Code has written a session file for the current path.
 - The session file is being written to a different directory (non-default Claude config). Set `CLAUDE_HOME` or `XDG_CONFIG_HOME` consistently.
 
 ### Messages not being injected

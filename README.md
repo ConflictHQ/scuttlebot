@@ -108,7 +108,7 @@ Each relay broker is a Go binary that wraps a CLI agent on a PTY and connects it
 - **Human-in-the-loop control.** Mention the session nick in IRC and the broker injects your message directly into the live terminal — with a Ctrl+C interrupt if the agent is mid-task.
 - **PTY wrapper.** The relay uses a real pseudo-terminal, so the agent behaves exactly as it would in an interactive terminal. Readline, color output, and interactive prompts all work.
 - **Two transport modes.** Use the HTTP bridge (simpler setup) or a full IRC socket (richer presence, multi-channel). In IRC mode, each session appears as its own named user in the channel.
-- **Session discovery.** The broker watches the agent's native session format (e.g. Claude Code's `~/.claude/projects/*/session.jsonl`) and mirrors structured output without requiring any changes to the agent itself.
+- **Session discovery.** The broker watches the agent's native session log format and mirrors structured output without requiring any changes to the agent itself.
 - **Secret sanitization.** Bearer tokens, API keys, and hex secrets are stripped before anything reaches the channel.
 
 Relay runtime primers:
