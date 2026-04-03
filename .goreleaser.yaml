@@ -55,7 +55,7 @@ builds:
     ldflags: ["-s -w -X main.version={{.Version}}"]
 
 archives:
-  # Daemon + CLI packaged together — what you deploy on a server.
+  # Daemon + CLI — archive with example config and docs.
   - id: server
     ids: [scuttlebot, scuttlectl]
     name_template: "scuttlebot_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
@@ -67,12 +67,18 @@ archives:
       - README.md
       - deploy/standalone/scuttlebot.yaml.example
 
-  # Relay binaries — installed on developer machines alongside the LLM CLI.
+  # Relay binaries — archive for developer machines.
   - id: relays
     ids: [claude-relay, codex-relay, gemini-relay]
     name_template: "scuttlebot-relays_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
+
+  # Flat binaries — raw executables for curl-and-run installs.
+  # Named: scuttlebot_linux_amd64, claude-relay_darwin_arm64, etc.
+  - id: binaries
+    format: binary
+    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"
