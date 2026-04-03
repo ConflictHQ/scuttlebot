@@ -197,7 +197,8 @@ func run(cfg config) error {
 	)
 	if relayActive {
 		go mirrorSessionLoop(ctx, relay, cfg, startedAt)
-		go presenceLoop(ctx, relay, cfg.HeartbeatInterval)
+		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
+		go handleReconnectSignal(ctx, &relay, cfg)
 	}
 
 	if !isInteractiveTTY() {
@@ -632,6 +633,92 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 					_ = relay.Post(context.Background(), fmt.Sprintf("input loop error: %v — session may be unsteerable", err))
 				}
 				return
+			}
+		}
+	}
+}
+
+// handleReconnectSignal listens for SIGUSR1 and tears down/rebuilds
+// the IRC connection. The relay-watchdog sidecar sends this signal
+// when it detects the server restarted or the network is down.
+func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector, cfg config) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGUSR1)
+	defer signal.Stop(sigCh)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-sigCh:
+		}
+
+		fmt.Fprintf(os.Stderr, "claude-relay: received SIGUSR1, reconnecting IRC...\n")
+		old := *relayPtr
+		if old != nil {
+			_ = old.Close(context.Background())
+		}
+
+		// Retry with backoff.
+		wait := 2 * time.Second
+		for attempt := 0; attempt < 10; attempt++ {
+			if ctx.Err() != nil {
+				return
+			}
+			time.Sleep(wait)
+
+			conn, err := sessionrelay.New(sessionrelay.Config{
+				Transport: cfg.Transport,
+				URL:       cfg.URL,
+				Token:     cfg.Token,
+				Channel:   cfg.Channel,
+				Channels:  cfg.Channels,
+				Nick:      cfg.Nick,
+				IRC: sessionrelay.IRCConfig{
+					Addr:          cfg.IRCAddr,
+					Pass:          "", // force re-registration
+					AgentType:     cfg.IRCAgentType,
+					DeleteOnClose: cfg.IRCDeleteOnClose,
+				},
+			})
+			if err != nil {
+				wait = min(wait*2, 30*time.Second)
+				continue
+			}
+
+			connectCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			if err := conn.Connect(connectCtx); err != nil {
+				_ = conn.Close(context.Background())
+				cancel()
+				wait = min(wait*2, 30*time.Second)
+				continue
+			}
+			cancel()
+
+			*relayPtr = conn
+			_ = conn.Post(context.Background(), fmt.Sprintf(
+				"reconnected in %s; mention %s to interrupt",
+				filepath.Base(cfg.TargetCWD), cfg.Nick,
+			))
+			fmt.Fprintf(os.Stderr, "claude-relay: reconnected successfully\n")
+			break
+		}
+	}
+}
+
+func presenceLoopPtr(ctx context.Context, relayPtr *sessionrelay.Connector, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if r := *relayPtr; r != nil {
+				_ = r.Touch(ctx)
 			}
 		}
 	}

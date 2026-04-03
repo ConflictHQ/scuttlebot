@@ -35,6 +35,7 @@ type ircConnector struct {
 	errCh    chan error
 
 	registeredByRelay bool
+	connectedAt       time.Time
 }
 
 func newIRCConnector(cfg Config) (Connector, error) {
@@ -89,7 +90,6 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 		return fmt.Errorf("sessionrelay: irc connect: %w", err)
 	case <-joined:
 		go c.keepAlive(ctx, host, port)
-		go c.watchdog(ctx)
 		return nil
 	}
 }
@@ -110,6 +110,9 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		PingTimeout: 30 * time.Second,
 	})
 	client.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
+		c.mu.Lock()
+		c.connectedAt = time.Now()
+		c.mu.Unlock()
 		for _, channel := range c.Channels() {
 			cl.Cmd.Join(channel)
 		}
@@ -212,66 +215,6 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 	}
 }
 
-// watchdog periodically checks if the IRC client is still connected and
-// if the API is reachable. Forces reconnection when the connection is dead.
-func (c *ircConnector) watchdog(ctx context.Context) {
-	failures := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(10 * time.Second):
-		}
-
-		c.mu.RLock()
-		client := c.client
-		c.mu.RUnlock()
-		if client == nil {
-			failures = 0
-			continue
-		}
-
-		if !client.IsConnected() {
-			client.Close()
-			select {
-			case c.errCh <- fmt.Errorf("watchdog: client disconnected"):
-			default:
-			}
-			failures = 0
-			continue
-		}
-
-		// Probe the API to detect server restarts.
-		if c.apiURL != "" && c.token != "" {
-			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			req, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, c.apiURL+"/v1/status", nil)
-			if req != nil {
-				req.Header.Set("Authorization", "Bearer "+c.token)
-				resp, err := http.DefaultClient.Do(req)
-				if err != nil || resp.StatusCode != 200 {
-					failures++
-					if resp != nil {
-						resp.Body.Close()
-					}
-				} else {
-					resp.Body.Close()
-					failures = 0
-				}
-			}
-			cancel()
-		}
-
-		if failures >= 3 {
-			client.Close()
-			select {
-			case c.errCh <- fmt.Errorf("watchdog: API unreachable"):
-			default:
-			}
-			failures = 0
-		}
-	}
-}
-
 func (c *ircConnector) Post(_ context.Context, text string) error {
 	c.mu.RLock()
 	client := c.client
@@ -313,7 +256,77 @@ func (c *ircConnector) MessagesSince(_ context.Context, since time.Time) ([]Mess
 	return out, nil
 }
 
-func (c *ircConnector) Touch(context.Context) error {
+func (c *ircConnector) Touch(ctx context.Context) error {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return fmt.Errorf("sessionrelay: not connected")
+	}
+
+	if !client.IsConnected() {
+		client.Close()
+		select {
+		case c.errCh <- fmt.Errorf("touch: client disconnected"):
+		default:
+		}
+		return fmt.Errorf("sessionrelay: disconnected")
+	}
+
+	// Detect server restarts by checking the server's startup time.
+	// If the server started after our IRC connection was established,
+	// the IRC connection is stale and must be recycled.
+	if c.apiURL != "" && c.token != "" {
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, c.apiURL+"/v1/status", nil)
+		if err != nil {
+			return nil
+		}
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil // API unreachable, transient
+		}
+		defer resp.Body.Close()
+
+		var status struct {
+			Started string `json:"started"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&status); err == nil && status.Started != "" {
+			serverStart, err := time.Parse(time.RFC3339Nano, status.Started)
+			if err == nil {
+				c.mu.RLock()
+				connectedAt := c.connectedAt
+				c.mu.RUnlock()
+				if !connectedAt.IsZero() && serverStart.After(connectedAt) {
+					// Server restarted after we connected — our IRC session is dead.
+					client.Close()
+					select {
+					case c.errCh <- fmt.Errorf("touch: server restarted (started %s, connected %s)", serverStart.Format(time.RFC3339), connectedAt.Format(time.RFC3339)):
+					default:
+					}
+					return fmt.Errorf("sessionrelay: server restarted")
+				}
+			}
+		}
+
+		// Also touch presence so the server tracks us.
+		presenceReq, _ := http.NewRequestWithContext(probeCtx, http.MethodPost,
+			c.apiURL+"/v1/channels/"+channelSlug(c.primary)+"/presence",
+			bytes.NewReader([]byte(`{"nick":"`+c.nick+`"}`)))
+		if presenceReq != nil {
+			presenceReq.Header.Set("Authorization", "Bearer "+c.token)
+			presenceReq.Header.Set("Content-Type", "application/json")
+			pr, err := http.DefaultClient.Do(presenceReq)
+			if pr != nil {
+				pr.Body.Close()
+			}
+			_ = err
+		}
+	}
+
 	return nil
 }
 
