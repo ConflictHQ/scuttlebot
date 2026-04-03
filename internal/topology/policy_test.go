@@ -63,9 +63,9 @@ func TestPolicyMatch(t *testing.T) {
 		{"#sprint.2026-q2", "sprint"},
 		{"#incident.p1", "incident"},
 		{"#experiment.llm-v3", "experiment"},
-		{"#general", ""},      // static, no type
-		{"#unknown", ""},      // no match
-		{"#taskforce", ""},    // prefix must match exactly (task. not task)
+		{"#general", ""},   // static, no type
+		{"#unknown", ""},   // no match
+		{"#taskforce", ""}, // prefix must match exactly (task. not task)
 	}
 
 	for _, tc := range cases {
