@@ -47,6 +47,9 @@ type Config struct {
 	JoinPartThreshold int
 	// JoinPartWindow is the rolling window for join/part cycling. Default: 30s.
 	JoinPartWindow time.Duration
+
+	// Channels is the list of channels to join on connect.
+	Channels []string
 }
 
 func (c *Config) setDefaults() {
@@ -134,11 +137,14 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
-		if b.log != nil {
-			b.log.Info("snitch connected")
+		for _, ch := range b.cfg.Channels {
+			cl.Cmd.Join(ch)
 		}
 		if b.cfg.AlertChannel != "" {
 			cl.Cmd.Join(b.cfg.AlertChannel)
+		}
+		if b.log != nil {
+			b.log.Info("snitch connected", "channels", b.cfg.Channels)
 		}
 	})
 
