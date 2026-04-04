@@ -280,8 +280,11 @@ func main() {
 		botMgr.Sync(ctx, specs)
 	})
 
-	// Initial bot sync from loaded policies.
-	{
+	// Initial bot sync — delayed to let the bridge create channels first.
+	// Bots with join_all_channels need channels to exist before they query
+	// the channel list. The bridge takes ~2s to connect and join.
+	go func() {
+		time.Sleep(5 * time.Second)
 		p := policyStore.Get()
 		specs := make([]botmanager.BotSpec, len(p.Behaviors))
 		for i, b := range p.Behaviors {
@@ -295,7 +298,7 @@ func main() {
 			}
 		}
 		botMgr.Sync(ctx, specs)
-	}
+	}()
 
 	// Agent reaper — periodically removes stale agents based on policy.
 	go func() {
