@@ -97,10 +97,11 @@ var defaultBehaviors = []BehaviorConfig{
 		JoinAllChannels: true,
 	},
 	{
-		ID:          "herald",
-		Name:        "Herald",
-		Description: "Routes event notifications from external systems to IRC channels.",
-		Nick:        "herald",
+		ID:              "herald",
+		Name:            "Herald",
+		Description:     "Routes event notifications from external systems to IRC channels.",
+		Nick:            "herald",
+		JoinAllChannels: true,
 	},
 	{
 		ID:              "oracle",

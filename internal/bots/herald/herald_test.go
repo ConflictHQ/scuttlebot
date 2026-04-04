@@ -8,7 +8,7 @@ import (
 )
 
 func newBot(routes herald.RouteConfig) *herald.Bot {
-	return herald.New("localhost:6667", "pass", routes, 100, 100, nil)
+	return herald.New("localhost:6667", "pass", nil, routes, 100, 100, nil)
 }
 
 func TestBotName(t *testing.T) {
@@ -44,7 +44,7 @@ func TestRouteConfig(t *testing.T) {
 		},
 		DefaultChannel: "#alerts",
 	}
-	b := herald.New("localhost:6667", "pass", routes, 5, 20, nil)
+	b := herald.New("localhost:6667", "pass", nil, routes, 5, 20, nil)
 	if b == nil {
 		t.Fatal("expected non-nil bot")
 	}

@@ -119,6 +119,7 @@ func ParseCommand(text string) (*SummarizeRequest, error) {
 type Bot struct {
 	ircAddr  string
 	password string
+	channels []string
 	history  HistoryFetcher
 	llm      LLMProvider
 	log      *slog.Logger
@@ -128,10 +129,11 @@ type Bot struct {
 }
 
 // New creates an oracle bot.
-func New(ircAddr, password string, history HistoryFetcher, llm LLMProvider, log *slog.Logger) *Bot {
+func New(ircAddr, password string, channels []string, history HistoryFetcher, llm LLMProvider, log *slog.Logger) *Bot {
 	return &Bot{
 		ircAddr:  ircAddr,
 		password: password,
+		channels: channels,
 		history:  history,
 		llm:      llm,
 		log:      log,
@@ -161,9 +163,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		SSL:         false,
 	})
 
-	c.Handlers.AddBg(girc.CONNECTED, func(_ *girc.Client, _ girc.Event) {
+	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
+		for _, ch := range b.channels {
+			cl.Cmd.Join(ch)
+		}
 		if b.log != nil {
-			b.log.Info("oracle connected")
+			b.log.Info("oracle connected", "channels", b.channels)
 		}
 	})
 

@@ -93,7 +93,7 @@ func TestParseCommandLimitCap(t *testing.T) {
 // --- Bot construction ---
 
 func TestBotName(t *testing.T) {
-	b := oracle.New("localhost:6667", "pass",
+	b := oracle.New("localhost:6667", "pass", nil,
 		newHistory("#fleet", nil),
 		&oracle.StubProvider{Response: "summary"},
 		nil,
