@@ -93,23 +93,35 @@ func (c *httpConnector) registerAgent(ctx context.Context) error {
 }
 
 func (c *httpConnector) Post(ctx context.Context, text string) error {
+	return c.PostWithMeta(ctx, text, nil)
+}
+
+func (c *httpConnector) PostTo(ctx context.Context, channel, text string) error {
+	return c.PostToWithMeta(ctx, channel, text, nil)
+}
+
+func (c *httpConnector) PostWithMeta(ctx context.Context, text string, meta json.RawMessage) error {
 	for _, channel := range c.Channels() {
-		if err := c.PostTo(ctx, channel, text); err != nil {
+		if err := c.PostToWithMeta(ctx, channel, text, meta); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *httpConnector) PostTo(ctx context.Context, channel, text string) error {
+func (c *httpConnector) PostToWithMeta(ctx context.Context, channel, text string, meta json.RawMessage) error {
 	channel = channelSlug(channel)
 	if channel == "" {
 		return fmt.Errorf("sessionrelay: post channel is required")
 	}
-	return c.postJSON(ctx, "/v1/channels/"+channel+"/messages", map[string]string{
+	body := map[string]any{
 		"nick": c.nick,
 		"text": text,
-	})
+	}
+	if len(meta) > 0 {
+		body["meta"] = json.RawMessage(meta)
+	}
+	return c.postJSON(ctx, "/v1/channels/"+channel+"/messages", body)
 }
 
 func (c *httpConnector) MessagesSince(ctx context.Context, since time.Time) ([]Message, error) {

@@ -347,7 +347,14 @@ func main() {
 	if len(cfg.LLM.Backends) > 0 {
 		llmCfg = &cfg.LLM
 	}
-	apiSrv := api.New(reg, tokens, bridgeBot, policyStore, adminStore, llmCfg, topoMgr, cfgStore, cfg.TLS.Domain, log)
+	// Pass an explicit nil interface when topology is not configured.
+	// A nil *topology.Manager passed as a topologyManager interface is
+	// non-nil (Go nil interface trap) and causes panics in setAgentModes.
+	var topoIface api.TopologyManager
+	if topoMgr != nil {
+		topoIface = topoMgr
+	}
+	apiSrv := api.New(reg, tokens, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, cfg.TLS.Domain, log)
 	handler := apiSrv.Handler()
 
 	var httpServer, tlsServer *http.Server
