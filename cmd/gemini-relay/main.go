@@ -476,6 +476,7 @@ func copyPTYOutput(src io.Reader, dst io.Writer, state *relayState) {
 	}
 }
 
+
 func (s *relayState) observeOutput(data []byte, now time.Time) {
 	if s == nil {
 		return
