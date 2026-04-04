@@ -216,6 +216,15 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 }
 
 func (c *ircConnector) Post(_ context.Context, text string) error {
+	return c.PostWithMeta(context.Background(), text, nil)
+}
+
+func (c *ircConnector) PostTo(_ context.Context, channel, text string) error {
+	return c.PostToWithMeta(context.Background(), channel, text, nil)
+}
+
+// PostWithMeta sends text to all channels. Meta is ignored — IRC is text-only.
+func (c *ircConnector) PostWithMeta(_ context.Context, text string, _ json.RawMessage) error {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()
@@ -228,7 +237,8 @@ func (c *ircConnector) Post(_ context.Context, text string) error {
 	return nil
 }
 
-func (c *ircConnector) PostTo(_ context.Context, channel, text string) error {
+// PostToWithMeta sends text to a specific channel. Meta is ignored — IRC is text-only.
+func (c *ircConnector) PostToWithMeta(_ context.Context, channel, text string, _ json.RawMessage) error {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()

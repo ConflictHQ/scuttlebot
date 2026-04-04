@@ -2,6 +2,7 @@ package sessionrelay
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -49,6 +50,8 @@ type Connector interface {
 	Connect(ctx context.Context) error
 	Post(ctx context.Context, text string) error
 	PostTo(ctx context.Context, channel, text string) error
+	PostWithMeta(ctx context.Context, text string, meta json.RawMessage) error
+	PostToWithMeta(ctx context.Context, channel, text string, meta json.RawMessage) error
 	MessagesSince(ctx context.Context, since time.Time) ([]Message, error)
 	Touch(ctx context.Context) error
 	JoinChannel(ctx context.Context, channel string) error
