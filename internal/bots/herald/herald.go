@@ -88,6 +88,7 @@ func (r *RateLimiter) Allow() bool {
 type Bot struct {
 	ircAddr  string
 	password string
+	channels []string
 	routes   RouteConfig
 	limiter  *RateLimiter
 	queue    chan Event
@@ -99,7 +100,7 @@ const defaultQueueSize = 256
 
 // New creates a herald bot. ratePerSec and burst configure the token-bucket
 // rate limiter (e.g. 5 messages/sec with burst of 20).
-func New(ircAddr, password string, routes RouteConfig, ratePerSec float64, burst int, log *slog.Logger) *Bot {
+func New(ircAddr, password string, channels []string, routes RouteConfig, ratePerSec float64, burst int, log *slog.Logger) *Bot {
 	if ratePerSec <= 0 {
 		ratePerSec = 5
 	}
@@ -109,6 +110,7 @@ func New(ircAddr, password string, routes RouteConfig, ratePerSec float64, burst
 	return &Bot{
 		ircAddr:  ircAddr,
 		password: password,
+		channels: channels,
 		routes:   routes,
 		limiter:  newRateLimiter(ratePerSec, burst),
 		queue:    make(chan Event, defaultQueueSize),
@@ -150,9 +152,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		SSL:         false,
 	})
 
-	c.Handlers.AddBg(girc.CONNECTED, func(_ *girc.Client, _ girc.Event) {
+	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
+		for _, ch := range b.channels {
+			cl.Cmd.Join(ch)
+		}
 		if b.log != nil {
-			b.log.Info("herald connected")
+			b.log.Info("herald connected", "channels", b.channels)
 		}
 	})
 
