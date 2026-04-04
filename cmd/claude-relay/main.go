@@ -404,6 +404,10 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 				return nil
 			case <-time.After(defaultScanInterval):
 			}
+			// Reset the buffered reader so it retries the underlying
+			// file descriptor. bufio.Reader caches EOF and won't see
+			// new bytes appended to the file without a reset.
+			reader.Reset(file)
 			continue
 		}
 		return err
