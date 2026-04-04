@@ -36,6 +36,7 @@ const (
 type Bot struct {
 	ircAddr   string
 	password  string
+	channels  []string
 	store     scribe.Store
 	log       *slog.Logger
 	client    *girc.Client
@@ -43,10 +44,11 @@ type Bot struct {
 }
 
 // New creates a scroll Bot backed by the given scribe Store.
-func New(ircAddr, password string, store scribe.Store, log *slog.Logger) *Bot {
+func New(ircAddr, password string, channels []string, store scribe.Store, log *slog.Logger) *Bot {
 	return &Bot{
 		ircAddr:  ircAddr,
 		password: password,
+		channels: channels,
 		store:    store,
 		log:      log,
 	}
@@ -74,8 +76,11 @@ func (b *Bot) Start(ctx context.Context) error {
 		SSL:         false,
 	})
 
-	c.Handlers.AddBg(girc.CONNECTED, func(client *girc.Client, e girc.Event) {
-		b.log.Info("scroll connected")
+	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, e girc.Event) {
+		for _, ch := range b.channels {
+			cl.Cmd.Join(ch)
+		}
+		b.log.Info("scroll connected", "channels", b.channels)
 	})
 
 	// Only respond to DMs — ignore anything in a channel.
