@@ -792,22 +792,30 @@ func defaultSessionID(target string) string {
 }
 
 func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time) {
-	sessionPath, err := discoverSessionPath(ctx, cfg, startedAt)
-	if err != nil {
-		if ctx.Err() == nil {
-			_ = relay.Post(context.Background(), fmt.Sprintf("mirror failed: %v — session activity not visible in IRC", err))
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		sessionPath, err := discoverSessionPath(ctx, cfg, startedAt)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(text string) {
+			for _, line := range splitMirrorText(text) {
+				if line == "" {
+					continue
+				}
+				_ = relay.Post(ctx, line)
+			}
+		}); err != nil && ctx.Err() == nil {
+			time.Sleep(5 * time.Second)
+			continue
 		}
 		return
-	}
-	if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(text string) {
-		for _, line := range splitMirrorText(text) {
-			if line == "" {
-				continue
-			}
-			_ = relay.Post(ctx, line)
-		}
-	}); err != nil && ctx.Err() == nil {
-		_ = relay.Post(context.Background(), fmt.Sprintf("mirror lost: %v — session activity no longer visible in IRC", err))
 	}
 }
 
