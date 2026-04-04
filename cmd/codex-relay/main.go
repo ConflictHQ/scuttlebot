@@ -1137,11 +1137,16 @@ func findSessionPathByThreadID(root, threadID string) (string, error) {
 	return match, nil
 }
 
+// findLatestSessionPath finds the .jsonl file in root whose first entry
+// timestamp is closest to (but after) notBefore — this ensures each relay
+// latches onto its own subprocess's session rather than whichever session
+// happens to have the latest timestamp when multiple sessions share a CWD.
 func findLatestSessionPath(root, target string, notBefore time.Time) (string, error) {
-	var (
-		bestPath string
-		bestTime time.Time
-	)
+	type candidate struct {
+		path string
+		ts   time.Time
+	}
+	var candidates []candidate
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
@@ -1157,19 +1162,21 @@ func findLatestSessionPath(root, target string, notBefore time.Time) (string, er
 		if ts.Before(notBefore) {
 			return nil
 		}
-		if bestPath == "" || ts.After(bestTime) {
-			bestPath = path
-			bestTime = ts
-		}
+		candidates = append(candidates, candidate{path: path, ts: ts})
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
-	if bestPath == "" {
+	if len(candidates) == 0 {
 		return "", os.ErrNotExist
 	}
-	return bestPath, nil
+	// Sort newest first — the session that started most recently
+	// (closest to our relay's startedAt) is most likely ours.
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].ts.After(candidates[j].ts)
+	})
+	return candidates[0].path, nil
 }
 
 func readSessionMeta(path string) (sessionMetaPayload, time.Time, error) {

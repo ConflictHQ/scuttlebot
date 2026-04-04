@@ -343,8 +343,10 @@ func claudeSessionsRoot(cwd string) (string, error) {
 	return filepath.Join(home, ".claude", "projects", "-"+sanitized), nil
 }
 
-// findLatestSessionPath finds the most recently modified .jsonl file in root
-// that contains an entry with cwd matching targetCWD and timestamp after since.
+// findLatestSessionPath finds the .jsonl file in root whose first entry
+// timestamp is closest to (but after) since — this ensures each relay
+// latches onto its own subprocess's session rather than whichever file
+// happens to be most actively written to.
 func findLatestSessionPath(root, targetCWD string, since time.Time) (string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -352,8 +354,8 @@ func findLatestSessionPath(root, targetCWD string, since time.Time) (string, err
 	}
 
 	type candidate struct {
-		path    string
-		modTime time.Time
+		path       string
+		firstEntry time.Time
 	}
 	var candidates []candidate
 	for _, e := range entries {
@@ -367,32 +369,28 @@ func findLatestSessionPath(root, targetCWD string, since time.Time) (string, err
 		if info.ModTime().Before(since) {
 			continue
 		}
-		candidates = append(candidates, candidate{
-			path:    filepath.Join(root, e.Name()),
-			modTime: info.ModTime(),
-		})
+		p := filepath.Join(root, e.Name())
+		if first, ok := sessionFirstEntryTime(p, targetCWD, since); ok {
+			candidates = append(candidates, candidate{path: p, firstEntry: first})
+		}
 	}
 	if len(candidates) == 0 {
 		return "", errors.New("no session files found")
 	}
-	// Sort newest first.
+	// Sort by first entry time, newest first — the session that started
+	// most recently (closest to our startedAt) is most likely ours.
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].modTime.After(candidates[j].modTime)
+		return candidates[i].firstEntry.After(candidates[j].firstEntry)
 	})
-	// Return the first file that has an entry matching our cwd.
-	for _, c := range candidates {
-		if matchesSession(c.path, targetCWD, since) {
-			return c.path, nil
-		}
-	}
-	return "", errors.New("no matching session found")
+	return candidates[0].path, nil
 }
 
-// matchesSession peeks at the first few lines of a JSONL file to verify cwd.
-func matchesSession(path, targetCWD string, since time.Time) bool {
+// sessionFirstEntryTime reads the first entry in a JSONL session file,
+// verifies it matches targetCWD and is after since, and returns its timestamp.
+func sessionFirstEntryTime(path, targetCWD string, since time.Time) (time.Time, bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return false
+		return time.Time{}, false
 	}
 	defer f.Close()
 
@@ -404,12 +402,21 @@ func matchesSession(path, targetCWD string, since time.Time) bool {
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
 			continue
 		}
-		if entry.CWD == "" {
-			continue
+		if entry.CWD != "" && entry.CWD != targetCWD {
+			return time.Time{}, false
 		}
-		return entry.CWD == targetCWD
+		if entry.Timestamp != "" {
+			t, err := time.Parse(time.RFC3339Nano, entry.Timestamp)
+			if err == nil && t.After(since) {
+				return t, true
+			}
+			t2, err := time.Parse(time.RFC3339, entry.Timestamp)
+			if err == nil && t2.After(since) {
+				return t2, true
+			}
+		}
 	}
-	return false
+	return time.Time{}, false
 }
 
 func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(mirrorLine)) error {
