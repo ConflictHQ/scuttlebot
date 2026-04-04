@@ -168,7 +168,7 @@ func (r *CommandRouter) isAddressed(text string) bool {
 
 func (r *CommandRouter) stripAddress(text string) string {
 	lower := strings.ToLower(text)
-	for _, sep := range []string{": ", ": ", ","} {
+	for _, sep := range []string{": ", ","} {
 		prefix := r.botNick + sep
 		if strings.HasPrefix(lower, prefix) {
 			return strings.TrimSpace(text[len(prefix):])
