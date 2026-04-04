@@ -209,6 +209,13 @@ func run(cfg config) error {
 	}
 
 	cmd := exec.Command(cfg.CodexBin, cfg.Args...)
+	// Snapshot existing session files before starting the subprocess so
+	// discovery can distinguish our session from pre-existing ones.
+	var preExisting map[string]struct{}
+	if sessRoot, err := codexSessionsRoot(); err == nil {
+		preExisting = snapshotSessionFiles(sessRoot)
+	}
+
 	startedAt := time.Now()
 	cmd.Env = append(os.Environ(),
 		"SCUTTLEBOT_CONFIG_FILE="+cfg.ConfigFile,
@@ -223,7 +230,7 @@ func run(cfg config) error {
 		"SCUTTLEBOT_ACTIVITY_VIA_BROKER="+boolString(relayActive),
 	)
 	if relayActive {
-		go mirrorSessionLoop(ctx, relay, cfg, startedAt)
+		go mirrorSessionLoop(ctx, relay, cfg, startedAt, preExisting)
 		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
 	}
 
@@ -403,7 +410,7 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 			// Restart mirror and input loops with the new connector.
 			// Use epoch time for mirror so it finds the existing session file
 			// regardless of when it was last modified.
-			go mirrorSessionLoop(ctx, conn, cfg, time.Time{})
+			go mirrorSessionLoop(ctx, conn, cfg, time.Time{}, nil)
 			go relayInputLoop(ctx, conn, cfg, state, ptmx, now)
 			break
 		}
@@ -804,12 +811,12 @@ func defaultSessionID(target string) string {
 	return fmt.Sprintf("%08x", sum)
 }
 
-func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time) {
+func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time, preExisting map[string]struct{}) {
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		sessionPath, err := discoverSessionPath(ctx, cfg, startedAt)
+		sessionPath, err := discoverSessionPath(ctx, cfg, startedAt, preExisting)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -836,7 +843,7 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 	}
 }
 
-func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (string, error) {
+func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time, preExisting map[string]struct{}) (string, error) {
 	root, err := codexSessionsRoot()
 	if err != nil {
 		return "", err
@@ -850,7 +857,7 @@ func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (
 
 	target := filepath.Clean(cfg.TargetCWD)
 	return waitForSessionPath(ctx, func() (string, error) {
-		return findLatestSessionPath(root, target, startedAt.Add(-2*time.Second))
+		return findLatestSessionPath(root, target, startedAt.Add(-2*time.Second), preExisting)
 	})
 }
 
@@ -1105,6 +1112,21 @@ func explicitThreadID(args []string) string {
 	return ""
 }
 
+// snapshotSessionFiles returns the set of .jsonl file paths currently under root.
+// Called before starting the Codex subprocess so discovery can skip pre-existing
+// sessions and deterministically find the one our subprocess creates.
+func snapshotSessionFiles(root string) map[string]struct{} {
+	existing := make(map[string]struct{})
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		existing[path] = struct{}{}
+		return nil
+	})
+	return existing
+}
+
 func codexSessionsRoot() (string, error) {
 	if value := os.Getenv("CODEX_HOME"); value != "" {
 		return filepath.Join(value, "sessions"), nil
@@ -1137,10 +1159,12 @@ func findSessionPathByThreadID(root, threadID string) (string, error) {
 	return match, nil
 }
 
-// findLatestSessionPath finds the .jsonl file in root whose first entry
-// timestamp is closest to notBefore — this ensures each relay latches onto
-// its own subprocess's session when multiple sessions share a CWD.
-func findLatestSessionPath(root, target string, notBefore time.Time) (string, error) {
+// findLatestSessionPath finds the .jsonl file in root that was created by our
+// subprocess. It uses a pre-existing file snapshot to skip sessions that
+// existed before the subprocess started, then filters by CWD and picks the
+// oldest new match. When preExisting is nil (reconnect), it falls back to
+// accepting any file whose timestamp is >= notBefore.
+func findLatestSessionPath(root, target string, notBefore time.Time, preExisting map[string]struct{}) (string, error) {
 	type candidate struct {
 		path string
 		ts   time.Time
@@ -1150,6 +1174,11 @@ func findLatestSessionPath(root, target string, notBefore time.Time) (string, er
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
+		}
+		if preExisting != nil {
+			if _, existed := preExisting[path]; existed {
+				return nil
+			}
 		}
 		meta, ts, err := readSessionMeta(path)
 		if err != nil {
@@ -1170,25 +1199,12 @@ func findLatestSessionPath(root, target string, notBefore time.Time) (string, er
 	if len(candidates) == 0 {
 		return "", os.ErrNotExist
 	}
-	// Pick the session whose start time is closest to notBefore.
-	// When multiple relays start near-simultaneously, each relay's
-	// notBefore is slightly different, so each matches its own session.
-	best := 0
-	bestDelta := candidates[0].ts.Sub(notBefore)
-	for i := 1; i < len(candidates); i++ {
-		delta := candidates[i].ts.Sub(notBefore)
-		if delta < 0 {
-			delta = -delta
-		}
-		if bestDelta < 0 {
-			bestDelta = -bestDelta
-		}
-		if delta < bestDelta {
-			best = i
-			bestDelta = candidates[i].ts.Sub(notBefore)
-		}
-	}
-	return candidates[best].path, nil
+	// Pick the oldest new session — the first file created after our
+	// subprocess started is most likely ours.
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].ts.Before(candidates[j].ts)
+	})
+	return candidates[0].path, nil
 }
 
 func readSessionMeta(path string) (sessionMetaPayload, time.Time, error) {
