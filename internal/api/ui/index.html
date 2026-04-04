@@ -1881,8 +1881,11 @@ function renderNicklist(users) {
 // Nick colors — deterministic hash over a palette
 const NICK_PALETTE = ['#58a6ff','#3fb950','#ffa657','#d2a8ff','#56d364','#79c0ff','#ff7b72','#a5d6ff','#f0883e','#39d353'];
 function nickColor(nick) {
+  // Strip session hash suffix (e.g. claude-scuttlebot-87d771ed → claude-scuttlebot)
+  // so the same agent keeps a stable color across relay restarts.
+  const base = nick.replace(/-[0-9a-f]{6,}$/i, '');
   let h = 0;
-  for (let i = 0; i < nick.length; i++) h = (h * 31 + nick.charCodeAt(i)) & 0xffff;
+  for (let i = 0; i < base.length; i++) h = (h * 31 + base.charCodeAt(i)) & 0xffff;
   return NICK_PALETTE[h % NICK_PALETTE.length];
 }
 
