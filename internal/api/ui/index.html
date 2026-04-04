@@ -161,6 +161,7 @@ select option { background:#161b22; }
 .nicklist-head { padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#8b949e; border-bottom:1px solid #30363d; flex-shrink:0; display:flex; align-items:center; gap:4px; }
 .nicklist-nick { padding:5px 12px; font-size:12px; color:#8b949e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .nicklist-nick.is-bot { color:#58a6ff; }
+.nicklist-nick.is-op { color:#3fb950; font-weight:600; }
 .nicklist-nick::before { content:"● "; font-size:8px; vertical-align:middle; }
 .chat-new-banner { align-self:center; margin:4px auto 0; background:#1f6feb; color:#fff; border-radius:20px; padding:3px 14px; font-size:12px; cursor:pointer; display:inline-block; white-space:nowrap; }
 /* login screen */
@@ -1820,12 +1821,39 @@ async function loadNicklist(ch) {
     renderNicklist(data.users || []);
   } catch(e) {}
 }
+const SYSTEM_BOTS = new Set(['bridge','oracle','sentinel','steward','scribe','warden','snitch','herald','scroll','systembot','auditbot']);
+const AGENT_PREFIXES = ['claude-','codex-','gemini-','openclaw-'];
+
+function nickTier(nick) {
+  const lower = nick.toLowerCase();
+  // Check if operator (registered as operator type).
+  const agent = allAgents.find(a => a.nick === nick);
+  if (agent && agent.type === 'operator') return 0; // ops
+  if (SYSTEM_BOTS.has(lower)) return 1; // system bots
+  if (AGENT_PREFIXES.some(p => lower.startsWith(p))) return 2; // agents
+  return 3; // regular users
+}
+
+function nickPrefix(nick) {
+  const tier = nickTier(nick);
+  if (tier === 0) return '@';
+  if (tier === 2) return '+';
+  return '';
+}
+
 function renderNicklist(users) {
   const el = document.getElementById('nicklist-users');
-  const knownBots = new Set(['bridge','oracle','sentinel','steward','scribe','warden','snitch','herald','scroll','systembot','auditbot','claude']);
-  el.innerHTML = users.sort((a,b) => a.localeCompare(b)).map(nick => {
-    const isBot = knownBots.has(nick.toLowerCase());
-    return `<div class="nicklist-nick${isBot?' is-bot':''}" title="${esc(nick)}">${esc(nick)}</div>`;
+  // Sort: ops > system bots > agents > users, alpha within each tier.
+  const sorted = users.slice().sort((a, b) => {
+    const ta = nickTier(a), tb = nickTier(b);
+    if (ta !== tb) return ta - tb;
+    return a.localeCompare(b);
+  });
+  el.innerHTML = sorted.map(nick => {
+    const tier = nickTier(nick);
+    const prefix = nickPrefix(nick);
+    const cls = tier === 1 ? ' is-bot' : tier === 0 ? ' is-op' : '';
+    return `<div class="nicklist-nick${cls}" title="${esc(nick)}">${prefix}${esc(nick)}</div>`;
   }).join('');
 }
 // Nick colors — deterministic hash over a palette
@@ -1977,8 +2005,8 @@ async function sendMsg() {
       if (_tabIdx === -1 || word.toLowerCase() !== _tabPrefix.toLowerCase()) {
         _tabPrefix = word;
         const nicks = Array.from(document.querySelectorAll('#nicklist-users .nicklist-nick'))
-          .map(el => el.textContent.replace(/^●\s*/, '').trim())
-          .filter(n => n.toLowerCase().startsWith(word.toLowerCase()));
+          .map(el => el.textContent.replace(/^[●@+]\s*/, '').trim())
+          .filter(n => n.toLowerCase().startsWith(word.replace(/^@/, '').toLowerCase()));
         if (!nicks.length) return;
         _tabCandidates = nicks;
         _tabIdx = 0;
