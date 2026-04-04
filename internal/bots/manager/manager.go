@@ -235,22 +235,23 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 			FloodWindow:       time.Duration(cfgInt(cfg, "flood_window_sec", 5)) * time.Second,
 			JoinPartThreshold: cfgInt(cfg, "join_part_threshold", 5),
 			JoinPartWindow:    time.Duration(cfgInt(cfg, "join_part_window_sec", 30)) * time.Second,
+			Channels:          channels,
 		}, m.log), nil
 
 	case "warden":
-		return warden.New(m.ircAddr, pass, nil, warden.ChannelConfig{
+		return warden.New(m.ircAddr, pass, channels, nil, warden.ChannelConfig{
 			MessagesPerSecond: cfgFloat(cfg, "messages_per_second", 5),
 			Burst:             cfgInt(cfg, "burst", 10),
 		}, m.log), nil
 
 	case "scroll":
-		return scroll.New(m.ircAddr, pass, &scribe.MemoryStore{}, m.log), nil
+		return scroll.New(m.ircAddr, pass, channels, &scribe.MemoryStore{}, m.log), nil
 
 	case "systembot":
 		return systembot.New(m.ircAddr, pass, channels, &systembot.MemoryStore{}, m.log), nil
 
 	case "herald":
-		return herald.New(m.ircAddr, pass, herald.RouteConfig{
+		return herald.New(m.ircAddr, pass, channels, herald.RouteConfig{
 			DefaultChannel: cfgStr(cfg, "default_channel", ""),
 		}, cfgFloat(cfg, "rate_limit", 1), cfgInt(cfg, "burst", 5), m.log), nil
 
@@ -284,7 +285,7 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 		fs := scribe.NewFileStore(scribe.FileStoreConfig{Dir: scribeDir, Format: "jsonl"})
 		history := &scribeHistoryAdapter{store: fs}
 
-		return oracle.New(m.ircAddr, pass, history, provider, m.log), nil
+		return oracle.New(m.ircAddr, pass, channels, history, provider, m.log), nil
 
 	case "sentinel":
 		apiKey := cfgStr(cfg, "api_key", "")
@@ -318,6 +319,7 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 			WindowAge:       time.Duration(cfgInt(cfg, "window_age_sec", 300)) * time.Second,
 			CooldownPerNick: time.Duration(cfgInt(cfg, "cooldown_sec", 600)) * time.Second,
 			MinSeverity:     cfgStr(cfg, "min_severity", "medium"),
+			Channels:        channels,
 		}, provider, m.log), nil
 
 	case "steward":
@@ -332,6 +334,7 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 			MuteDuration:    time.Duration(cfgInt(cfg, "mute_duration_sec", 600)) * time.Second,
 			WarnOnLow:       cfgBool(cfg, "warn_on_low", true),
 			CooldownPerNick: time.Duration(cfgInt(cfg, "cooldown_sec", 300)) * time.Second,
+			Channels:        channels,
 		}, m.log), nil
 
 	default:
