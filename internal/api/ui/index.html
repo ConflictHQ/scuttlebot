@@ -1837,8 +1837,7 @@ function nickTier(nick) {
 function nickPrefix(nick) {
   const tier = nickTier(nick);
   if (tier === 0) return '@';
-  if (tier === 1) return '$';
-  if (tier === 2) return '+';
+  if (tier === 1) return '+';
   return '';
 }
 
