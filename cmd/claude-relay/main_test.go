@@ -120,6 +120,31 @@ func TestSessionIDArgsPrepended(t *testing.T) {
 	}
 }
 
+func TestExtractResumeID(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"no resume", []string{"--dangerously-skip-permissions"}, ""},
+		{"--resume with UUID", []string{"--resume", "740fab38-b4c7-4dfc-a82a-2fe24b48baab"}, "740fab38-b4c7-4dfc-a82a-2fe24b48baab"},
+		{"-r with UUID", []string{"-r", "29f0a0bf-b2e8-4eee-bfd8-aabbd90b41fb"}, "29f0a0bf-b2e8-4eee-bfd8-aabbd90b41fb"},
+		{"--continue with UUID", []string{"--continue", "21b39df2-c032-4fb4-be1c-0b607a9ee702"}, "21b39df2-c032-4fb4-be1c-0b607a9ee702"},
+		{"--resume without value", []string{"--resume"}, ""},
+		{"--resume with non-UUID", []string{"--resume", "latest"}, ""},
+		{"--resume with short string", []string{"--resume", "abc"}, ""},
+		{"mixed args", []string{"--dangerously-skip-permissions", "--resume", "740fab38-b4c7-4dfc-a82a-2fe24b48baab", "--chrome"}, "740fab38-b4c7-4dfc-a82a-2fe24b48baab"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractResumeID(tt.args)
+			if got != tt.want {
+				t.Errorf("extractResumeID(%v) = %q, want %q", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDiscoverSessionPathFindsFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	sessionID := uuid.New().String()

@@ -190,11 +190,17 @@ func run(cfg config) error {
 	}
 
 	startedAt := time.Now()
-	args := make([]string, 0, len(cfg.Args)+2)
-	args = append(args, "--session-id", cfg.ClaudeSessionID)
-	args = append(args, cfg.Args...)
-	fmt.Fprintf(os.Stderr, "claude-relay: session-id %s\n", cfg.ClaudeSessionID)
-	cmd := exec.Command(cfg.ClaudeBin, args...)
+	// If resuming, extract the session ID from --resume arg. Otherwise use
+	// our generated UUID via --session-id for new sessions.
+	if resumeID := extractResumeID(cfg.Args); resumeID != "" {
+		cfg.ClaudeSessionID = resumeID
+		fmt.Fprintf(os.Stderr, "claude-relay: resuming session %s\n", resumeID)
+	} else {
+		// New session — inject --session-id so the file name is deterministic.
+		cfg.Args = append([]string{"--session-id", cfg.ClaudeSessionID}, cfg.Args...)
+		fmt.Fprintf(os.Stderr, "claude-relay: new session %s\n", cfg.ClaudeSessionID)
+	}
+	cmd := exec.Command(cfg.ClaudeBin, cfg.Args...)
 	cmd.Env = append(os.Environ(),
 		"SCUTTLEBOT_CONFIG_FILE="+cfg.ConfigFile,
 		"SCUTTLEBOT_URL="+cfg.URL,
@@ -340,6 +346,21 @@ func discoverSessionPath(ctx context.Context, cfg config, _ time.Time) (string, 
 		case <-ticker.C:
 		}
 	}
+}
+
+// extractResumeID finds --resume or -r in args and returns the session UUID
+// that follows it. Returns "" if not resuming or if the value isn't a UUID.
+func extractResumeID(args []string) string {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--resume" || args[i] == "-r" || args[i] == "--continue" {
+			val := args[i+1]
+			// Must look like a UUID (contains dashes, right length)
+			if len(val) >= 32 && strings.Contains(val, "-") {
+				return val
+			}
+		}
+	}
+	return ""
 }
 
 // claudeSessionsRoot returns ~/.claude/projects/<sanitized-cwd>/
