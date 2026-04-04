@@ -206,10 +206,16 @@ func (b *Bot) Start(ctx context.Context) error {
 		if !strings.HasPrefix(channel, "#") {
 			return // ignore DMs
 		}
+		// Prefer account-tag (IRCv3) over source nick for sender identity.
+		nick := e.Source.Name
+		if acct, ok := e.Tags.Get("account"); ok && acct != "" {
+			nick = acct
+		}
+
 		b.dispatch(Message{
-			At:      time.Now(),
+			At:      e.Timestamp,
 			Channel: channel,
-			Nick:    e.Source.Name,
+			Nick:    nick,
 			Text:    e.Last(),
 		})
 	})
