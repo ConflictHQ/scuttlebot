@@ -144,6 +144,7 @@ select option { background:#161b22; }
 .chat-msgs { flex:1; overflow-y:auto; padding:4px 8px; display:flex; flex-direction:column; gap:0; }
 .msg-row { font-size:13px; line-height:1.4; padding:1px 0; }
 .msg-time { color:#8b949e; font-size:11px; margin-right:6px; }
+.chat-msgs.hide-timestamps .msg-time { display:none; }
 .msg-nick { font-weight:600; margin-right:6px; }
 .msg-grouped .msg-nick { display:none; }
 .msg-grouped .msg-time { display:none; }
@@ -512,6 +513,7 @@ canvas { display:block; width:100% !important; }
         <option value="">— pick a user —</option>
       </select>
       <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="toggle compact/columnar" style="font-size:11px;padding:2px 6px">☰</button>
+      <button class="sm" id="chat-ts-toggle" onclick="toggleTimestamps()" title="toggle timestamps" style="font-size:11px;padding:2px 6px">🕐</button>
       <button class="sm" id="chat-rich-toggle" onclick="toggleRichMode()" title="toggle rich/text mode" style="font-size:11px;padding:2px 6px">✨</button>
       <button class="sm" onclick="promptHighlightWords()" title="configure highlight keywords" style="font-size:11px;padding:2px 6px">✦</button>
       <span class="stream-badge" id="chat-stream-status" style="margin-left:8px"></span>
@@ -2004,6 +2006,23 @@ function toggleChatLayout() {
 if (localStorage.getItem('sb_chat_columnar') === '1') {
   document.getElementById('chat-msgs').classList.add('columnar');
 }
+
+// --- timestamp toggle ---
+function toggleTimestamps() {
+  const el = document.getElementById('chat-msgs');
+  const hidden = el.classList.toggle('hide-timestamps');
+  localStorage.setItem('sb_hide_timestamps', hidden ? '1' : '0');
+  const btn = document.getElementById('chat-ts-toggle');
+  btn.style.color = hidden ? '#8b949e' : '';
+  btn.title = hidden ? 'timestamps hidden — click to show' : 'timestamps shown — click to hide';
+}
+(function() {
+  const hidden = localStorage.getItem('sb_hide_timestamps') === '1';
+  if (hidden) document.getElementById('chat-msgs').classList.add('hide-timestamps');
+  const btn = document.getElementById('chat-ts-toggle');
+  if (hidden) { btn.style.color = '#8b949e'; btn.title = 'timestamps hidden — click to show'; }
+  else { btn.title = 'timestamps shown — click to hide'; }
+})();
 
 // --- rich mode toggle ---
 function isRichMode() { return localStorage.getItem('sb_rich_mode') === '1'; }
