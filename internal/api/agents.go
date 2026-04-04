@@ -12,6 +12,7 @@ type registerRequest struct {
 	Nick        string                    `json:"nick"`
 	Type        registry.AgentType        `json:"type"`
 	Channels    []string                  `json:"channels"`
+	OpsChannels []string                  `json:"ops_channels,omitempty"`
 	Permissions []string                  `json:"permissions"`
 	RateLimit   *registry.RateLimitConfig `json:"rate_limit,omitempty"`
 	Rules       *registry.EngagementRules `json:"engagement,omitempty"`
@@ -38,6 +39,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	cfg := registry.EngagementConfig{
 		Channels:    req.Channels,
+		OpsChannels: req.OpsChannels,
 		Permissions: req.Permissions,
 	}
 	if req.RateLimit != nil {
@@ -58,7 +60,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.registry.Touch(req.Nick)
-	s.setAgentModes(req.Nick, req.Type, cfg.Channels)
+	s.setAgentModes(req.Nick, req.Type, cfg)
 	writeJSON(w, http.StatusCreated, registerResponse{
 		Credentials: creds,
 		Payload:     payload,
@@ -70,6 +72,7 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Type        registry.AgentType `json:"type"`
 		Channels    []string           `json:"channels"`
+		OpsChannels []string           `json:"ops_channels,omitempty"`
 		Permissions []string           `json:"permissions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -81,6 +84,7 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := registry.EngagementConfig{
 		Channels:    req.Channels,
+		OpsChannels: req.OpsChannels,
 		Permissions: req.Permissions,
 	}
 	payload, err := s.registry.Adopt(nick, req.Type, cfg)
@@ -93,7 +97,7 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "adopt failed")
 		return
 	}
-	s.setAgentModes(nick, req.Type, cfg.Channels)
+	s.setAgentModes(nick, req.Type, cfg)
 	writeJSON(w, http.StatusOK, map[string]any{"nick": nick, "payload": payload})
 }
 
@@ -199,9 +203,10 @@ func agentModeLevel(t registry.AgentType) string {
 }
 
 // setAgentModes grants the appropriate ChanServ access for an agent on all
-// its assigned channels based on its type. No-op when topology is not configured
-// or the agent type doesn't warrant a mode.
-func (s *Server) setAgentModes(nick string, agentType registry.AgentType, channels []string) {
+// its assigned channels based on its type. For orchestrators with OpsChannels
+// configured, +o is granted only on those channels and +v on the rest.
+// No-op when topology is not configured or the agent type doesn't warrant a mode.
+func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg registry.EngagementConfig) {
 	if s.topoMgr == nil {
 		return
 	}
@@ -209,7 +214,25 @@ func (s *Server) setAgentModes(nick string, agentType registry.AgentType, channe
 	if level == "" {
 		return
 	}
-	for _, ch := range channels {
+
+	// Orchestrators with explicit OpsChannels get +o only on those channels
+	// and +v on remaining channels.
+	if level == "OP" && len(cfg.OpsChannels) > 0 {
+		opsSet := make(map[string]struct{}, len(cfg.OpsChannels))
+		for _, ch := range cfg.OpsChannels {
+			opsSet[ch] = struct{}{}
+		}
+		for _, ch := range cfg.Channels {
+			if _, isOps := opsSet[ch]; isOps {
+				s.topoMgr.GrantAccess(nick, ch, "OP")
+			} else {
+				s.topoMgr.GrantAccess(nick, ch, "VOICE")
+			}
+		}
+		return
+	}
+
+	for _, ch := range cfg.Channels {
 		s.topoMgr.GrantAccess(nick, ch, level)
 	}
 }
