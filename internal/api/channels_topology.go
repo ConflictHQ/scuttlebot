@@ -7,12 +7,15 @@ import (
 	"github.com/conflicthq/scuttlebot/internal/topology"
 )
 
-// topologyManager is the interface the API server uses to provision channels
+// TopologyManager is the interface the API server uses to provision channels
 // and query the channel policy. Satisfied by *topology.Manager.
+type TopologyManager = topologyManager
 type topologyManager interface {
 	ProvisionChannel(ch topology.ChannelConfig) error
 	DropChannel(channel string)
 	Policy() *topology.Policy
+	GrantAccess(nick, channel, level string)
+	RevokeAccess(nick, channel string)
 }
 
 type provisionChannelRequest struct {
