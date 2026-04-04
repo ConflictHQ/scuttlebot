@@ -704,7 +704,9 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 			fmt.Fprintf(os.Stderr, "claude-relay: reconnected, restarting mirror and input loops\n")
 
 			// Restart mirror and input loops with the new connector.
-			go mirrorSessionLoop(ctx, conn, cfg, startedAt)
+			// Use epoch time for mirror so it finds the existing session file
+			// regardless of when it was last modified.
+			go mirrorSessionLoop(ctx, conn, cfg, time.Time{})
 			go relayInputLoop(ctx, conn, cfg, state, ptmx, now)
 			break
 		}
