@@ -89,6 +89,12 @@ type config struct {
 
 type message = sessionrelay.Message
 
+// mirrorLine is a single line of relay output with optional structured metadata.
+type mirrorLine struct {
+	Text string
+	Meta json.RawMessage
+}
+
 type relayState struct {
 	mu       sync.RWMutex
 	lastBusy time.Time
@@ -203,6 +209,13 @@ func run(cfg config) error {
 	}
 
 	cmd := exec.Command(cfg.CodexBin, cfg.Args...)
+	// Snapshot existing session files before starting the subprocess so
+	// discovery can distinguish our session from pre-existing ones.
+	var preExisting map[string]struct{}
+	if sessRoot, err := codexSessionsRoot(); err == nil {
+		preExisting = snapshotSessionFiles(sessRoot)
+	}
+
 	startedAt := time.Now()
 	cmd.Env = append(os.Environ(),
 		"SCUTTLEBOT_CONFIG_FILE="+cfg.ConfigFile,
@@ -217,7 +230,7 @@ func run(cfg config) error {
 		"SCUTTLEBOT_ACTIVITY_VIA_BROKER="+boolString(relayActive),
 	)
 	if relayActive {
-		go mirrorSessionLoop(ctx, relay, cfg, startedAt)
+		go mirrorSessionLoop(ctx, relay, cfg, startedAt, preExisting)
 		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
 	}
 
@@ -397,7 +410,7 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 			// Restart mirror and input loops with the new connector.
 			// Use epoch time for mirror so it finds the existing session file
 			// regardless of when it was last modified.
-			go mirrorSessionLoop(ctx, conn, cfg, time.Time{})
+			go mirrorSessionLoop(ctx, conn, cfg, time.Time{}, nil)
 			go relayInputLoop(ctx, conn, cfg, state, ptmx, now)
 			break
 		}
@@ -798,12 +811,12 @@ func defaultSessionID(target string) string {
 	return fmt.Sprintf("%08x", sum)
 }
 
-func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time) {
+func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time, preExisting map[string]struct{}) {
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		sessionPath, err := discoverSessionPath(ctx, cfg, startedAt)
+		sessionPath, err := discoverSessionPath(ctx, cfg, startedAt, preExisting)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -811,12 +824,16 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(text string) {
-			for _, line := range splitMirrorText(text) {
+		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(ml mirrorLine) {
+			for _, line := range splitMirrorText(ml.Text) {
 				if line == "" {
 					continue
 				}
-				_ = relay.Post(ctx, line)
+				if len(ml.Meta) > 0 {
+					_ = relay.PostWithMeta(ctx, line, ml.Meta)
+				} else {
+					_ = relay.Post(ctx, line)
+				}
 			}
 		}); err != nil && ctx.Err() == nil {
 			time.Sleep(5 * time.Second)
@@ -826,7 +843,7 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 	}
 }
 
-func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (string, error) {
+func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time, preExisting map[string]struct{}) (string, error) {
 	root, err := codexSessionsRoot()
 	if err != nil {
 		return "", err
@@ -840,7 +857,7 @@ func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (
 
 	target := filepath.Clean(cfg.TargetCWD)
 	return waitForSessionPath(ctx, func() (string, error) {
-		return findLatestSessionPath(root, target, startedAt.Add(-2*time.Second))
+		return findLatestSessionPath(root, target, startedAt.Add(-2*time.Second), preExisting)
 	})
 }
 
@@ -864,7 +881,7 @@ func waitForSessionPath(ctx context.Context, find func() (string, error)) (strin
 	}
 }
 
-func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(string)) error {
+func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(mirrorLine)) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -879,9 +896,9 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			for _, text := range sessionMessages(line, mirrorReasoning) {
-				if text != "" {
-					emit(text)
+			for _, ml := range sessionMessages(line, mirrorReasoning) {
+				if ml.Text != "" {
+					emit(ml)
 				}
 			}
 		}
@@ -900,7 +917,7 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 	}
 }
 
-func sessionMessages(line []byte, mirrorReasoning bool) []string {
+func sessionMessages(line []byte, mirrorReasoning bool) []mirrorLine {
 	var env sessionEnvelope
 	if err := json.Unmarshal(line, &env); err != nil {
 		return nil
@@ -917,11 +934,13 @@ func sessionMessages(line []byte, mirrorReasoning bool) []string {
 	switch payload.Type {
 	case "function_call":
 		if msg := summarizeFunctionCall(payload.Name, payload.Arguments); msg != "" {
-			return []string{msg}
+			meta := codexToolMeta(payload.Name, payload.Arguments)
+			return []mirrorLine{{Text: msg, Meta: meta}}
 		}
 	case "custom_tool_call":
 		if msg := summarizeCustomToolCall(payload.Name, payload.Input); msg != "" {
-			return []string{msg}
+			meta := codexToolMeta(payload.Name, payload.Input)
+			return []mirrorLine{{Text: msg, Meta: meta}}
 		}
 	case "message":
 		if payload.Role != "assistant" {
@@ -930,6 +949,26 @@ func sessionMessages(line []byte, mirrorReasoning bool) []string {
 		return flattenAssistantContent(payload.Content, mirrorReasoning)
 	}
 	return nil
+}
+
+// codexToolMeta builds a JSON metadata envelope for a Codex tool call.
+func codexToolMeta(name, argsJSON string) json.RawMessage {
+	data := map[string]string{"tool": name}
+	switch name {
+	case "exec_command":
+		var args execCommandArgs
+		if err := json.Unmarshal([]byte(argsJSON), &args); err == nil && args.Cmd != "" {
+			data["command"] = sanitizeSecrets(args.Cmd)
+		}
+	case "apply_patch":
+		files := patchTargets(argsJSON)
+		if len(files) > 0 {
+			data["file"] = files[0]
+		}
+	}
+	meta := map[string]any{"type": "tool_result", "data": data}
+	b, _ := json.Marshal(meta)
+	return b
 }
 
 func summarizeFunctionCall(name, argsJSON string) string {
@@ -977,21 +1016,21 @@ func summarizeCustomToolCall(name, input string) string {
 	}
 }
 
-func flattenAssistantContent(content []sessionContent, mirrorReasoning bool) []string {
-	var lines []string
+func flattenAssistantContent(content []sessionContent, mirrorReasoning bool) []mirrorLine {
+	var lines []mirrorLine
 	for _, item := range content {
 		switch item.Type {
 		case "output_text":
 			for _, line := range splitMirrorText(item.Text) {
 				if line != "" {
-					lines = append(lines, line)
+					lines = append(lines, mirrorLine{Text: line})
 				}
 			}
 		case "reasoning":
 			if mirrorReasoning {
 				for _, line := range splitMirrorText(item.Text) {
 					if line != "" {
-						lines = append(lines, "💭 "+line)
+						lines = append(lines, mirrorLine{Text: "💭 " + line})
 					}
 				}
 			}
@@ -1073,6 +1112,21 @@ func explicitThreadID(args []string) string {
 	return ""
 }
 
+// snapshotSessionFiles returns the set of .jsonl file paths currently under root.
+// Called before starting the Codex subprocess so discovery can skip pre-existing
+// sessions and deterministically find the one our subprocess creates.
+func snapshotSessionFiles(root string) map[string]struct{} {
+	existing := make(map[string]struct{})
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		existing[path] = struct{}{}
+		return nil
+	})
+	return existing
+}
+
 func codexSessionsRoot() (string, error) {
 	if value := os.Getenv("CODEX_HOME"); value != "" {
 		return filepath.Join(value, "sessions"), nil
@@ -1105,15 +1159,26 @@ func findSessionPathByThreadID(root, threadID string) (string, error) {
 	return match, nil
 }
 
-func findLatestSessionPath(root, target string, notBefore time.Time) (string, error) {
-	var (
-		bestPath string
-		bestTime time.Time
-	)
+// findLatestSessionPath finds the .jsonl file in root that was created by our
+// subprocess. It uses a pre-existing file snapshot to skip sessions that
+// existed before the subprocess started, then filters by CWD and picks the
+// oldest new match. When preExisting is nil (reconnect), it falls back to
+// accepting any file whose timestamp is >= notBefore.
+func findLatestSessionPath(root, target string, notBefore time.Time, preExisting map[string]struct{}) (string, error) {
+	type candidate struct {
+		path string
+		ts   time.Time
+	}
+	var candidates []candidate
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
+		}
+		if preExisting != nil {
+			if _, existed := preExisting[path]; existed {
+				return nil
+			}
 		}
 		meta, ts, err := readSessionMeta(path)
 		if err != nil {
@@ -1125,19 +1190,21 @@ func findLatestSessionPath(root, target string, notBefore time.Time) (string, er
 		if ts.Before(notBefore) {
 			return nil
 		}
-		if bestPath == "" || ts.After(bestTime) {
-			bestPath = path
-			bestTime = ts
-		}
+		candidates = append(candidates, candidate{path: path, ts: ts})
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
-	if bestPath == "" {
+	if len(candidates) == 0 {
 		return "", os.ErrNotExist
 	}
-	return bestPath, nil
+	// Pick the oldest new session — the first file created after our
+	// subprocess started is most likely ours.
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].ts.Before(candidates[j].ts)
+	})
+	return candidates[0].path, nil
 }
 
 func readSessionMeta(path string) (sessionMetaPayload, time.Time, error) {

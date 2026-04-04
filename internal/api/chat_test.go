@@ -29,8 +29,11 @@ func (b *stubChatBridge) Subscribe(string) (<-chan bridge.Message, func()) {
 	return make(chan bridge.Message), func() {}
 }
 func (b *stubChatBridge) Send(context.Context, string, string, string) error { return nil }
-func (b *stubChatBridge) Stats() bridge.Stats                                { return bridge.Stats{} }
-func (b *stubChatBridge) Users(string) []string                              { return nil }
+func (b *stubChatBridge) SendWithMeta(_ context.Context, _, _, _ string, _ *bridge.Meta) error {
+	return nil
+}
+func (b *stubChatBridge) Stats() bridge.Stats   { return bridge.Stats{} }
+func (b *stubChatBridge) Users(string) []string { return nil }
 func (b *stubChatBridge) TouchUser(channel, nick string) {
 	b.touched = append(b.touched, struct{ channel, nick string }{channel: channel, nick: nick})
 }

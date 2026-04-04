@@ -18,6 +18,7 @@ type chatBridge interface {
 	Messages(channel string) []bridge.Message
 	Subscribe(channel string) (<-chan bridge.Message, func())
 	Send(ctx context.Context, channel, text, senderNick string) error
+	SendWithMeta(ctx context.Context, channel, text, senderNick string, meta *bridge.Meta) error
 	Stats() bridge.Stats
 	TouchUser(channel, nick string)
 	Users(channel string) []string
@@ -66,8 +67,9 @@ func (s *Server) handleChannelMessages(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
 	var req struct {
-		Text string `json:"text"`
-		Nick string `json:"nick"`
+		Text string       `json:"text"`
+		Nick string       `json:"nick"`
+		Meta *bridge.Meta `json:"meta,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -77,7 +79,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	if err := s.bridge.Send(r.Context(), channel, req.Text, req.Nick); err != nil {
+	if err := s.bridge.SendWithMeta(r.Context(), channel, req.Text, req.Nick, req.Meta); err != nil {
 		s.log.Error("bridge send", "channel", channel, "err", err)
 		writeError(w, http.StatusInternalServerError, "send failed")
 		return

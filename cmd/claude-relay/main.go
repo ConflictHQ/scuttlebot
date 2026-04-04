@@ -22,6 +22,7 @@ import (
 	"github.com/conflicthq/scuttlebot/pkg/ircagent"
 	"github.com/conflicthq/scuttlebot/pkg/sessionrelay"
 	"github.com/creack/pty"
+	"github.com/google/uuid"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
@@ -77,6 +78,7 @@ type config struct {
 	Channels           []string
 	ChannelStateFile   string
 	SessionID          string
+	ClaudeSessionID    string // UUID passed to Claude Code via --session-id
 	Nick               string
 	HooksEnabled       bool
 	InterruptOnMessage bool
@@ -88,6 +90,12 @@ type config struct {
 }
 
 type message = sessionrelay.Message
+
+// mirrorLine is a single line of relay output with optional structured metadata.
+type mirrorLine struct {
+	Text string
+	Meta json.RawMessage // nil for plain text lines
+}
 
 type relayState struct {
 	mu       sync.RWMutex
@@ -182,6 +190,16 @@ func run(cfg config) error {
 	}
 
 	startedAt := time.Now()
+	// If resuming, extract the session ID from --resume arg. Otherwise use
+	// our generated UUID via --session-id for new sessions.
+	if resumeID := extractResumeID(cfg.Args); resumeID != "" {
+		cfg.ClaudeSessionID = resumeID
+		fmt.Fprintf(os.Stderr, "claude-relay: resuming session %s\n", resumeID)
+	} else {
+		// New session — inject --session-id so the file name is deterministic.
+		cfg.Args = append([]string{"--session-id", cfg.ClaudeSessionID}, cfg.Args...)
+		fmt.Fprintf(os.Stderr, "claude-relay: new session %s\n", cfg.ClaudeSessionID)
+	}
 	cmd := exec.Command(cfg.ClaudeBin, cfg.Args...)
 	cmd.Env = append(os.Environ(),
 		"SCUTTLEBOT_CONFIG_FILE="+cfg.ConfigFile,
@@ -281,12 +299,16 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(text string) {
-			for _, line := range splitMirrorText(text) {
+		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(ml mirrorLine) {
+			for _, line := range splitMirrorText(ml.Text) {
 				if line == "" {
 					continue
 				}
-				_ = relay.Post(ctx, line)
+				if len(ml.Meta) > 0 {
+					_ = relay.PostWithMeta(ctx, line, ml.Meta)
+				} else {
+					_ = relay.Post(ctx, line)
+				}
 			}
 		}); err != nil && ctx.Err() == nil {
 			// Tail lost — retry discovery.
@@ -297,11 +319,15 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 	}
 }
 
-func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (string, error) {
+func discoverSessionPath(ctx context.Context, cfg config, _ time.Time) (string, error) {
 	root, err := claudeSessionsRoot(cfg.TargetCWD)
 	if err != nil {
 		return "", err
 	}
+
+	// We passed --session-id to Claude Code, so the file name is deterministic.
+	target := filepath.Join(root, cfg.ClaudeSessionID+".jsonl")
+	fmt.Fprintf(os.Stderr, "claude-relay: waiting for session file %s\n", target)
 
 	ctx, cancel := context.WithTimeout(ctx, defaultDiscoverWait)
 	defer cancel()
@@ -310,16 +336,31 @@ func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (
 	defer ticker.Stop()
 
 	for {
-		path, err := findLatestSessionPath(root, cfg.TargetCWD, startedAt.Add(-2*time.Second))
-		if err == nil && path != "" {
-			return path, nil
+		if _, err := os.Stat(target); err == nil {
+			fmt.Fprintf(os.Stderr, "claude-relay: found session file %s\n", target)
+			return target, nil
 		}
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", fmt.Errorf("session file %s not found after %v", target, defaultDiscoverWait)
 		case <-ticker.C:
 		}
 	}
+}
+
+// extractResumeID finds --resume or -r in args and returns the session UUID
+// that follows it. Returns "" if not resuming or if the value isn't a UUID.
+func extractResumeID(args []string) string {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--resume" || args[i] == "-r" || args[i] == "--continue" {
+			val := args[i+1]
+			// Must look like a UUID (contains dashes, right length)
+			if len(val) >= 32 && strings.Contains(val, "-") {
+				return val
+			}
+		}
+	}
+	return ""
 }
 
 // claudeSessionsRoot returns ~/.claude/projects/<sanitized-cwd>/
@@ -333,76 +374,7 @@ func claudeSessionsRoot(cwd string) (string, error) {
 	return filepath.Join(home, ".claude", "projects", "-"+sanitized), nil
 }
 
-// findLatestSessionPath finds the most recently modified .jsonl file in root
-// that contains an entry with cwd matching targetCWD and timestamp after since.
-func findLatestSessionPath(root, targetCWD string, since time.Time) (string, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return "", err
-	}
-
-	type candidate struct {
-		path    string
-		modTime time.Time
-	}
-	var candidates []candidate
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if info.ModTime().Before(since) {
-			continue
-		}
-		candidates = append(candidates, candidate{
-			path:    filepath.Join(root, e.Name()),
-			modTime: info.ModTime(),
-		})
-	}
-	if len(candidates) == 0 {
-		return "", errors.New("no session files found")
-	}
-	// Sort newest first.
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].modTime.After(candidates[j].modTime)
-	})
-	// Return the first file that has an entry matching our cwd.
-	for _, c := range candidates {
-		if matchesSession(c.path, targetCWD, since) {
-			return c.path, nil
-		}
-	}
-	return "", errors.New("no matching session found")
-}
-
-// matchesSession peeks at the first few lines of a JSONL file to verify cwd.
-func matchesSession(path, targetCWD string, since time.Time) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	checked := 0
-	for scanner.Scan() && checked < 5 {
-		checked++
-		var entry claudeSessionEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			continue
-		}
-		if entry.CWD == "" {
-			continue
-		}
-		return entry.CWD == targetCWD
-	}
-	return false
-}
-
-func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(string)) error {
+func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(mirrorLine)) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -417,9 +389,9 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			for _, text := range sessionMessages(line, mirrorReasoning) {
-				if text != "" {
-					emit(text)
+			for _, ml := range sessionMessages(line, mirrorReasoning) {
+				if ml.Text != "" {
+					emit(ml)
 				}
 			}
 		}
@@ -432,15 +404,20 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 				return nil
 			case <-time.After(defaultScanInterval):
 			}
+			// Reset the buffered reader so it retries the underlying
+			// file descriptor. bufio.Reader caches EOF and won't see
+			// new bytes appended to the file without a reset.
+			reader.Reset(file)
 			continue
 		}
 		return err
 	}
 }
 
-// sessionMessages parses a Claude Code JSONL line and returns IRC-ready strings.
+// sessionMessages parses a Claude Code JSONL line and returns mirror lines
+// with optional structured metadata for rich rendering in the web UI.
 // If mirrorReasoning is true, thinking blocks are included prefixed with "💭 ".
-func sessionMessages(line []byte, mirrorReasoning bool) []string {
+func sessionMessages(line []byte, mirrorReasoning bool) []mirrorLine {
 	var entry claudeSessionEntry
 	if err := json.Unmarshal(line, &entry); err != nil {
 		return nil
@@ -449,30 +426,87 @@ func sessionMessages(line []byte, mirrorReasoning bool) []string {
 		return nil
 	}
 
-	var out []string
+	var out []mirrorLine
 	for _, block := range entry.Message.Content {
 		switch block.Type {
 		case "text":
 			for _, l := range splitMirrorText(block.Text) {
 				if l != "" {
-					out = append(out, sanitizeSecrets(l))
+					out = append(out, mirrorLine{Text: sanitizeSecrets(l)})
 				}
 			}
 		case "tool_use":
 			if msg := summarizeToolUse(block.Name, block.Input); msg != "" {
-				out = append(out, msg)
+				out = append(out, mirrorLine{
+					Text: msg,
+					Meta: toolMeta(block.Name, block.Input),
+				})
 			}
 		case "thinking":
 			if mirrorReasoning {
 				for _, l := range splitMirrorText(block.Text) {
 					if l != "" {
-						out = append(out, "💭 "+sanitizeSecrets(l))
+						out = append(out, mirrorLine{Text: "💭 " + sanitizeSecrets(l)})
 					}
 				}
 			}
 		}
 	}
 	return out
+}
+
+// toolMeta builds a JSON metadata envelope for a tool_use block.
+func toolMeta(name string, inputRaw json.RawMessage) json.RawMessage {
+	var input map[string]json.RawMessage
+	_ = json.Unmarshal(inputRaw, &input)
+
+	data := map[string]string{"tool": name}
+
+	str := func(key string) string {
+		v, ok := input[key]
+		if !ok {
+			return ""
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return strings.Trim(string(v), `"`)
+		}
+		return s
+	}
+
+	switch name {
+	case "Bash":
+		if cmd := str("command"); cmd != "" {
+			data["command"] = sanitizeSecrets(cmd)
+		}
+	case "Edit", "Write", "Read":
+		if p := str("file_path"); p != "" {
+			data["file"] = p
+		}
+	case "Glob":
+		if p := str("pattern"); p != "" {
+			data["pattern"] = p
+		}
+	case "Grep":
+		if p := str("pattern"); p != "" {
+			data["pattern"] = p
+		}
+	case "WebFetch":
+		if u := str("url"); u != "" {
+			data["url"] = sanitizeSecrets(u)
+		}
+	case "WebSearch":
+		if q := str("query"); q != "" {
+			data["query"] = q
+		}
+	}
+
+	meta := map[string]any{
+		"type": "tool_result",
+		"data": data,
+	}
+	b, _ := json.Marshal(meta)
+	return b
 }
 
 func summarizeToolUse(name string, inputRaw json.RawMessage) string {
@@ -947,6 +981,7 @@ func loadConfig(args []string) (config, error) {
 		sessionID = defaultSessionID(target)
 	}
 	cfg.SessionID = sanitize(sessionID)
+	cfg.ClaudeSessionID = uuid.New().String()
 
 	nick := getenvOr(fileConfig, "SCUTTLEBOT_NICK", "")
 	if nick == "" {
