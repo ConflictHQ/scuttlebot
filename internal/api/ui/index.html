@@ -1837,6 +1837,7 @@ function nickTier(nick) {
 function nickPrefix(nick) {
   const tier = nickTier(nick);
   if (tier === 0) return '@';
+  if (tier === 1) return '$';
   if (tier === 2) return '+';
   return '';
 }
@@ -2005,7 +2006,7 @@ async function sendMsg() {
       if (_tabIdx === -1 || word.toLowerCase() !== _tabPrefix.toLowerCase()) {
         _tabPrefix = word;
         const nicks = Array.from(document.querySelectorAll('#nicklist-users .nicklist-nick'))
-          .map(el => el.textContent.replace(/^[●@+]\s*/, '').trim())
+          .map(el => el.textContent.replace(/^[●@+$]\s*/, '').trim())
           .filter(n => n.toLowerCase().startsWith(word.replace(/^@/, '').toLowerCase()));
         if (!nicks.length) return;
         _tabCandidates = nicks;
