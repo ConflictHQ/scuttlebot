@@ -310,6 +310,35 @@ func TestRegisterGrantsOPForOperator(t *testing.T) {
 	}
 }
 
+func TestRegisterOrchestratorWithOpsChannels(t *testing.T) {
+	stub := &stubTopologyManager{}
+	srv, tok := newTopoTestServerWithRegistry(t, stub)
+
+	resp := topoDoJSON(t, srv, tok, "POST", "/v1/agents/register", map[string]any{
+		"nick":         "orch-ops",
+		"type":         "orchestrator",
+		"channels":     []string{"#fleet", "#project.foo", "#project.bar"},
+		"ops_channels": []string{"#fleet"},
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register: want 201, got %d", resp.StatusCode)
+	}
+
+	if len(stub.grants) != 3 {
+		t.Fatalf("grants: want 3, got %d", len(stub.grants))
+	}
+	for i, want := range []accessCall{
+		{Nick: "orch-ops", Channel: "#fleet", Level: "OP"},
+		{Nick: "orch-ops", Channel: "#project.foo", Level: "VOICE"},
+		{Nick: "orch-ops", Channel: "#project.bar", Level: "VOICE"},
+	} {
+		if stub.grants[i] != want {
+			t.Errorf("grant[%d] = %+v, want %+v", i, stub.grants[i], want)
+		}
+	}
+}
+
 func TestRevokeRemovesAccess(t *testing.T) {
 	stub := &stubTopologyManager{}
 	srv, tok := newTopoTestServerWithRegistry(t, stub)

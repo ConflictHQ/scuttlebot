@@ -140,7 +140,7 @@ func (cs *channelState) violation(nick string) Action {
 type Bot struct {
 	ircAddr        string
 	password       string
-	initChannels   []string                // channels to join on connect
+	initChannels   []string                 // channels to join on connect
 	channelConfigs map[string]ChannelConfig // keyed by channel name
 	defaultConfig  ChannelConfig
 	mu             sync.RWMutex
@@ -241,6 +241,11 @@ func (b *Bot) Start(ctx context.Context) error {
 			return
 		}
 
+		// Skip enforcement for channel ops (+o and above).
+		if isChannelOp(cl, channel, nick) {
+			return
+		}
+
 		// Rate limit check.
 		if !cs.consume(nick) {
 			action := cs.violation(nick)
@@ -310,6 +315,20 @@ func (b *Bot) enforce(cl *girc.Client, channel, nick string, action Action, reas
 	case ActionKick:
 		cl.Cmd.Kick(channel, nick, "warden: "+reason)
 	}
+}
+
+// isChannelOp returns true if nick has +o or higher in the given channel.
+// Returns false if the user or channel cannot be looked up (e.g. not tracked).
+func isChannelOp(cl *girc.Client, channel, nick string) bool {
+	user := cl.LookupUser(nick)
+	if user == nil || user.Perms == nil {
+		return false
+	}
+	perms, ok := user.Perms.Lookup(channel)
+	if !ok {
+		return false
+	}
+	return perms.IsAdmin()
 }
 
 func splitHostPort(addr string) (string, int, error) {
