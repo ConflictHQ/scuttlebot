@@ -37,6 +37,12 @@ const (
 	KindRegistry EventKind = "registry"
 )
 
+// Event types for user presence changes.
+const (
+	EventUserJoin = "user.join"
+	EventUserPart = "user.part"
+)
+
 // Entry is an immutable audit record.
 type Entry struct {
 	At          time.Time
@@ -156,7 +162,45 @@ func (b *Bot) Start(ctx context.Context) error {
 			MessageID:   env.ID,
 		})
 	})
+	c.Handlers.AddBg(girc.JOIN, func(_ *girc.Client, e girc.Event) {
+		if len(e.Params) == 0 {
+			return
+		}
+		if !b.shouldAudit(EventUserJoin) {
+			return
+		}
+		channel := e.Params[0]
+		nick := ""
+		if e.Source != nil {
+			nick = e.Source.Name
+		}
+		b.write(Entry{
+			Kind:        KindIRC,
+			Channel:     channel,
+			Nick:        nick,
+			MessageType: EventUserJoin,
+		})
+	})
 
+	c.Handlers.AddBg(girc.PART, func(_ *girc.Client, e girc.Event) {
+		if len(e.Params) == 0 {
+			return
+		}
+		if !b.shouldAudit(EventUserPart) {
+			return
+		}
+		channel := e.Params[0]
+		nick := ""
+		if e.Source != nil {
+			nick = e.Source.Name
+		}
+		b.write(Entry{
+			Kind:        KindIRC,
+			Channel:     channel,
+			Nick:        nick,
+			MessageType: EventUserPart,
+		})
+	})
 	b.client = c
 
 	errCh := make(chan error, 1)
@@ -193,7 +237,13 @@ func (b *Bot) shouldAudit(msgType string) bool {
 func (b *Bot) write(e Entry) {
 	e.At = time.Now()
 	if err := b.store.Append(e); err != nil {
-		b.log.Error("auditbot: failed to write entry", "type", e.MessageType, "err", err)
+		b.log.Error("auditbot: failed to write entry",
+			"type", e.MessageType,
+			"nick", e.Nick,
+			"channel", e.Channel,
+			"kind", e.Kind,
+			"err", err,
+		)
 	}
 }
 
