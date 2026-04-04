@@ -63,6 +63,9 @@ type Config struct {
 	// MinSeverity controls which severities trigger a report.
 	// "low", "medium", "high" — default: "medium".
 	MinSeverity string
+
+	// Channels is the list of channels to join on connect.
+	Channels []string
 }
 
 func (c *Config) setDefaults() {
@@ -145,10 +148,13 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
-		if b.log != nil {
-			b.log.Info("sentinel connected")
+		for _, ch := range b.cfg.Channels {
+			cl.Cmd.Join(ch)
 		}
 		cl.Cmd.Join(b.cfg.ModChannel)
+		if b.log != nil {
+			b.log.Info("sentinel connected", "channels", b.cfg.Channels)
+		}
 	})
 
 	c.Handlers.AddBg(girc.INVITE, func(cl *girc.Client, e girc.Event) {

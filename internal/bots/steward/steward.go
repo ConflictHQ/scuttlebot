@@ -67,6 +67,9 @@ type Config struct {
 	// CooldownPerNick is the minimum time between automated actions on the
 	// same nick. Default: 5 minutes.
 	CooldownPerNick time.Duration
+
+	// Channels is the list of channels to join on connect.
+	Channels []string
 }
 
 func (c *Config) setDefaults() {
@@ -129,10 +132,13 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
-		if b.log != nil {
-			b.log.Info("steward connected")
+		for _, ch := range b.cfg.Channels {
+			cl.Cmd.Join(ch)
 		}
 		cl.Cmd.Join(b.cfg.ModChannel)
+		if b.log != nil {
+			b.log.Info("steward connected", "channels", b.cfg.Channels)
+		}
 	})
 
 	c.Handlers.AddBg(girc.INVITE, func(cl *girc.Client, e girc.Event) {

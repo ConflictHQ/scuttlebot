@@ -8,7 +8,7 @@ import (
 )
 
 func newBot() *warden.Bot {
-	return warden.New("localhost:6667", "pass",
+	return warden.New("localhost:6667", "pass", nil,
 		map[string]warden.ChannelConfig{
 			"#fleet": {MessagesPerSecond: 5, Burst: 10, CoolDown: 60 * time.Second},
 		},
@@ -33,7 +33,7 @@ func TestBotNew(t *testing.T) {
 
 func TestChannelConfigDefaults(t *testing.T) {
 	// Zero-value config should get sane defaults applied.
-	b := warden.New("localhost:6667", "pass",
+	b := warden.New("localhost:6667", "pass", nil,
 		nil,
 		warden.ChannelConfig{}, // zero — should default
 		nil,
@@ -52,7 +52,7 @@ func TestRateLimiterTokenBucket(t *testing.T) {
 		Burst:             20,
 		CoolDown:          30 * time.Second,
 	}
-	b := warden.New("localhost:6667", "pass",
+	b := warden.New("localhost:6667", "pass", nil,
 		map[string]warden.ChannelConfig{"#fleet": cfg},
 		warden.ChannelConfig{},
 		nil,
