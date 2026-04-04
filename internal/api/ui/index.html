@@ -2006,7 +2006,7 @@ if (localStorage.getItem('sb_chat_columnar') === '1') {
 }
 
 // --- rich mode toggle ---
-function isRichMode() { return localStorage.getItem('sb_rich_mode') !== '0'; }
+function isRichMode() { return localStorage.getItem('sb_rich_mode') === '1'; }
 function toggleRichMode() {
   const on = !isRichMode();
   localStorage.setItem('sb_rich_mode', on ? '1' : '0');
