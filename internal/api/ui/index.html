@@ -172,6 +172,10 @@ select option { background:#161b22; }
 /* unread badge on chat tab */
 .nav-tab[data-unread]::after { content:attr(data-unread); background:#f85149; color:#fff; border-radius:999px; padding:1px 5px; font-size:10px; margin-left:5px; vertical-align:middle; }
 .msg-text { color:#e6edf3; word-break:break-word; }
+.msg-row.hl-mention { background:#1f6feb18; border-left:2px solid #58a6ff; padding-left:6px; }
+.msg-row.hl-danger { background:#f8514918; border-left:2px solid #f85149; padding-left:6px; }
+.msg-row.hl-system { opacity:0.6; font-style:italic; }
+.msg-text .hl-word { background:#f0883e33; border-radius:2px; padding:0 2px; }
 .chat-input { padding:9px 13px; padding-bottom:calc(9px + env(safe-area-inset-bottom, 0px)); border-top:1px solid #30363d; display:flex; gap:7px; flex-shrink:0; background:#161b22; }
 
 /* channels tab */
@@ -488,6 +492,7 @@ canvas { display:block; width:100% !important; }
         <option value="">— pick a user —</option>
       </select>
       <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="toggle compact/columnar" style="font-size:11px;padding:2px 6px">☰</button>
+      <button class="sm" onclick="promptHighlightWords()" title="configure highlight keywords" style="font-size:11px;padding:2px 6px">✦</button>
       <span class="stream-badge" id="chat-stream-status" style="margin-left:8px"></span>
     </div>
     <div class="chat-msgs" id="chat-msgs">
@@ -1860,7 +1865,21 @@ function appendMsg(msg, isHistory) {
   row.innerHTML =
     `<span class="msg-time" title="${esc(new Date(msg.at).toLocaleString())}">${esc(timeStr)}</span>` +
     `<span class="msg-nick" style="color:${color}">[${esc(displayNick)}]:</span>` +
-    `<span class="msg-text">${esc(displayText)}</span>`;
+    `<span class="msg-text">${highlightText(esc(displayText))}</span>`;
+
+  // Apply row-level highlights.
+  const myNick = localStorage.getItem('sb_username') || '';
+  const lower = displayText.toLowerCase();
+  if (myNick && lower.includes(myNick.toLowerCase())) {
+    row.classList.add('hl-mention');
+  } else if (getDangerWords().some(w => lower.includes(w))) {
+    row.classList.add('hl-danger');
+  }
+  // System messages (joins, parts, reconnects).
+  if (/\b(online|offline|reconnected|joined|parted)\b/i.test(displayText) && !displayText.includes(': ')) {
+    row.classList.add('hl-system');
+  }
+
   area.appendChild(row);
 
   // Unread badge when chat tab not active
@@ -1986,6 +2005,44 @@ async function sendMsg() {
 
 // --- sidebar collapse toggles ---
 function isMobile() { return window.matchMedia('(max-width: 600px)').matches; }
+
+// --- chat highlights ---
+const DEFAULT_DANGER_WORDS = ['rm -rf','git reset','git push --force','force push','drop table','delete from','git checkout .','git restore .','--no-verify'];
+
+function promptHighlightWords() {
+  const current = getDangerWords().join(', ');
+  const input = prompt('Highlight keywords (comma-separated).\nMessages containing these words get a red border.\n\nCurrent:', current);
+  if (input === null) return; // cancelled
+  const words = input.split(',').map(s => s.trim()).filter(Boolean);
+  localStorage.setItem('sb_highlight_words', JSON.stringify(words));
+}
+
+function getDangerWords() {
+  try {
+    const custom = JSON.parse(localStorage.getItem('sb_highlight_words') || 'null');
+    if (Array.isArray(custom)) return custom.map(w => w.toLowerCase());
+  } catch(e) {}
+  return DEFAULT_DANGER_WORDS;
+}
+
+function getHighlightWords() {
+  const words = [];
+  const myNick = localStorage.getItem('sb_username') || '';
+  if (myNick) words.push(myNick);
+  words.push(...getDangerWords());
+  return words;
+}
+
+function highlightText(escaped) {
+  const words = getHighlightWords();
+  if (words.length === 0) return escaped;
+  // Build regex from all highlight words, longest first to avoid partial matches.
+  const sorted = words.slice().sort((a, b) => b.length - a.length);
+  const pattern = sorted.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  if (!pattern) return escaped;
+  const re = new RegExp('(' + pattern + ')', 'gi');
+  return escaped.replace(re, '<span class="hl-word">$1</span>');
+}
 
 function toggleSidebar(side) {
   if (side === 'left') {
