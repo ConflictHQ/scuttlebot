@@ -1921,12 +1921,10 @@ function getChatNick() {
 function populateChatIdentity() {
   const sel = document.getElementById('chat-identity');
   const current = getChatNick();
-  // Operators + any registered nick can send (all types visible, operators first)
+  // Only operators (human users) can chat — agents are not selectable.
   const operators = allAgents.filter(a => a.type === 'operator' && !a.revoked);
-  const bots      = allAgents.filter(a => a.type !== 'operator' && !a.revoked);
-  const options   = [...operators, ...bots];
   sel.innerHTML = '<option value="">— pick a user —</option>' +
-    options.map(a => `<option value="${esc(a.nick)}"${a.nick===current?' selected':''}>${esc(a.nick)} (${esc(a.type)})</option>`).join('');
+    operators.map(a => `<option value="${esc(a.nick)}"${a.nick===current?' selected':''}>${esc(a.nick)}</option>`).join('');
   // Restore saved selection.
   if (current) sel.value = current;
 }
