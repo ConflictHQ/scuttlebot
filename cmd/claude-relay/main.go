@@ -38,7 +38,7 @@ const (
 	defaultHeartbeat     = 60 * time.Second
 	defaultConfigFile    = ".config/scuttlebot-relay.env"
 	defaultScanInterval  = 250 * time.Millisecond
-	defaultDiscoverWait  = 20 * time.Second
+	defaultDiscoverWait  = 60 * time.Second
 	defaultMirrorLineMax = 360
 )
 
