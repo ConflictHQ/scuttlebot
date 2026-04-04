@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -191,5 +193,120 @@ func TestExplicitThreadID(t *testing.T) {
 	want := "019d45e1-8328-7261-9a02-5c4304e07724"
 	if got != want {
 		t.Fatalf("explicitThreadID = %q, want %q", got, want)
+	}
+}
+
+func writeSessionFile(t *testing.T, dir, uuid, cwd, timestamp string) string {
+	t.Helper()
+	content := fmt.Sprintf(`{"type":"session_meta","payload":{"id":"%s","timestamp":"%s","cwd":"%s"}}`, uuid, timestamp, cwd)
+	name := fmt.Sprintf("rollout-%s-%s.jsonl", strings.ReplaceAll(timestamp[:19], ":", "-"), uuid)
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestFindLatestSessionPathSkipsPreExisting(t *testing.T) {
+	t.Helper()
+
+	root := t.TempDir()
+	dateDir := filepath.Join(root, "2026", "04", "04")
+	if err := os.MkdirAll(dateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cwd := "/home/user/project"
+
+	// Create a pre-existing session file.
+	oldPath := writeSessionFile(t, dateDir,
+		"aaaa-aaaa-aaaa-aaaa", cwd, "2026-04-04T10:00:00Z")
+
+	// Snapshot includes the old file.
+	preExisting := map[string]struct{}{oldPath: {}}
+
+	// Create a new session file (not in snapshot).
+	newPath := writeSessionFile(t, dateDir,
+		"bbbb-bbbb-bbbb-bbbb", cwd, "2026-04-04T10:00:01Z")
+
+	notBefore, _ := time.Parse(time.RFC3339, "2026-04-04T09:59:58Z")
+	got, err := findLatestSessionPath(root, cwd, notBefore, preExisting)
+	if err != nil {
+		t.Fatalf("findLatestSessionPath error: %v", err)
+	}
+	if got != newPath {
+		t.Fatalf("findLatestSessionPath = %q, want %q", got, newPath)
+	}
+}
+
+func TestFindLatestSessionPathPicksOldestNew(t *testing.T) {
+	t.Helper()
+
+	root := t.TempDir()
+	dateDir := filepath.Join(root, "2026", "04", "04")
+	if err := os.MkdirAll(dateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cwd := "/home/user/project"
+
+	// Two new sessions in the same CWD, no pre-existing.
+	earlyPath := writeSessionFile(t, dateDir,
+		"cccc-cccc-cccc-cccc", cwd, "2026-04-04T10:00:01Z")
+	_ = writeSessionFile(t, dateDir,
+		"dddd-dddd-dddd-dddd", cwd, "2026-04-04T10:00:02Z")
+
+	notBefore, _ := time.Parse(time.RFC3339, "2026-04-04T10:00:00Z")
+	got, err := findLatestSessionPath(root, cwd, notBefore, map[string]struct{}{})
+	if err != nil {
+		t.Fatalf("findLatestSessionPath error: %v", err)
+	}
+	if got != earlyPath {
+		t.Fatalf("findLatestSessionPath = %q, want oldest %q", got, earlyPath)
+	}
+}
+
+func TestFindLatestSessionPathNilPreExistingAllowsAll(t *testing.T) {
+	t.Helper()
+
+	root := t.TempDir()
+	dateDir := filepath.Join(root, "2026", "04", "04")
+	if err := os.MkdirAll(dateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cwd := "/home/user/project"
+
+	// Single file — nil preExisting (reconnect path) should find it.
+	path := writeSessionFile(t, dateDir,
+		"eeee-eeee-eeee-eeee", cwd, "2026-04-04T10:00:00Z")
+
+	got, err := findLatestSessionPath(root, cwd, time.Time{}, nil)
+	if err != nil {
+		t.Fatalf("findLatestSessionPath error: %v", err)
+	}
+	if got != path {
+		t.Fatalf("findLatestSessionPath = %q, want %q", got, path)
+	}
+}
+
+func TestSnapshotSessionFiles(t *testing.T) {
+	t.Helper()
+
+	root := t.TempDir()
+	dateDir := filepath.Join(root, "2026", "04", "04")
+	if err := os.MkdirAll(dateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	path := writeSessionFile(t, dateDir,
+		"ffff-ffff-ffff-ffff", "/tmp", "2026-04-04T10:00:00Z")
+
+	snap := snapshotSessionFiles(root)
+	if _, ok := snap[path]; !ok {
+		t.Fatalf("snapshotSessionFiles missing %q", path)
+	}
+	if len(snap) != 1 {
+		t.Fatalf("snapshotSessionFiles len = %d, want 1", len(snap))
 	}
 }
