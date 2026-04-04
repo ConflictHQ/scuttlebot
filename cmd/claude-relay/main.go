@@ -190,7 +190,10 @@ func run(cfg config) error {
 	}
 
 	startedAt := time.Now()
-	args := append(cfg.Args, "--session-id", cfg.ClaudeSessionID)
+	args := make([]string, 0, len(cfg.Args)+2)
+	args = append(args, "--session-id", cfg.ClaudeSessionID)
+	args = append(args, cfg.Args...)
+	fmt.Fprintf(os.Stderr, "claude-relay: session-id %s\n", cfg.ClaudeSessionID)
 	cmd := exec.Command(cfg.ClaudeBin, args...)
 	cmd.Env = append(os.Environ(),
 		"SCUTTLEBOT_CONFIG_FILE="+cfg.ConfigFile,
@@ -318,6 +321,7 @@ func discoverSessionPath(ctx context.Context, cfg config, _ time.Time) (string, 
 
 	// We passed --session-id to Claude Code, so the file name is deterministic.
 	target := filepath.Join(root, cfg.ClaudeSessionID+".jsonl")
+	fmt.Fprintf(os.Stderr, "claude-relay: waiting for session file %s\n", target)
 
 	ctx, cancel := context.WithTimeout(ctx, defaultDiscoverWait)
 	defer cancel()
@@ -327,11 +331,12 @@ func discoverSessionPath(ctx context.Context, cfg config, _ time.Time) (string, 
 
 	for {
 		if _, err := os.Stat(target); err == nil {
+			fmt.Fprintf(os.Stderr, "claude-relay: found session file %s\n", target)
 			return target, nil
 		}
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("session file %s not found", target)
+			return "", fmt.Errorf("session file %s not found after %v", target, defaultDiscoverWait)
 		case <-ticker.C:
 		}
 	}
