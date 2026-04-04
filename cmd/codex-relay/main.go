@@ -89,6 +89,12 @@ type config struct {
 
 type message = sessionrelay.Message
 
+// mirrorLine is a single line of relay output with optional structured metadata.
+type mirrorLine struct {
+	Text string
+	Meta json.RawMessage
+}
+
 type relayState struct {
 	mu       sync.RWMutex
 	lastBusy time.Time
@@ -811,12 +817,16 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(text string) {
-			for _, line := range splitMirrorText(text) {
+		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(ml mirrorLine) {
+			for _, line := range splitMirrorText(ml.Text) {
 				if line == "" {
 					continue
 				}
-				_ = relay.Post(ctx, line)
+				if len(ml.Meta) > 0 {
+					_ = relay.PostWithMeta(ctx, line, ml.Meta)
+				} else {
+					_ = relay.Post(ctx, line)
+				}
 			}
 		}); err != nil && ctx.Err() == nil {
 			time.Sleep(5 * time.Second)
@@ -864,7 +874,7 @@ func waitForSessionPath(ctx context.Context, find func() (string, error)) (strin
 	}
 }
 
-func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(string)) error {
+func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(mirrorLine)) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -879,9 +889,9 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			for _, text := range sessionMessages(line, mirrorReasoning) {
-				if text != "" {
-					emit(text)
+			for _, ml := range sessionMessages(line, mirrorReasoning) {
+				if ml.Text != "" {
+					emit(ml)
 				}
 			}
 		}
@@ -900,7 +910,7 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 	}
 }
 
-func sessionMessages(line []byte, mirrorReasoning bool) []string {
+func sessionMessages(line []byte, mirrorReasoning bool) []mirrorLine {
 	var env sessionEnvelope
 	if err := json.Unmarshal(line, &env); err != nil {
 		return nil
@@ -917,11 +927,13 @@ func sessionMessages(line []byte, mirrorReasoning bool) []string {
 	switch payload.Type {
 	case "function_call":
 		if msg := summarizeFunctionCall(payload.Name, payload.Arguments); msg != "" {
-			return []string{msg}
+			meta := codexToolMeta(payload.Name, payload.Arguments)
+			return []mirrorLine{{Text: msg, Meta: meta}}
 		}
 	case "custom_tool_call":
 		if msg := summarizeCustomToolCall(payload.Name, payload.Input); msg != "" {
-			return []string{msg}
+			meta := codexToolMeta(payload.Name, payload.Input)
+			return []mirrorLine{{Text: msg, Meta: meta}}
 		}
 	case "message":
 		if payload.Role != "assistant" {
@@ -930,6 +942,26 @@ func sessionMessages(line []byte, mirrorReasoning bool) []string {
 		return flattenAssistantContent(payload.Content, mirrorReasoning)
 	}
 	return nil
+}
+
+// codexToolMeta builds a JSON metadata envelope for a Codex tool call.
+func codexToolMeta(name, argsJSON string) json.RawMessage {
+	data := map[string]string{"tool": name}
+	switch name {
+	case "exec_command":
+		var args execCommandArgs
+		if err := json.Unmarshal([]byte(argsJSON), &args); err == nil && args.Cmd != "" {
+			data["command"] = sanitizeSecrets(args.Cmd)
+		}
+	case "apply_patch":
+		files := patchTargets(argsJSON)
+		if len(files) > 0 {
+			data["file"] = files[0]
+		}
+	}
+	meta := map[string]any{"type": "tool_result", "data": data}
+	b, _ := json.Marshal(meta)
+	return b
 }
 
 func summarizeFunctionCall(name, argsJSON string) string {
@@ -977,21 +1009,21 @@ func summarizeCustomToolCall(name, input string) string {
 	}
 }
 
-func flattenAssistantContent(content []sessionContent, mirrorReasoning bool) []string {
-	var lines []string
+func flattenAssistantContent(content []sessionContent, mirrorReasoning bool) []mirrorLine {
+	var lines []mirrorLine
 	for _, item := range content {
 		switch item.Type {
 		case "output_text":
 			for _, line := range splitMirrorText(item.Text) {
 				if line != "" {
-					lines = append(lines, line)
+					lines = append(lines, mirrorLine{Text: line})
 				}
 			}
 		case "reasoning":
 			if mirrorReasoning {
 				for _, line := range splitMirrorText(item.Text) {
 					if line != "" {
-						lines = append(lines, "💭 "+line)
+						lines = append(lines, mirrorLine{Text: "💭 " + line})
 					}
 				}
 			}

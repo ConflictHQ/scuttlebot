@@ -7,6 +7,7 @@ package bridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -22,12 +23,20 @@ import (
 const botNick = "bridge"
 const defaultWebUserTTL = 5 * time.Minute
 
+// Meta is optional structured metadata attached to a bridge message.
+// IRC sees only the plain text; the web UI uses Meta for rich rendering.
+type Meta struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data"`
+}
+
 // Message is a single IRC message captured by the bridge.
 type Message struct {
 	At      time.Time `json:"at"`
 	Channel string    `json:"channel"`
 	Nick    string    `json:"nick"`
 	Text    string    `json:"text"`
+	Meta    *Meta     `json:"meta,omitempty"`
 }
 
 // ringBuf is a fixed-capacity circular buffer of Messages.
@@ -319,6 +328,13 @@ func (b *Bot) Subscribe(channel string) (<-chan Message, func()) {
 // via a visible prefix: "[senderNick] text". The sent message is also pushed
 // directly into the buffer since IRC servers don't echo messages back to sender.
 func (b *Bot) Send(ctx context.Context, channel, text, senderNick string) error {
+	return b.SendWithMeta(ctx, channel, text, senderNick, nil)
+}
+
+// SendWithMeta sends a message to channel with optional structured metadata.
+// IRC receives only the plain text; SSE subscribers receive the full message
+// including meta for rich rendering in the web UI.
+func (b *Bot) SendWithMeta(ctx context.Context, channel, text, senderNick string, meta *Meta) error {
 	if b.client == nil {
 		return fmt.Errorf("bridge: not connected")
 	}
@@ -328,13 +344,10 @@ func (b *Bot) Send(ctx context.Context, channel, text, senderNick string) error 
 	}
 	b.client.Cmd.Message(channel, ircText)
 
-	// Track web sender as active in this channel.
 	if senderNick != "" {
 		b.TouchUser(channel, senderNick)
 	}
 
-	// Buffer the outgoing message immediately (server won't echo it back).
-	// Use senderNick so the web UI shows who actually sent it.
 	displayNick := b.nick
 	if senderNick != "" {
 		displayNick = senderNick
@@ -344,6 +357,7 @@ func (b *Bot) Send(ctx context.Context, channel, text, senderNick string) error 
 		Channel: channel,
 		Nick:    displayNick,
 		Text:    text,
+		Meta:    meta,
 	})
 	return nil
 }

@@ -89,6 +89,12 @@ type config struct {
 
 type message = sessionrelay.Message
 
+// mirrorLine is a single line of relay output with optional structured metadata.
+type mirrorLine struct {
+	Text string
+	Meta json.RawMessage // nil for plain text lines
+}
+
 type relayState struct {
 	mu       sync.RWMutex
 	lastBusy time.Time
@@ -281,12 +287,16 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(text string) {
-			for _, line := range splitMirrorText(text) {
+		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(ml mirrorLine) {
+			for _, line := range splitMirrorText(ml.Text) {
 				if line == "" {
 					continue
 				}
-				_ = relay.Post(ctx, line)
+				if len(ml.Meta) > 0 {
+					_ = relay.PostWithMeta(ctx, line, ml.Meta)
+				} else {
+					_ = relay.Post(ctx, line)
+				}
 			}
 		}); err != nil && ctx.Err() == nil {
 			// Tail lost — retry discovery.
@@ -402,7 +412,7 @@ func matchesSession(path, targetCWD string, since time.Time) bool {
 	return false
 }
 
-func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(string)) error {
+func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(mirrorLine)) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -417,9 +427,9 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			for _, text := range sessionMessages(line, mirrorReasoning) {
-				if text != "" {
-					emit(text)
+			for _, ml := range sessionMessages(line, mirrorReasoning) {
+				if ml.Text != "" {
+					emit(ml)
 				}
 			}
 		}
@@ -438,9 +448,10 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 	}
 }
 
-// sessionMessages parses a Claude Code JSONL line and returns IRC-ready strings.
+// sessionMessages parses a Claude Code JSONL line and returns mirror lines
+// with optional structured metadata for rich rendering in the web UI.
 // If mirrorReasoning is true, thinking blocks are included prefixed with "💭 ".
-func sessionMessages(line []byte, mirrorReasoning bool) []string {
+func sessionMessages(line []byte, mirrorReasoning bool) []mirrorLine {
 	var entry claudeSessionEntry
 	if err := json.Unmarshal(line, &entry); err != nil {
 		return nil
@@ -449,30 +460,87 @@ func sessionMessages(line []byte, mirrorReasoning bool) []string {
 		return nil
 	}
 
-	var out []string
+	var out []mirrorLine
 	for _, block := range entry.Message.Content {
 		switch block.Type {
 		case "text":
 			for _, l := range splitMirrorText(block.Text) {
 				if l != "" {
-					out = append(out, sanitizeSecrets(l))
+					out = append(out, mirrorLine{Text: sanitizeSecrets(l)})
 				}
 			}
 		case "tool_use":
 			if msg := summarizeToolUse(block.Name, block.Input); msg != "" {
-				out = append(out, msg)
+				out = append(out, mirrorLine{
+					Text: msg,
+					Meta: toolMeta(block.Name, block.Input),
+				})
 			}
 		case "thinking":
 			if mirrorReasoning {
 				for _, l := range splitMirrorText(block.Text) {
 					if l != "" {
-						out = append(out, "💭 "+sanitizeSecrets(l))
+						out = append(out, mirrorLine{Text: "💭 " + sanitizeSecrets(l)})
 					}
 				}
 			}
 		}
 	}
 	return out
+}
+
+// toolMeta builds a JSON metadata envelope for a tool_use block.
+func toolMeta(name string, inputRaw json.RawMessage) json.RawMessage {
+	var input map[string]json.RawMessage
+	_ = json.Unmarshal(inputRaw, &input)
+
+	data := map[string]string{"tool": name}
+
+	str := func(key string) string {
+		v, ok := input[key]
+		if !ok {
+			return ""
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return strings.Trim(string(v), `"`)
+		}
+		return s
+	}
+
+	switch name {
+	case "Bash":
+		if cmd := str("command"); cmd != "" {
+			data["command"] = sanitizeSecrets(cmd)
+		}
+	case "Edit", "Write", "Read":
+		if p := str("file_path"); p != "" {
+			data["file"] = p
+		}
+	case "Glob":
+		if p := str("pattern"); p != "" {
+			data["pattern"] = p
+		}
+	case "Grep":
+		if p := str("pattern"); p != "" {
+			data["pattern"] = p
+		}
+	case "WebFetch":
+		if u := str("url"); u != "" {
+			data["url"] = sanitizeSecrets(u)
+		}
+	case "WebSearch":
+		if q := str("query"); q != "" {
+			data["query"] = q
+		}
+	}
+
+	meta := map[string]any{
+		"type": "tool_result",
+		"data": data,
+	}
+	b, _ := json.Marshal(meta)
+	return b
 }
 
 func summarizeToolUse(name string, inputRaw json.RawMessage) string {

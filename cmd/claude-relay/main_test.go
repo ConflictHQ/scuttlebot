@@ -56,13 +56,13 @@ func TestSessionMessagesThinking(t *testing.T) {
 
 	// thinking off — only text
 	got := sessionMessages(line, false)
-	if len(got) != 1 || got[0] != "final answer" {
+	if len(got) != 1 || got[0].Text != "final answer" {
 		t.Fatalf("mirrorReasoning=false: got %#v", got)
 	}
 
 	// thinking on — both, thinking prefixed
 	got = sessionMessages(line, true)
-	if len(got) != 2 || got[0] != "💭 reasoning here" || got[1] != "final answer" {
+	if len(got) != 2 || got[0].Text != "💭 reasoning here" || got[1].Text != "final answer" {
 		t.Fatalf("mirrorReasoning=true: got %#v", got)
 	}
 }
