@@ -2007,21 +2007,31 @@ if (localStorage.getItem('sb_chat_columnar') === '1') {
 
 // --- rich mode toggle ---
 function isRichMode() { return localStorage.getItem('sb_rich_mode') === '1'; }
+function applyRichToggleStyle(btn, on) {
+  if (on) {
+    btn.style.background = '#1f6feb';
+    btn.style.borderColor = '#1f6feb';
+    btn.style.color = '#fff';
+    btn.title = 'rich mode ON — click for text only';
+  } else {
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '#8b949e';
+    btn.title = 'text only — click for rich mode';
+  }
+}
 function toggleRichMode() {
   const on = !isRichMode();
   localStorage.setItem('sb_rich_mode', on ? '1' : '0');
   const btn = document.getElementById('chat-rich-toggle');
-  btn.style.color = on ? '' : '#8b949e';
-  btn.title = on ? 'rich mode on — click for text only' : 'text only — click for rich mode';
+  applyRichToggleStyle(btn, on);
   // Toggle all existing meta blocks visibility.
   document.querySelectorAll('.msg-meta-toggle').forEach(el => { el.style.display = on ? '' : 'none'; });
   if (!on) document.querySelectorAll('.msg-meta.open').forEach(el => el.classList.remove('open'));
 }
 // Initialize toggle button state on load.
 (function() {
-  const btn = document.getElementById('chat-rich-toggle');
-  if (!isRichMode()) { btn.style.color = '#8b949e'; btn.title = 'text only — click for rich mode'; }
-  else { btn.title = 'rich mode on — click for text only'; }
+  applyRichToggleStyle(document.getElementById('chat-rich-toggle'), isRichMode());
 })();
 
 // --- meta renderers ---
