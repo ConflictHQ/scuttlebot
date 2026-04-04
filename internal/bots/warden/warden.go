@@ -140,6 +140,7 @@ func (cs *channelState) violation(nick string) Action {
 type Bot struct {
 	ircAddr        string
 	password       string
+	initChannels   []string                // channels to join on connect
 	channelConfigs map[string]ChannelConfig // keyed by channel name
 	defaultConfig  ChannelConfig
 	mu             sync.RWMutex
@@ -164,11 +165,12 @@ type ActionSink interface {
 
 // New creates a warden bot. channelConfigs overrides per-channel limits;
 // defaultConfig is used for channels not in the map.
-func New(ircAddr, password string, channelConfigs map[string]ChannelConfig, defaultConfig ChannelConfig, log *slog.Logger) *Bot {
+func New(ircAddr, password string, channels []string, channelConfigs map[string]ChannelConfig, defaultConfig ChannelConfig, log *slog.Logger) *Bot {
 	defaultConfig.defaults()
 	return &Bot{
 		ircAddr:        ircAddr,
 		password:       password,
+		initChannels:   channels,
 		channelConfigs: channelConfigs,
 		defaultConfig:  defaultConfig,
 		channels:       make(map[string]*channelState),
@@ -199,12 +201,14 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
-		// Join all configured channels.
+		for _, ch := range b.initChannels {
+			cl.Cmd.Join(ch)
+		}
 		for ch := range b.channelConfigs {
 			cl.Cmd.Join(ch)
 		}
 		if b.log != nil {
-			b.log.Info("warden connected")
+			b.log.Info("warden connected", "channels", b.initChannels)
 		}
 	})
 
