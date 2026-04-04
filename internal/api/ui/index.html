@@ -512,7 +512,7 @@ canvas { display:block; width:100% !important; }
         <option value="">— pick a user —</option>
       </select>
       <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="toggle compact/columnar" style="font-size:11px;padding:2px 6px">☰</button>
-      <button class="sm" id="chat-rich-toggle" onclick="toggleRichMode()" title="toggle rich/text mode" style="font-size:11px;padding:2px 6px">{ }</button>
+      <button class="sm" id="chat-rich-toggle" onclick="toggleRichMode()" title="toggle rich/text mode" style="font-size:11px;padding:2px 6px">✨</button>
       <button class="sm" onclick="promptHighlightWords()" title="configure highlight keywords" style="font-size:11px;padding:2px 6px">✦</button>
       <span class="stream-badge" id="chat-stream-status" style="margin-left:8px"></span>
     </div>
@@ -1917,7 +1917,7 @@ function appendMsg(msg, isHistory) {
     const html = renderMeta(msg.meta);
     if (html) {
       const show = isRichMode();
-      metaToggle = `<span class="msg-meta-toggle" style="${show ? '' : 'display:none'}" onclick="this.parentElement.nextElementSibling.classList.toggle('open');event.stopPropagation()">{ }</span>`;
+      metaToggle = `<span class="msg-meta-toggle" style="${show ? '' : 'display:none'}" onclick="this.parentElement.nextElementSibling.classList.toggle('open');event.stopPropagation()">✨</span>`;
       metaBlock = `<div class="msg-meta">${html}</div>`;
     }
   }
