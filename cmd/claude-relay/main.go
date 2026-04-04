@@ -22,6 +22,7 @@ import (
 	"github.com/conflicthq/scuttlebot/pkg/ircagent"
 	"github.com/conflicthq/scuttlebot/pkg/sessionrelay"
 	"github.com/creack/pty"
+	"github.com/google/uuid"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
@@ -77,6 +78,7 @@ type config struct {
 	Channels           []string
 	ChannelStateFile   string
 	SessionID          string
+	ClaudeSessionID    string // UUID passed to Claude Code via --session-id
 	Nick               string
 	HooksEnabled       bool
 	InterruptOnMessage bool
@@ -188,7 +190,8 @@ func run(cfg config) error {
 	}
 
 	startedAt := time.Now()
-	cmd := exec.Command(cfg.ClaudeBin, cfg.Args...)
+	args := append(cfg.Args, "--session-id", cfg.ClaudeSessionID)
+	cmd := exec.Command(cfg.ClaudeBin, args...)
 	cmd.Env = append(os.Environ(),
 		"SCUTTLEBOT_CONFIG_FILE="+cfg.ConfigFile,
 		"SCUTTLEBOT_URL="+cfg.URL,
@@ -307,11 +310,14 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 	}
 }
 
-func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (string, error) {
+func discoverSessionPath(ctx context.Context, cfg config, _ time.Time) (string, error) {
 	root, err := claudeSessionsRoot(cfg.TargetCWD)
 	if err != nil {
 		return "", err
 	}
+
+	// We passed --session-id to Claude Code, so the file name is deterministic.
+	target := filepath.Join(root, cfg.ClaudeSessionID+".jsonl")
 
 	ctx, cancel := context.WithTimeout(ctx, defaultDiscoverWait)
 	defer cancel()
@@ -320,13 +326,12 @@ func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (
 	defer ticker.Stop()
 
 	for {
-		path, err := findLatestSessionPath(root, cfg.TargetCWD, startedAt.Add(-2*time.Second))
-		if err == nil && path != "" {
-			return path, nil
+		if _, err := os.Stat(target); err == nil {
+			return target, nil
 		}
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", fmt.Errorf("session file %s not found", target)
 		case <-ticker.C:
 		}
 	}
@@ -341,82 +346,6 @@ func claudeSessionsRoot(cwd string) (string, error) {
 	sanitized := strings.ReplaceAll(cwd, "/", "-")
 	sanitized = strings.TrimLeft(sanitized, "-")
 	return filepath.Join(home, ".claude", "projects", "-"+sanitized), nil
-}
-
-// findLatestSessionPath finds the .jsonl file in root whose first entry
-// timestamp is closest to (but after) since — this ensures each relay
-// latches onto its own subprocess's session rather than whichever file
-// happens to be most actively written to.
-func findLatestSessionPath(root, targetCWD string, since time.Time) (string, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return "", err
-	}
-
-	type candidate struct {
-		path       string
-		firstEntry time.Time
-	}
-	var candidates []candidate
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if info.ModTime().Before(since) {
-			continue
-		}
-		p := filepath.Join(root, e.Name())
-		if first, ok := sessionFirstEntryTime(p, targetCWD, since); ok {
-			candidates = append(candidates, candidate{path: p, firstEntry: first})
-		}
-	}
-	if len(candidates) == 0 {
-		return "", errors.New("no session files found")
-	}
-	// Sort by first entry time, newest first — the session that started
-	// most recently (closest to our startedAt) is most likely ours.
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].firstEntry.After(candidates[j].firstEntry)
-	})
-	return candidates[0].path, nil
-}
-
-// sessionFirstEntryTime reads the first entry in a JSONL session file,
-// verifies it matches targetCWD and is after since, and returns its timestamp.
-func sessionFirstEntryTime(path, targetCWD string, since time.Time) (time.Time, bool) {
-	f, err := os.Open(path)
-	if err != nil {
-		return time.Time{}, false
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	checked := 0
-	for scanner.Scan() && checked < 5 {
-		checked++
-		var entry claudeSessionEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			continue
-		}
-		if entry.CWD != "" && entry.CWD != targetCWD {
-			return time.Time{}, false
-		}
-		if entry.Timestamp != "" {
-			t, err := time.Parse(time.RFC3339Nano, entry.Timestamp)
-			if err == nil && t.After(since) {
-				return t, true
-			}
-			t2, err := time.Parse(time.RFC3339, entry.Timestamp)
-			if err == nil && t2.After(since) {
-				return t2, true
-			}
-		}
-	}
-	return time.Time{}, false
 }
 
 func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(mirrorLine)) error {
@@ -1022,6 +951,7 @@ func loadConfig(args []string) (config, error) {
 		sessionID = defaultSessionID(target)
 	}
 	cfg.SessionID = sanitize(sessionID)
+	cfg.ClaudeSessionID = uuid.New().String()
 
 	nick := getenvOr(fileConfig, "SCUTTLEBOT_NICK", "")
 	if nick == "" {
