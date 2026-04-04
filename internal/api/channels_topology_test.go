@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,12 +16,21 @@ import (
 	"github.com/conflicthq/scuttlebot/internal/topology"
 )
 
+// accessCall records a single GrantAccess or RevokeAccess invocation.
+type accessCall struct {
+	Nick    string
+	Channel string
+	Level   string // "OP", "VOICE", or "" for revoke
+}
+
 // stubTopologyManager implements topologyManager for tests.
 // It records the last ProvisionChannel call and returns a canned Policy.
 type stubTopologyManager struct {
 	last    topology.ChannelConfig
 	policy  *topology.Policy
 	provErr error
+	grants  []accessCall
+	revokes []accessCall
 }
 
 func (s *stubTopologyManager) ProvisionChannel(ch topology.ChannelConfig) error {
@@ -32,9 +42,50 @@ func (s *stubTopologyManager) DropChannel(_ string) {}
 
 func (s *stubTopologyManager) Policy() *topology.Policy { return s.policy }
 
+func (s *stubTopologyManager) GrantAccess(nick, channel, level string) {
+	s.grants = append(s.grants, accessCall{Nick: nick, Channel: channel, Level: level})
+}
+
+func (s *stubTopologyManager) RevokeAccess(nick, channel string) {
+	s.revokes = append(s.revokes, accessCall{Nick: nick, Channel: channel})
+}
+
+// stubProvisioner is a minimal AccountProvisioner for agent registration tests.
+type stubProvisioner struct {
+	accounts map[string]string
+}
+
+func newStubProvisioner() *stubProvisioner {
+	return &stubProvisioner{accounts: make(map[string]string)}
+}
+
+func (p *stubProvisioner) RegisterAccount(name, pass string) error {
+	if _, ok := p.accounts[name]; ok {
+		return fmt.Errorf("ACCOUNT_EXISTS")
+	}
+	p.accounts[name] = pass
+	return nil
+}
+
+func (p *stubProvisioner) ChangePassword(name, pass string) error {
+	p.accounts[name] = pass
+	return nil
+}
+
 func newTopoTestServer(t *testing.T, topo *stubTopologyManager) (*httptest.Server, string) {
 	t.Helper()
 	reg := registry.New(nil, []byte("key"))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := httptest.NewServer(New(reg, []string{"tok"}, nil, nil, nil, nil, topo, nil, "", log).Handler())
+	t.Cleanup(srv.Close)
+	return srv, "tok"
+}
+
+// newTopoTestServerWithRegistry creates a test server with both topology and a
+// real registry backed by stubProvisioner, so agent registration works.
+func newTopoTestServerWithRegistry(t *testing.T, topo *stubTopologyManager) (*httptest.Server, string) {
+	t.Helper()
+	reg := registry.New(newStubProvisioner(), []byte("key"))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := httptest.NewServer(New(reg, []string{"tok"}, nil, nil, nil, nil, topo, nil, "", log).Handler())
 	t.Cleanup(srv.Close)
@@ -145,5 +196,168 @@ func TestHandleGetTopology(t *testing.T) {
 	}
 	if len(got.Types) != 1 || got.Types[0].Name != "task" {
 		t.Errorf("types = %v", got.Types)
+	}
+}
+
+// --- Agent mode assignment tests ---
+
+// topoDoJSON is a helper for issuing authenticated JSON requests against a test server.
+func topoDoJSON(t *testing.T, srv *httptest.Server, tok, method, path string, body any) *http.Response {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	}
+	req, _ := http.NewRequest(method, srv.URL+path, &buf)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	return resp
+}
+
+func TestRegisterGrantsOPForOrchestrator(t *testing.T) {
+	stub := &stubTopologyManager{}
+	srv, tok := newTopoTestServerWithRegistry(t, stub)
+
+	resp := topoDoJSON(t, srv, tok, "POST", "/v1/agents/register", map[string]any{
+		"nick":     "orch-1",
+		"type":     "orchestrator",
+		"channels": []string{"#fleet", "#project.foo"},
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register: want 201, got %d", resp.StatusCode)
+	}
+
+	if len(stub.grants) != 2 {
+		t.Fatalf("grants: want 2, got %d", len(stub.grants))
+	}
+	for i, want := range []accessCall{
+		{Nick: "orch-1", Channel: "#fleet", Level: "OP"},
+		{Nick: "orch-1", Channel: "#project.foo", Level: "OP"},
+	} {
+		if stub.grants[i] != want {
+			t.Errorf("grant[%d] = %+v, want %+v", i, stub.grants[i], want)
+		}
+	}
+}
+
+func TestRegisterGrantsVOICEForWorker(t *testing.T) {
+	stub := &stubTopologyManager{}
+	srv, tok := newTopoTestServerWithRegistry(t, stub)
+
+	resp := topoDoJSON(t, srv, tok, "POST", "/v1/agents/register", map[string]any{
+		"nick":     "worker-1",
+		"type":     "worker",
+		"channels": []string{"#fleet"},
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register: want 201, got %d", resp.StatusCode)
+	}
+
+	if len(stub.grants) != 1 {
+		t.Fatalf("grants: want 1, got %d", len(stub.grants))
+	}
+	if stub.grants[0].Level != "VOICE" {
+		t.Errorf("level = %q, want VOICE", stub.grants[0].Level)
+	}
+}
+
+func TestRegisterNoModeForObserver(t *testing.T) {
+	stub := &stubTopologyManager{}
+	srv, tok := newTopoTestServerWithRegistry(t, stub)
+
+	resp := topoDoJSON(t, srv, tok, "POST", "/v1/agents/register", map[string]any{
+		"nick":     "obs-1",
+		"type":     "observer",
+		"channels": []string{"#fleet"},
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register: want 201, got %d", resp.StatusCode)
+	}
+
+	if len(stub.grants) != 0 {
+		t.Errorf("grants: want 0, got %d — observer should get no mode", len(stub.grants))
+	}
+}
+
+func TestRegisterGrantsOPForOperator(t *testing.T) {
+	stub := &stubTopologyManager{}
+	srv, tok := newTopoTestServerWithRegistry(t, stub)
+
+	resp := topoDoJSON(t, srv, tok, "POST", "/v1/agents/register", map[string]any{
+		"nick":     "human-op",
+		"type":     "operator",
+		"channels": []string{"#fleet"},
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register: want 201, got %d", resp.StatusCode)
+	}
+
+	if len(stub.grants) != 1 {
+		t.Fatalf("grants: want 1, got %d", len(stub.grants))
+	}
+	if stub.grants[0].Level != "OP" {
+		t.Errorf("level = %q, want OP", stub.grants[0].Level)
+	}
+}
+
+func TestRevokeRemovesAccess(t *testing.T) {
+	stub := &stubTopologyManager{}
+	srv, tok := newTopoTestServerWithRegistry(t, stub)
+
+	resp := topoDoJSON(t, srv, tok, "POST", "/v1/agents/register", map[string]any{
+		"nick":     "orch-rev",
+		"type":     "orchestrator",
+		"channels": []string{"#fleet", "#project.x"},
+	})
+	resp.Body.Close()
+
+	resp = topoDoJSON(t, srv, tok, "POST", "/v1/agents/orch-rev/revoke", nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("revoke: want 204, got %d", resp.StatusCode)
+	}
+
+	if len(stub.revokes) != 2 {
+		t.Fatalf("revokes: want 2, got %d", len(stub.revokes))
+	}
+	for i, want := range []string{"#fleet", "#project.x"} {
+		if stub.revokes[i].Channel != want {
+			t.Errorf("revoke[%d].Channel = %q, want %q", i, stub.revokes[i].Channel, want)
+		}
+	}
+}
+
+func TestDeleteRemovesAccess(t *testing.T) {
+	stub := &stubTopologyManager{}
+	srv, tok := newTopoTestServerWithRegistry(t, stub)
+
+	resp := topoDoJSON(t, srv, tok, "POST", "/v1/agents/register", map[string]any{
+		"nick":     "del-agent",
+		"type":     "worker",
+		"channels": []string{"#fleet"},
+	})
+	resp.Body.Close()
+
+	resp = topoDoJSON(t, srv, tok, "DELETE", "/v1/agents/del-agent", nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete: want 204, got %d", resp.StatusCode)
+	}
+
+	if len(stub.revokes) != 1 {
+		t.Fatalf("revokes: want 1, got %d", len(stub.revokes))
+	}
+	if stub.revokes[0].Nick != "del-agent" || stub.revokes[0].Channel != "#fleet" {
+		t.Errorf("revoke = %+v, want del-agent on #fleet", stub.revokes[0])
 	}
 }

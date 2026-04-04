@@ -276,6 +276,25 @@ func (m *Manager) reap() {
 	}
 }
 
+// GrantAccess sets a ChanServ ACCESS entry for nick on the given channel.
+// level is "OP" or "VOICE". If level is empty, no access is granted.
+func (m *Manager) GrantAccess(nick, channel, level string) {
+	if m.client == nil || level == "" {
+		return
+	}
+	m.chanserv("ACCESS %s ADD %s %s", channel, nick, level)
+	m.log.Info("granted channel access", "nick", nick, "channel", channel, "level", level)
+}
+
+// RevokeAccess removes a ChanServ ACCESS entry for nick on the given channel.
+func (m *Manager) RevokeAccess(nick, channel string) {
+	if m.client == nil {
+		return
+	}
+	m.chanserv("ACCESS %s DEL %s", channel, nick)
+	m.log.Info("revoked channel access", "nick", nick, "channel", channel)
+}
+
 func (m *Manager) chanserv(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	m.client.Cmd.Message("ChanServ", msg)
