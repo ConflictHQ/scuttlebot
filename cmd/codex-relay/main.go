@@ -219,7 +219,6 @@ func run(cfg config) error {
 	if relayActive {
 		go mirrorSessionLoop(ctx, relay, cfg, startedAt)
 		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
-		go handleReconnectSignal(ctx, &relay, cfg)
 	}
 
 	if !isInteractiveTTY() {
@@ -274,6 +273,7 @@ func run(cfg config) error {
 	}()
 	if relayActive {
 		go relayInputLoop(ctx, relay, cfg, state, ptmx, onlineAt)
+		go handleReconnectSignal(ctx, &relay, cfg, state, ptmx, startedAt)
 	}
 
 	err = cmd.Wait()
@@ -332,7 +332,7 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 	}
 }
 
-func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector, cfg config) {
+func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector, cfg config, state *relayState, ptmx *os.File, startedAt time.Time) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGUSR1)
 	defer signal.Stop(sigCh)
@@ -387,11 +387,18 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 			cancel()
 
 			*relayPtr = conn
+			now := time.Now()
 			_ = conn.Post(context.Background(), fmt.Sprintf(
 				"reconnected in %s; mention %s to interrupt",
 				filepath.Base(cfg.TargetCWD), cfg.Nick,
 			))
-			fmt.Fprintf(os.Stderr, "codex-relay: reconnected successfully\n")
+			fmt.Fprintf(os.Stderr, "codex-relay: reconnected, restarting mirror and input loops\n")
+
+			// Restart mirror and input loops with the new connector.
+			// Use epoch time for mirror so it finds the existing session file
+			// regardless of when it was last modified.
+			go mirrorSessionLoop(ctx, conn, cfg, time.Time{})
+			go relayInputLoop(ctx, conn, cfg, state, ptmx, now)
 			break
 		}
 	}

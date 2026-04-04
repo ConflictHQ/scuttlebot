@@ -154,6 +154,7 @@ func run(cfg config) error {
 	}
 
 	cmd := exec.Command(cfg.GeminiBin, cfg.Args...)
+	startedAt := time.Now()
 	cmd.Env = append(os.Environ(),
 		"SCUTTLEBOT_CONFIG_FILE="+cfg.ConfigFile,
 		"SCUTTLEBOT_URL="+cfg.URL,
@@ -167,7 +168,6 @@ func run(cfg config) error {
 	)
 	if relayActive {
 		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
-		go handleReconnectSignal(ctx, &relay, cfg)
 	}
 
 	if !isInteractiveTTY() {
@@ -222,6 +222,7 @@ func run(cfg config) error {
 	}()
 	if relayActive {
 		go relayInputLoop(ctx, relay, cfg, state, ptmx, onlineAt)
+		go handleReconnectSignal(ctx, &relay, cfg, state, ptmx, startedAt)
 	}
 
 	err = cmd.Wait()
@@ -280,7 +281,7 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 	}
 }
 
-func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector, cfg config) {
+func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector, cfg config, state *relayState, ptmx *os.File, startedAt time.Time) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGUSR1)
 	defer signal.Stop(sigCh)
@@ -335,11 +336,15 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 			cancel()
 
 			*relayPtr = conn
+			now := time.Now()
 			_ = conn.Post(context.Background(), fmt.Sprintf(
 				"reconnected in %s; mention %s to interrupt",
 				filepath.Base(cfg.TargetCWD), cfg.Nick,
 			))
-			fmt.Fprintf(os.Stderr, "gemini-relay: reconnected successfully\n")
+			fmt.Fprintf(os.Stderr, "gemini-relay: reconnected, restarting input loop\n")
+
+			// Restart input loop with the new connector.
+			go relayInputLoop(ctx, conn, cfg, state, ptmx, now)
 			break
 		}
 	}
