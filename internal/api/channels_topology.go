@@ -13,6 +13,8 @@ type topologyManager interface {
 	ProvisionChannel(ch topology.ChannelConfig) error
 	DropChannel(channel string)
 	Policy() *topology.Policy
+	GrantAccess(nick, channel, level string)
+	RevokeAccess(nick, channel string)
 }
 
 type provisionChannelRequest struct {

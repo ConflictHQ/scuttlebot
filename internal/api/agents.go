@@ -58,6 +58,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.registry.Touch(req.Nick)
+	s.setAgentModes(req.Nick, req.Type, cfg.Channels)
 	writeJSON(w, http.StatusCreated, registerResponse{
 		Credentials: creds,
 		Payload:     payload,
@@ -92,6 +93,7 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "adopt failed")
 		return
 	}
+	s.setAgentModes(nick, req.Type, cfg.Channels)
 	writeJSON(w, http.StatusOK, map[string]any{"nick": nick, "payload": payload})
 }
 
@@ -112,6 +114,10 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
+	// Look up agent channels before revoking so we can remove access.
+	if agent, err := s.registry.Get(nick); err == nil {
+		s.removeAgentModes(nick, agent.Channels)
+	}
 	if err := s.registry.Revoke(nick); err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -126,6 +132,10 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
+	// Look up agent channels before deleting so we can remove access.
+	if agent, err := s.registry.Get(nick); err == nil {
+		s.removeAgentModes(nick, agent.Channels)
+	}
 	if err := s.registry.Delete(nick); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -173,4 +183,44 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
+}
+
+// agentModeLevel maps an agent type to the ChanServ access level it should
+// receive. Returns "" for types that get no special mode.
+func agentModeLevel(t registry.AgentType) string {
+	switch t {
+	case registry.AgentTypeOperator, registry.AgentTypeOrchestrator:
+		return "OP"
+	case registry.AgentTypeWorker:
+		return "VOICE"
+	default:
+		return ""
+	}
+}
+
+// setAgentModes grants the appropriate ChanServ access for an agent on all
+// its assigned channels based on its type. No-op when topology is not configured
+// or the agent type doesn't warrant a mode.
+func (s *Server) setAgentModes(nick string, agentType registry.AgentType, channels []string) {
+	if s.topoMgr == nil {
+		return
+	}
+	level := agentModeLevel(agentType)
+	if level == "" {
+		return
+	}
+	for _, ch := range channels {
+		s.topoMgr.GrantAccess(nick, ch, level)
+	}
+}
+
+// removeAgentModes revokes ChanServ access for an agent on all its assigned
+// channels. No-op when topology is not configured.
+func (s *Server) removeAgentModes(nick string, channels []string) {
+	if s.topoMgr == nil {
+		return
+	}
+	for _, ch := range channels {
+		s.topoMgr.RevokeAccess(nick, ch)
+	}
 }
