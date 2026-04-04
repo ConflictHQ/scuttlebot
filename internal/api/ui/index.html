@@ -1859,7 +1859,7 @@ function appendMsg(msg, isHistory) {
   row.className = 'msg-row' + (grouped ? ' msg-grouped' : '');
   row.innerHTML =
     `<span class="msg-time" title="${esc(new Date(msg.at).toLocaleString())}">${esc(timeStr)}</span>` +
-    `<span class="msg-nick" style="color:${color}">${esc(displayNick)}</span>` +
+    `<span class="msg-nick" style="color:${color}">[${esc(displayNick)}]</span>` +
     `<span class="msg-text">${esc(displayText)}</span>`;
   area.appendChild(row);
 
