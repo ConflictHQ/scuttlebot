@@ -71,6 +71,18 @@ type PolicyLLMBackend struct {
 	Default      bool     `json:"default,omitempty"`
 }
 
+// ROETemplate is a rules-of-engagement template.
+type ROETemplate struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Channels    []string `json:"channels,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+	RateLimit   struct {
+		MessagesPerSecond float64 `json:"messages_per_second,omitempty"`
+		Burst             int     `json:"burst,omitempty"`
+	} `json:"rate_limit,omitempty"`
+}
+
 // Policies is the full mutable settings blob, persisted to policies.json.
 type Policies struct {
 	Behaviors      []BehaviorConfig   `json:"behaviors"`
@@ -78,6 +90,7 @@ type Policies struct {
 	Bridge         BridgePolicy       `json:"bridge"`
 	Logging        LoggingPolicy      `json:"logging"`
 	LLMBackends    []PolicyLLMBackend `json:"llm_backends,omitempty"`
+	ROETemplates   []ROETemplate      `json:"roe_templates,omitempty"`
 	OnJoinMessages map[string]string  `json:"on_join_messages,omitempty"` // channel → message template
 }
 
@@ -262,6 +275,8 @@ func (ps *PolicyStore) applyRaw(raw []byte) error {
 	ps.data.Bridge = p.Bridge
 	ps.data.Logging = p.Logging
 	ps.data.LLMBackends = p.LLMBackends
+	ps.data.ROETemplates = p.ROETemplates
+	ps.data.OnJoinMessages = p.OnJoinMessages
 	return nil
 }
 
@@ -371,6 +386,16 @@ func (ps *PolicyStore) Merge(patch Policies) error {
 	// Merge LLM backends if provided.
 	if patch.LLMBackends != nil {
 		ps.data.LLMBackends = patch.LLMBackends
+	}
+
+	// Merge ROE templates if provided.
+	if patch.ROETemplates != nil {
+		ps.data.ROETemplates = patch.ROETemplates
+	}
+
+	// Merge on-join messages if provided.
+	if patch.OnJoinMessages != nil {
+		ps.data.OnJoinMessages = patch.OnJoinMessages
 	}
 
 	ps.normalize(&ps.data)

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/conflicthq/scuttlebot/internal/api"
+	"github.com/conflicthq/scuttlebot/internal/auth"
 	"github.com/conflicthq/scuttlebot/internal/registry"
 	"log/slog"
 	"os"
@@ -52,7 +53,7 @@ const testToken = "test-api-token-abc123"
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	reg := registry.New(newMock(), []byte("test-signing-key"))
-	srv := api.New(reg, []string{testToken}, nil, nil, nil, nil, nil, nil, "", testLog)
+	srv := api.New(reg, auth.TestStore(testToken), nil, nil, nil, nil, nil, nil, "", testLog)
 	return httptest.NewServer(srv.Handler())
 }
 
