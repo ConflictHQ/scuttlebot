@@ -25,6 +25,7 @@ type chatBridge interface {
 	Users(channel string) []string
 	UsersWithModes(channel string) []bridge.UserInfo
 	ChannelModes(channel string) string
+	RefreshNames(channel string)
 }
 
 func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +113,9 @@ func (s *Server) handleChannelPresence(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChannelUsers(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	// Refresh girc's user list from the server before returning.
+	s.bridge.RefreshNames(channel)
+	time.Sleep(200 * time.Millisecond) // give girc time to process NAMES reply
 	users := s.bridge.UsersWithModes(channel)
 	if users == nil {
 		users = []bridge.UserInfo{}
