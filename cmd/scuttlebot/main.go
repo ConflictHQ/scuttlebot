@@ -246,6 +246,21 @@ func main() {
 	}
 	if bridgeBot != nil {
 		bridgeBot.SetWebUserTTL(time.Duration(policyStore.Get().Bridge.WebUserTTLMinutes) * time.Minute)
+		// Deliver on-join instructions when agents join channels.
+		bridgeBot.SetOnUserJoin(func(channel, nick string) {
+			p := policyStore.Get()
+			msg, ok := p.OnJoinMessages[channel]
+			if !ok || msg == "" {
+				return
+			}
+			msg = strings.ReplaceAll(msg, "{nick}", nick)
+			msg = strings.ReplaceAll(msg, "{channel}", channel)
+			for _, line := range strings.Split(msg, "\n") {
+				if line != "" {
+					bridgeBot.Notice(nick, line)
+				}
+			}
+		})
 	}
 
 	// Admin store — bcrypt-hashed admin accounts.
