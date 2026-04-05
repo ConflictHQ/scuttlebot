@@ -44,6 +44,7 @@ type Message struct {
 	Channel string
 	Nick    string
 	Text    string
+	MsgID   string
 }
 
 type Connector interface {
