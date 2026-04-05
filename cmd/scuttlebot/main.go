@@ -206,6 +206,7 @@ func main() {
 				Ops:      sc.Ops,
 				Voice:    sc.Voice,
 				Autojoin: sc.Autojoin,
+				Modes:    sc.Modes,
 			})
 		}
 		if err := topoMgr.Provision(staticChannels); err != nil {
@@ -330,6 +331,7 @@ func main() {
 				staticChannels = append(staticChannels, topology.ChannelConfig{
 					Name: sc.Name, Topic: sc.Topic,
 					Ops: sc.Ops, Voice: sc.Voice, Autojoin: sc.Autojoin,
+					Modes: sc.Modes,
 				})
 			}
 			if err := topoMgr.Provision(staticChannels); err != nil {
