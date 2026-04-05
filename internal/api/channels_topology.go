@@ -53,10 +53,14 @@ func (s *Server) handleProvisionChannel(w http.ResponseWriter, r *http.Request) 
 
 	policy := s.topoMgr.Policy()
 
-	// Merge autojoin from policy if the caller didn't specify any.
+	// Merge autojoin and modes from policy if the caller didn't specify any.
 	autojoin := req.Autojoin
 	if len(autojoin) == 0 && policy != nil {
 		autojoin = policy.AutojoinFor(req.Name)
+	}
+	var modes []string
+	if policy != nil {
+		modes = policy.ModesFor(req.Name)
 	}
 
 	ch := topology.ChannelConfig{
@@ -65,6 +69,7 @@ func (s *Server) handleProvisionChannel(w http.ResponseWriter, r *http.Request) 
 		Ops:      req.Ops,
 		Voice:    req.Voice,
 		Autojoin: autojoin,
+		Modes:    modes,
 	}
 	if err := s.topoMgr.ProvisionChannel(ch); err != nil {
 		s.log.Error("provision channel", "channel", req.Name, "err", err)
