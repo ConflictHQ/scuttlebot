@@ -152,6 +152,35 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleBulkDeleteAgents handles POST /v1/agents/bulk-delete.
+func (s *Server) handleBulkDeleteAgents(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Nicks []string `json:"nicks"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Nicks) == 0 {
+		writeError(w, http.StatusBadRequest, "nicks list is required")
+		return
+	}
+
+	var deleted, failed int
+	for _, nick := range req.Nicks {
+		if agent, err := s.registry.Get(nick); err == nil {
+			s.removeAgentModes(nick, agent.Channels)
+		}
+		if err := s.registry.Delete(nick); err != nil {
+			s.log.Warn("bulk delete: failed", "nick", nick, "err", err)
+			failed++
+		} else {
+			deleted++
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"deleted": deleted, "failed": failed})
+}
+
 func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
 	var req struct {

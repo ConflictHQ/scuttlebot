@@ -77,6 +77,7 @@ func (s *Server) Handler() http.Handler {
 	apiMux.HandleFunc("POST /v1/agents/{nick}/adopt", s.requireScope(auth.ScopeAgents, s.handleAdopt))
 	apiMux.HandleFunc("POST /v1/agents/{nick}/revoke", s.requireScope(auth.ScopeAgents, s.handleRevoke))
 	apiMux.HandleFunc("DELETE /v1/agents/{nick}", s.requireScope(auth.ScopeAgents, s.handleDelete))
+	apiMux.HandleFunc("POST /v1/agents/bulk-delete", s.requireScope(auth.ScopeAgents, s.handleBulkDeleteAgents))
 
 	// Channels — channels scope (read), chat scope (send).
 	if s.bridge != nil {
