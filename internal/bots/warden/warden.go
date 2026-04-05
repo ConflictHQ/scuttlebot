@@ -312,7 +312,15 @@ func (b *Bot) enforce(cl *girc.Client, channel, nick string, action Action, reas
 		cl.Cmd.Notice(nick, fmt.Sprintf("warden: warning — %s in %s", reason, channel))
 	case ActionMute:
 		cl.Cmd.Notice(nick, fmt.Sprintf("warden: muted in %s — %s", channel, reason))
-		cl.Cmd.Mode(channel, "+q", nick)
+		// Use extended ban m: to mute — agent stays in channel but cannot speak.
+		mask := "m:" + nick + "!*@*"
+		cl.Cmd.Mode(channel, "+b", mask)
+		// Remove mute after cooldown so the agent can recover.
+		cs := b.channelStateFor(channel)
+		go func() {
+			time.Sleep(cs.cfg.CoolDown)
+			cl.Cmd.Mode(channel, "-b", mask)
+		}()
 	case ActionKick:
 		cl.Cmd.Kick(channel, nick, "warden: "+reason)
 	}
