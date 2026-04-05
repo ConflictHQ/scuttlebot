@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/conflicthq/scuttlebot/internal/auth"
 	"github.com/conflicthq/scuttlebot/internal/bots/bridge"
 	"github.com/conflicthq/scuttlebot/internal/registry"
 )
@@ -32,8 +33,10 @@ func (b *stubChatBridge) Send(context.Context, string, string, string) error { r
 func (b *stubChatBridge) SendWithMeta(_ context.Context, _, _, _ string, _ *bridge.Meta) error {
 	return nil
 }
-func (b *stubChatBridge) Stats() bridge.Stats   { return bridge.Stats{} }
-func (b *stubChatBridge) Users(string) []string { return nil }
+func (b *stubChatBridge) Stats() bridge.Stats                { return bridge.Stats{} }
+func (b *stubChatBridge) Users(string) []string              { return nil }
+func (b *stubChatBridge) UsersWithModes(string) []bridge.UserInfo { return nil }
+func (b *stubChatBridge) ChannelModes(string) string         { return "" }
 func (b *stubChatBridge) TouchUser(channel, nick string) {
 	b.touched = append(b.touched, struct{ channel, nick string }{channel: channel, nick: nick})
 }
@@ -44,7 +47,7 @@ func TestHandleChannelPresence(t *testing.T) {
 	bridgeStub := &stubChatBridge{}
 	reg := registry.New(nil, []byte("test-signing-key"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(New(reg, []string{"token"}, bridgeStub, nil, nil, nil, nil, nil, "", logger).Handler())
+	srv := httptest.NewServer(New(reg, auth.TestStore("token"), bridgeStub, nil, nil, nil, nil, nil, "", logger).Handler())
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{"nick": "codex-test"})
@@ -77,7 +80,7 @@ func TestHandleChannelPresenceRequiresNick(t *testing.T) {
 	bridgeStub := &stubChatBridge{}
 	reg := registry.New(nil, []byte("test-signing-key"))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(New(reg, []string{"token"}, bridgeStub, nil, nil, nil, nil, nil, "", logger).Handler())
+	srv := httptest.NewServer(New(reg, auth.TestStore("token"), bridgeStub, nil, nil, nil, nil, nil, "", logger).Handler())
 	defer srv.Close()
 
 	body, _ := json.Marshal(map[string]string{})

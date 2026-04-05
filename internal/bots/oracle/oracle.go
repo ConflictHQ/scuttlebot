@@ -22,6 +22,9 @@ import (
 	"time"
 
 	"github.com/lrstanley/girc"
+
+	"github.com/conflicthq/scuttlebot/pkg/chathistory"
+	"github.com/conflicthq/scuttlebot/pkg/toon"
 )
 
 const (
@@ -126,6 +129,7 @@ type Bot struct {
 	mu       sync.Mutex
 	lastReq  map[string]time.Time // nick → last request time
 	client   *girc.Client
+	chFetch  *chathistory.Fetcher // CHATHISTORY fetcher, nil if unsupported
 }
 
 // New creates an oracle bot.
@@ -161,14 +165,22 @@ func (b *Bot) Start(ctx context.Context) error {
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
 		SSL:         false,
+		SupportedCaps: map[string][]string{
+			"draft/chathistory": nil,
+			"chathistory":       nil,
+		},
 	})
 
+	b.chFetch = chathistory.New(c)
+
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
+		cl.Cmd.Mode(cl.GetNick(), "+B")
 		for _, ch := range b.channels {
 			cl.Cmd.Join(ch)
 		}
+		hasCH := cl.HasCapability("chathistory") || cl.HasCapability("draft/chathistory")
 		if b.log != nil {
-			b.log.Info("oracle connected", "channels", b.channels)
+			b.log.Info("oracle connected", "channels", b.channels, "chathistory", hasCH)
 		}
 	})
 
@@ -236,8 +248,8 @@ func (b *Bot) handle(ctx context.Context, cl *girc.Client, nick, text string) {
 	b.lastReq[nick] = time.Now()
 	b.mu.Unlock()
 
-	// Fetch history.
-	entries, err := b.history.Query(req.Channel, req.Limit)
+	// Fetch history — prefer CHATHISTORY if available, fall back to store.
+	entries, err := b.fetchHistory(ctx, req.Channel, req.Limit)
 	if err != nil {
 		cl.Cmd.Notice(nick, fmt.Sprintf("oracle: failed to fetch history for %s: %v", req.Channel, err))
 		return
@@ -266,19 +278,46 @@ func (b *Bot) handle(ctx context.Context, cl *girc.Client, nick, text string) {
 	}
 }
 
-func buildPrompt(channel string, entries []HistoryEntry) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Summarize the following IRC conversation from %s.\n", channel)
-	fmt.Fprintf(&sb, "Focus on: key decisions, actions taken, outstanding tasks, and important context.\n")
-	fmt.Fprintf(&sb, "Be concise. %d messages:\n\n", len(entries))
-	for _, e := range entries {
-		if e.MessageType != "" {
-			fmt.Fprintf(&sb, "[%s] (type=%s) %s\n", e.Nick, e.MessageType, e.Raw)
-		} else {
-			fmt.Fprintf(&sb, "[%s] %s\n", e.Nick, e.Raw)
+func (b *Bot) fetchHistory(ctx context.Context, channel string, limit int) ([]HistoryEntry, error) {
+	if b.chFetch != nil && b.client != nil {
+		hasCH := b.client.HasCapability("chathistory") || b.client.HasCapability("draft/chathistory")
+		if hasCH {
+			chCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			msgs, err := b.chFetch.Latest(chCtx, channel, limit)
+			if err == nil {
+				entries := make([]HistoryEntry, len(msgs))
+				for i, m := range msgs {
+					nick := m.Nick
+					if m.Account != "" {
+						nick = m.Account
+					}
+					entries[i] = HistoryEntry{
+						Nick: nick,
+						Raw:  m.Text,
+					}
+				}
+				return entries, nil
+			}
+			if b.log != nil {
+				b.log.Warn("chathistory failed, falling back to store", "err", err)
+			}
 		}
 	}
-	return sb.String()
+	return b.history.Query(channel, limit)
+}
+
+func buildPrompt(channel string, entries []HistoryEntry) string {
+	// Convert to TOON entries for token-efficient LLM context.
+	toonEntries := make([]toon.Entry, len(entries))
+	for i, e := range entries {
+		toonEntries[i] = toon.Entry{
+			Nick:        e.Nick,
+			MessageType: e.MessageType,
+			Text:        e.Raw,
+		}
+	}
+	return toon.FormatPrompt(channel, toonEntries)
 }
 
 func formatResponse(channel string, count int, summary string, format Format) string {

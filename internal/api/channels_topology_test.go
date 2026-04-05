@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/conflicthq/scuttlebot/internal/auth"
 	"github.com/conflicthq/scuttlebot/internal/config"
 	"github.com/conflicthq/scuttlebot/internal/registry"
 	"github.com/conflicthq/scuttlebot/internal/topology"
@@ -50,6 +51,8 @@ func (s *stubTopologyManager) RevokeAccess(nick, channel string) {
 	s.revokes = append(s.revokes, accessCall{Nick: nick, Channel: channel})
 }
 
+func (s *stubTopologyManager) ListChannels() []topology.ChannelInfo { return nil }
+
 // stubProvisioner is a minimal AccountProvisioner for agent registration tests.
 type stubProvisioner struct {
 	accounts map[string]string
@@ -76,7 +79,7 @@ func newTopoTestServer(t *testing.T, topo *stubTopologyManager) (*httptest.Serve
 	t.Helper()
 	reg := registry.New(nil, []byte("key"))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(New(reg, []string{"tok"}, nil, nil, nil, nil, topo, nil, "", log).Handler())
+	srv := httptest.NewServer(New(reg, auth.TestStore("tok"), nil, nil, nil, nil, topo, nil, "", log).Handler())
 	t.Cleanup(srv.Close)
 	return srv, "tok"
 }
@@ -87,7 +90,7 @@ func newTopoTestServerWithRegistry(t *testing.T, topo *stubTopologyManager) (*ht
 	t.Helper()
 	reg := registry.New(newStubProvisioner(), []byte("key"))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(New(reg, []string{"tok"}, nil, nil, nil, nil, topo, nil, "", log).Handler())
+	srv := httptest.NewServer(New(reg, auth.TestStore("tok"), nil, nil, nil, nil, topo, nil, "", log).Handler())
 	t.Cleanup(srv.Close)
 	return srv, "tok"
 }
