@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/conflicthq/scuttlebot/pkg/ircagent"
+	"github.com/conflicthq/scuttlebot/pkg/relaymirror"
 	"github.com/conflicthq/scuttlebot/pkg/sessionrelay"
 	"github.com/creack/pty"
 	"golang.org/x/term"
@@ -229,8 +230,12 @@ func run(cfg config) error {
 		"SCUTTLEBOT_NICK="+cfg.Nick,
 		"SCUTTLEBOT_ACTIVITY_VIA_BROKER="+boolString(relayActive),
 	)
+	var ptyMirror *relaymirror.PTYMirror
 	if relayActive {
-		go mirrorSessionLoop(ctx, relay, cfg, startedAt, preExisting)
+		ptyMirror = relaymirror.NewPTYMirror(defaultMirrorLineMax, 500*time.Millisecond, func(line string) {
+			_ = relay.Post(ctx, line)
+		})
+		go mirrorSessionLoop(ctx, relay, cfg, startedAt, preExisting, ptyMirror)
 		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
 	}
 
@@ -281,9 +286,20 @@ func run(cfg config) error {
 	go func() {
 		_, _ = io.Copy(ptmx, os.Stdin)
 	}()
-	go func() {
-		copyPTYOutput(ptmx, os.Stdout, state)
-	}()
+	if ptyMirror != nil {
+		ptyMirror.BusyCallback = func(now time.Time) {
+			state.mu.Lock()
+			state.lastBusy = now
+			state.mu.Unlock()
+		}
+		go func() {
+			_ = ptyMirror.Copy(ptmx, os.Stdout)
+		}()
+	} else {
+		go func() {
+			copyPTYOutput(ptmx, os.Stdout, state)
+		}()
+	}
 	if relayActive {
 		go relayInputLoop(ctx, relay, cfg, state, ptmx, onlineAt)
 		go handleReconnectSignal(ctx, &relay, cfg, state, ptmx, startedAt)
@@ -410,7 +426,7 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 			// Restart mirror and input loops with the new connector.
 			// Use epoch time for mirror so it finds the existing session file
 			// regardless of when it was last modified.
-			go mirrorSessionLoop(ctx, conn, cfg, time.Time{}, nil)
+			go mirrorSessionLoop(ctx, conn, cfg, time.Time{}, nil, nil)
 			go relayInputLoop(ctx, conn, cfg, state, ptmx, now)
 			break
 		}
@@ -811,7 +827,7 @@ func defaultSessionID(target string) string {
 	return fmt.Sprintf("%08x", sum)
 }
 
-func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time, preExisting map[string]struct{}) {
+func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time, preExisting map[string]struct{}, ptyDedup *relaymirror.PTYMirror) {
 	for {
 		if ctx.Err() != nil {
 			return
@@ -828,6 +844,9 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 			for _, line := range splitMirrorText(ml.Text) {
 				if line == "" {
 					continue
+				}
+				if ptyDedup != nil {
+					ptyDedup.MarkSeen(line)
 				}
 				if len(ml.Meta) > 0 {
 					_ = relay.PostWithMeta(ctx, line, ml.Meta)
