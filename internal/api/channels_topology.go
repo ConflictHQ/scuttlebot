@@ -20,11 +20,13 @@ type topologyManager interface {
 }
 
 type provisionChannelRequest struct {
-	Name     string   `json:"name"`
-	Topic    string   `json:"topic,omitempty"`
-	Ops      []string `json:"ops,omitempty"`
-	Voice    []string `json:"voice,omitempty"`
-	Autojoin []string `json:"autojoin,omitempty"`
+	Name         string   `json:"name"`
+	Topic        string   `json:"topic,omitempty"`
+	Ops          []string `json:"ops,omitempty"`
+	Voice        []string `json:"voice,omitempty"`
+	Autojoin     []string `json:"autojoin,omitempty"`
+	Instructions string   `json:"instructions,omitempty"`
+	MirrorDetail string   `json:"mirror_detail,omitempty"`
 }
 
 type provisionChannelResponse struct {
@@ -78,6 +80,24 @@ func (s *Server) handleProvisionChannel(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Save instructions to policies if provided.
+	if req.Instructions != "" && s.policies != nil {
+		p := s.policies.Get()
+		if p.OnJoinMessages == nil {
+			p.OnJoinMessages = make(map[string]string)
+		}
+		p.OnJoinMessages[req.Name] = req.Instructions
+		if req.MirrorDetail != "" {
+			if p.Bridge.ChannelDisplay == nil {
+				p.Bridge.ChannelDisplay = make(map[string]ChannelDisplayConfig)
+			}
+			cfg := p.Bridge.ChannelDisplay[req.Name]
+			cfg.MirrorDetail = req.MirrorDetail
+			p.Bridge.ChannelDisplay[req.Name] = cfg
+		}
+		_ = s.policies.Set(p)
+	}
+
 	resp := provisionChannelResponse{
 		Channel:  req.Name,
 		Autojoin: autojoin,
@@ -117,6 +137,60 @@ func (s *Server) handleDropChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.topoMgr.DropChannel(channel)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetInstructions handles GET /v1/channels/{channel}/instructions.
+func (s *Server) handleGetInstructions(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	if s.policies == nil {
+		writeJSON(w, http.StatusOK, map[string]string{"channel": channel, "instructions": ""})
+		return
+	}
+	p := s.policies.Get()
+	msg := p.OnJoinMessages[channel]
+	writeJSON(w, http.StatusOK, map[string]string{"channel": channel, "instructions": msg})
+}
+
+// handlePutInstructions handles PUT /v1/channels/{channel}/instructions.
+func (s *Server) handlePutInstructions(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	if s.policies == nil {
+		writeError(w, http.StatusServiceUnavailable, "policies not configured")
+		return
+	}
+	var req struct {
+		Instructions string `json:"instructions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	p := s.policies.Get()
+	if p.OnJoinMessages == nil {
+		p.OnJoinMessages = make(map[string]string)
+	}
+	p.OnJoinMessages[channel] = req.Instructions
+	if err := s.policies.Set(p); err != nil {
+		writeError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeleteInstructions handles DELETE /v1/channels/{channel}/instructions.
+func (s *Server) handleDeleteInstructions(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	if s.policies == nil {
+		writeError(w, http.StatusServiceUnavailable, "policies not configured")
+		return
+	}
+	p := s.policies.Get()
+	delete(p.OnJoinMessages, channel)
+	if err := s.policies.Set(p); err != nil {
+		writeError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
