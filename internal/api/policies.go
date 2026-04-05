@@ -45,11 +45,19 @@ type LoggingPolicy struct {
 	MaxAgeDays int    `json:"max_age_days"` // prune rotated files older than N days; 0 = keep all
 }
 
+// ChannelDisplayConfig holds per-channel rendering preferences.
+type ChannelDisplayConfig struct {
+	MirrorDetail string `json:"mirror_detail,omitempty"` // "full", "compact", "minimal"
+	RenderMode   string `json:"render_mode,omitempty"`   // "rich", "text"
+}
+
 // BridgePolicy configures bridge-specific UI/relay behavior.
 type BridgePolicy struct {
 	// WebUserTTLMinutes controls how long HTTP bridge sender nicks remain
 	// visible in the channel user list after their last post.
 	WebUserTTLMinutes int `json:"web_user_ttl_minutes"`
+	// ChannelDisplay holds per-channel rendering config.
+	ChannelDisplay map[string]ChannelDisplayConfig `json:"channel_display,omitempty"`
 }
 
 // PolicyLLMBackend stores an LLM backend configuration in the policy store.

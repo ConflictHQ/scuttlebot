@@ -27,6 +27,7 @@ type ircConnector struct {
 	agentType     string
 	pass          string
 	deleteOnClose bool
+	envelopeMode  bool
 
 	mu       sync.RWMutex
 	channels []string
@@ -52,6 +53,7 @@ func newIRCConnector(cfg Config) (Connector, error) {
 		agentType:     cfg.IRC.AgentType,
 		pass:          cfg.IRC.Pass,
 		deleteOnClose: cfg.IRC.DeleteOnClose,
+		envelopeMode:  cfg.IRC.EnvelopeMode,
 		channels:      append([]string(nil), cfg.Channels...),
 		messages:      make([]Message, 0, defaultBufferSize),
 		errCh:         make(chan error, 1),
@@ -223,22 +225,24 @@ func (c *ircConnector) PostTo(_ context.Context, channel, text string) error {
 	return c.PostToWithMeta(context.Background(), channel, text, nil)
 }
 
-// PostWithMeta sends text to all channels. Meta is ignored — IRC is text-only.
-func (c *ircConnector) PostWithMeta(_ context.Context, text string, _ json.RawMessage) error {
+// PostWithMeta sends text to all channels.
+// In envelope mode, wraps the message in a protocol.Envelope JSON.
+func (c *ircConnector) PostWithMeta(_ context.Context, text string, meta json.RawMessage) error {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()
 	if client == nil {
 		return fmt.Errorf("sessionrelay: irc client not connected")
 	}
+	msg := c.formatMessage(text, meta)
 	for _, channel := range c.Channels() {
-		client.Cmd.Message(channel, text)
+		client.Cmd.Message(channel, msg)
 	}
 	return nil
 }
 
-// PostToWithMeta sends text to a specific channel. Meta is ignored — IRC is text-only.
-func (c *ircConnector) PostToWithMeta(_ context.Context, channel, text string, _ json.RawMessage) error {
+// PostToWithMeta sends text to a specific channel.
+func (c *ircConnector) PostToWithMeta(_ context.Context, channel, text string, meta json.RawMessage) error {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()
@@ -249,8 +253,32 @@ func (c *ircConnector) PostToWithMeta(_ context.Context, channel, text string, _
 	if channel == "" {
 		return fmt.Errorf("sessionrelay: post channel is required")
 	}
-	client.Cmd.Message(channel, text)
+	client.Cmd.Message(channel, c.formatMessage(text, meta))
 	return nil
+}
+
+// formatMessage wraps text in a JSON envelope when envelope mode is enabled.
+func (c *ircConnector) formatMessage(text string, meta json.RawMessage) string {
+	if !c.envelopeMode {
+		return text
+	}
+	env := map[string]any{
+		"v":    1,
+		"type": "relay.message",
+		"from": c.nick,
+		"ts":   time.Now().UnixMilli(),
+		"payload": map[string]any{
+			"text": text,
+		},
+	}
+	if len(meta) > 0 {
+		env["payload"] = json.RawMessage(meta)
+	}
+	data, err := json.Marshal(env)
+	if err != nil {
+		return text // fallback to plain text
+	}
+	return string(data)
 }
 
 func (c *ircConnector) MessagesSince(_ context.Context, since time.Time) ([]Message, error) {

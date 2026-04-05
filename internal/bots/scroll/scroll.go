@@ -23,6 +23,7 @@ import (
 	"github.com/lrstanley/girc"
 
 	"github.com/conflicthq/scuttlebot/internal/bots/scribe"
+	"github.com/conflicthq/scuttlebot/pkg/toon"
 )
 
 const (
@@ -131,7 +132,7 @@ func (b *Bot) handle(client *girc.Client, nick, text string) {
 	req, err := ParseCommand(text)
 	if err != nil {
 		client.Cmd.Notice(nick, fmt.Sprintf("error: %s", err))
-		client.Cmd.Notice(nick, "usage: replay #channel [last=N] [since=<unix_ms>]")
+		client.Cmd.Notice(nick, "usage: replay #channel [last=N] [since=<unix_ms>] [format=json|toon]")
 		return
 	}
 
@@ -146,12 +147,30 @@ func (b *Bot) handle(client *girc.Client, nick, text string) {
 		return
 	}
 
-	client.Cmd.Notice(nick, fmt.Sprintf("--- replay %s (%d entries) ---", req.Channel, len(entries)))
-	for _, e := range entries {
-		line, _ := json.Marshal(e)
-		client.Cmd.Notice(nick, string(line))
+	if req.Format == "toon" {
+		toonEntries := make([]toon.Entry, len(entries))
+		for i, e := range entries {
+			toonEntries[i] = toon.Entry{
+				Nick:        e.Nick,
+				MessageType: e.MessageType,
+				Text:        e.Raw,
+				At:          e.At,
+			}
+		}
+		output := toon.Format(toonEntries, toon.Options{Channel: req.Channel})
+		for _, line := range strings.Split(output, "\n") {
+			if line != "" {
+				client.Cmd.Notice(nick, line)
+			}
+		}
+	} else {
+		client.Cmd.Notice(nick, fmt.Sprintf("--- replay %s (%d entries) ---", req.Channel, len(entries)))
+		for _, e := range entries {
+			line, _ := json.Marshal(e)
+			client.Cmd.Notice(nick, string(line))
+		}
+		client.Cmd.Notice(nick, fmt.Sprintf("--- end replay %s ---", req.Channel))
 	}
-	client.Cmd.Notice(nick, fmt.Sprintf("--- end replay %s ---", req.Channel))
 }
 
 func (b *Bot) checkRateLimit(nick string) bool {
@@ -169,7 +188,8 @@ func (b *Bot) checkRateLimit(nick string) bool {
 type replayRequest struct {
 	Channel string
 	Limit   int
-	Since   int64 // unix ms, 0 = no filter
+	Since   int64  // unix ms, 0 = no filter
+	Format  string // "json" (default) or "toon"
 }
 
 // ParseCommand parses a replay command string. Exported for testing.
@@ -207,6 +227,13 @@ func ParseCommand(text string) (*replayRequest, error) {
 				return nil, fmt.Errorf("invalid since=%q (must be unix milliseconds)", kv[1])
 			}
 			req.Since = ts
+		case "format":
+			switch strings.ToLower(kv[1]) {
+			case "json", "toon":
+				req.Format = strings.ToLower(kv[1])
+			default:
+				return nil, fmt.Errorf("unknown format %q (use json or toon)", kv[1])
+			}
 		default:
 			return nil, fmt.Errorf("unknown argument %q", kv[0])
 		}
