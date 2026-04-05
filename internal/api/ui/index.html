@@ -459,6 +459,7 @@ canvas { display:block; width:100% !important; }
     <div class="spacer"></div>
     <span class="badge" id="agent-count" style="margin-right:4px">0</span>
     <button class="sm" onclick="loadAgents()">↻ refresh</button>
+    <button class="sm danger" id="bulk-delete-btn" style="display:none" onclick="bulkDeleteAgents()">delete selected</button>
     <button class="sm primary" onclick="openDrawer()">+ register agent</button>
   </div>
   <div id="agent-pagination" style="display:none;padding:4px 16px;font-size:12px;color:#8b949e;display:flex;align-items:center;gap:8px">
@@ -1679,7 +1680,7 @@ function renderAgentTable() {
     const seen  = a.last_seen ? relTime(a.last_seen) : 'never';
     const seenStyle = a.online ? 'color:#3fb950' : 'color:#8b949e';
     return `<tr${a.revoked?' style="opacity:0.5"':''}>
-      <td>${presenceDot(a)} <strong>${esc(a.nick)}</strong></td>
+      <td><input type="checkbox" class="agent-select" value="${esc(a.nick)}" onchange="updateBulkBtn()" style="margin-right:6px">${presenceDot(a)} <strong>${esc(a.nick)}</strong></td>
       <td><span class="tag type-${a.type}">${esc(a.type)}</span>${rev}</td>
       <td>${chs||'<span style="color:#8b949e">—</span>'}</td>
       <td style="white-space:nowrap;${seenStyle}">${seen}</td>
@@ -1703,6 +1704,23 @@ async function deleteAgent(nick) {
   if (!confirm(`Delete "${nick}"? This permanently removes the agent from the registry.`)) return;
   try { await api('DELETE', `/v1/agents/${nick}`); await loadAgents(); await loadStatus(); }
   catch(e) { alert('Delete failed: '+e.message); }
+}
+function updateBulkBtn() {
+  const checked = document.querySelectorAll('.agent-select:checked');
+  const btn = document.getElementById('bulk-delete-btn');
+  btn.style.display = checked.length > 0 ? '' : 'none';
+  btn.textContent = `delete selected (${checked.length})`;
+}
+async function bulkDeleteAgents() {
+  const nicks = [...document.querySelectorAll('.agent-select:checked')].map(cb => cb.value);
+  if (!nicks.length) return;
+  if (!confirm(`Delete ${nicks.length} agent(s)? This permanently removes them from the registry.\n\n${nicks.join(', ')}`)) return;
+  try {
+    const result = await api('POST', '/v1/agents/bulk-delete', {nicks});
+    await loadAgents();
+    await loadStatus();
+    if (result.failed > 0) alert(`Deleted ${result.deleted}, failed ${result.failed}`);
+  } catch(e) { alert('Bulk delete failed: ' + e.message); }
 }
 async function rotateAgent(nick) {
   try {
