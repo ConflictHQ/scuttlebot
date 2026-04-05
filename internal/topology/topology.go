@@ -34,6 +34,9 @@ type ChannelConfig struct {
 
 	// Autojoin is a list of bot nicks to invite after provisioning.
 	Autojoin []string
+
+	// OnJoinMessage is sent to agents when they join this channel.
+	OnJoinMessage string
 }
 
 // channelRecord tracks a provisioned channel for TTL-based reaping.

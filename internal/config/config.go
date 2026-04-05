@@ -280,6 +280,10 @@ type StaticChannelConfig struct {
 
 	// Autojoin is a list of bot nicks to invite when the channel is provisioned.
 	Autojoin []string `yaml:"autojoin" json:"autojoin,omitempty"`
+
+	// OnJoinMessage is sent to agents when they join this channel.
+	// Supports template variables: {nick}, {channel}.
+	OnJoinMessage string `yaml:"on_join_message" json:"on_join_message,omitempty"`
 }
 
 // ChannelTypeConfig defines policy rules for a class of dynamically created channels.
@@ -304,6 +308,9 @@ type ChannelTypeConfig struct {
 	// TTL is the maximum lifetime of an ephemeral channel with no non-bot members.
 	// Zero means no TTL; cleanup only occurs when the channel is empty.
 	TTL Duration `yaml:"ttl" json:"ttl,omitempty"`
+
+	// OnJoinMessage is sent to agents when they join a channel of this type.
+	OnJoinMessage string `yaml:"on_join_message" json:"on_join_message,omitempty"`
 }
 
 // Duration wraps time.Duration for YAML/JSON marshalling ("72h", "30m", etc.).
