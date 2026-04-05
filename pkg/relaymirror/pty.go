@@ -50,7 +50,21 @@ func NewPTYMirror(maxLineLen int, minInterval time.Duration, onLine func(line st
 // Blocks until r returns EOF or error.
 func (m *PTYMirror) Copy(r io.Reader, w io.Writer) error {
 	buf := make([]byte, 4096)
-	var lineBuf bytes.Buffer
+	lineCh := make(chan []byte, 64) // buffered channel for async line processing
+	done := make(chan struct{})
+
+	// Process lines in a separate goroutine so terminal is never blocked.
+	go func() {
+		defer close(done)
+		var lineBuf bytes.Buffer
+		for chunk := range lineCh {
+			lineBuf.Write(chunk)
+			m.emitLines(&lineBuf)
+		}
+		if lineBuf.Len() > 0 {
+			m.emitLine(lineBuf.String())
+		}
+	}()
 
 	for {
 		n, err := r.Read(buf)
@@ -62,19 +76,22 @@ func (m *PTYMirror) Copy(r io.Reader, w io.Writer) error {
 					m.BusyCallback(time.Now())
 				}
 			}
-			// Pass through to terminal.
+			// Pass through to terminal — ALWAYS immediate, never blocked.
 			if w != nil {
 				_, _ = w.Write(buf[:n])
 			}
-			// Buffer and emit lines.
-			lineBuf.Write(buf[:n])
-			m.emitLines(&lineBuf)
+			// Send to line processor (non-blocking with buffered channel).
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			select {
+			case lineCh <- chunk:
+			default:
+				// Channel full — drop this chunk rather than block terminal.
+			}
 		}
 		if err != nil {
-			// Flush remaining buffer.
-			if lineBuf.Len() > 0 {
-				m.emitLine(lineBuf.String())
-			}
+			close(lineCh)
+			<-done
 			if err == io.EOF {
 				return nil
 			}
