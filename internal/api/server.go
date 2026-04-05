@@ -81,6 +81,8 @@ func (s *Server) Handler() http.Handler {
 		apiMux.HandleFunc("POST /v1/channels/{channel}/messages", s.handleSendMessage)
 		apiMux.HandleFunc("POST /v1/channels/{channel}/presence", s.handleChannelPresence)
 		apiMux.HandleFunc("GET /v1/channels/{channel}/users", s.handleChannelUsers)
+		apiMux.HandleFunc("GET /v1/channels/{channel}/config", s.handleGetChannelConfig)
+		apiMux.HandleFunc("PUT /v1/channels/{channel}/config", s.handlePutChannelConfig)
 	}
 	if s.topoMgr != nil {
 		apiMux.HandleFunc("POST /v1/channels", s.handleProvisionChannel)
