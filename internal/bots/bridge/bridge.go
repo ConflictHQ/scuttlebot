@@ -36,6 +36,7 @@ type Message struct {
 	Channel string    `json:"channel"`
 	Nick    string    `json:"nick"`
 	Text    string    `json:"text"`
+	MsgID   string    `json:"msgid,omitempty"`
 	Meta    *Meta     `json:"meta,omitempty"`
 }
 
@@ -177,6 +178,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
+		cl.Cmd.Mode(cl.GetNick(), "+B")
 		// Check RELAYMSG support from ISUPPORT (RPL_005).
 		if sep, ok := cl.GetServerOption("RELAYMSG"); ok && sep != "" {
 			b.relaySep = sep
@@ -236,11 +238,16 @@ func (b *Bot) Start(ctx context.Context) error {
 			nick = acct
 		}
 
+		var msgID string
+		if id, ok := e.Tags.Get("msgid"); ok {
+			msgID = id
+		}
 		b.dispatch(Message{
 			At:      e.Timestamp,
 			Channel: channel,
 			Nick:    nick,
 			Text:    e.Last(),
+			MsgID:   msgID,
 		})
 	})
 
