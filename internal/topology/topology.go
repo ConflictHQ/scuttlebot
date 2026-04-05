@@ -300,6 +300,38 @@ func (m *Manager) chanserv(format string, args ...any) {
 	m.client.Cmd.Message("ChanServ", msg)
 }
 
+// ChannelInfo describes an active provisioned channel.
+type ChannelInfo struct {
+	Name          string    `json:"name"`
+	ProvisionedAt time.Time `json:"provisioned_at"`
+	Type          string    `json:"type,omitempty"`
+	Ephemeral     bool      `json:"ephemeral,omitempty"`
+	TTLSeconds    int64     `json:"ttl_seconds,omitempty"`
+}
+
+// ListChannels returns all actively provisioned channels.
+func (m *Manager) ListChannels() []ChannelInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]ChannelInfo, 0, len(m.channels))
+	for _, rec := range m.channels {
+		ci := ChannelInfo{
+			Name:          rec.name,
+			ProvisionedAt: rec.provisionedAt,
+		}
+		if m.policy != nil {
+			ci.Type = m.policy.TypeName(rec.name)
+			ci.Ephemeral = m.policy.IsEphemeral(rec.name)
+			ttl := m.policy.TTLFor(rec.name)
+			if ttl > 0 {
+				ci.TTLSeconds = int64(ttl.Seconds())
+			}
+		}
+		out = append(out, ci)
+	}
+	return out
+}
+
 // ValidateName checks that a channel name follows scuttlebot conventions.
 func ValidateName(name string) error {
 	if !strings.HasPrefix(name, "#") {

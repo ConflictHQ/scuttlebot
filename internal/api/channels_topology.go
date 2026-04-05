@@ -16,6 +16,7 @@ type topologyManager interface {
 	Policy() *topology.Policy
 	GrantAccess(nick, channel, level string)
 	RevokeAccess(nick, channel string)
+	ListChannels() []topology.ChannelInfo
 }
 
 type provisionChannelRequest struct {
@@ -93,8 +94,9 @@ type channelTypeInfo struct {
 }
 
 type topologyResponse struct {
-	StaticChannels []string          `json:"static_channels"`
-	Types          []channelTypeInfo `json:"types"`
+	StaticChannels []string               `json:"static_channels"`
+	Types          []channelTypeInfo      `json:"types"`
+	ActiveChannels []topology.ChannelInfo `json:"active_channels,omitempty"`
 }
 
 // handleDropChannel handles DELETE /v1/topology/channels/{channel}.
@@ -148,5 +150,6 @@ func (s *Server) handleGetTopology(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, topologyResponse{
 		StaticChannels: staticNames,
 		Types:          typeInfos,
+		ActiveChannels: s.topoMgr.ListChannels(),
 	})
 }
