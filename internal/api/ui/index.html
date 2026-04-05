@@ -2755,6 +2755,13 @@ const BEHAVIOR_SCHEMAS = {
     { key:'mute_duration_sec', label:'Mute duration (s)',type:'number',   placeholder:'600',           hint:'How long medium-severity mutes last' },
     { key:'cooldown_sec',      label:'Cooldown (s)',     type:'number',   placeholder:'300',           hint:'Min seconds between automated actions on the same nick' },
   ],
+  shepherd: [
+    { key:'backend',              label:'LLM backend',        type:'llm-backend',                                                  hint:'Backend for reasoning and plan generation' },
+    { key:'model',                label:'Model override',     type:'model-override', backendKey:'backend',                         hint:'Override the backend default model' },
+    { key:'report_channel',       label:'Report channel',     type:'text',     placeholder:'#ops',              hint:'Channel for status reports' },
+    { key:'checkin_interval_sec', label:'Check-in interval (s)', type:'number', placeholder:'0',                hint:'Seconds between automatic check-ins (0 = disabled)' },
+    { key:'goal_source',          label:'Goal source URL',    type:'text',     placeholder:'https://github.com/org/repo/milestone/1', hint:'GitHub milestone URL or other goal source' },
+  ],
 };
 
 function renderBehConfig(b) {

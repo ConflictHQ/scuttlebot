@@ -174,6 +174,12 @@ var defaultBehaviors = []BehaviorConfig{
 		Nick:            "steward",
 		JoinAllChannels: true,
 	},
+	{
+		ID:          "shepherd",
+		Name:        "Shepherd",
+		Description: "Goal-directed agent coordinator. Assigns work, tracks progress, checks in on agents, generates plans using LLM. Configurable with any LLM provider.",
+		Nick:        "shepherd",
+	},
 }
 
 // BotCommand describes a single command a bot responds to.
@@ -205,6 +211,15 @@ var botCommands = map[string][]BotCommand{
 	},
 	"herald": {
 		{Command: "announce", Usage: "announce #channel <message>", Description: "Post an announcement to a channel."},
+	},
+	"shepherd": {
+		{Command: "goal", Usage: "GOAL <description>", Description: "Set a goal for the current channel."},
+		{Command: "goals", Usage: "GOALS", Description: "List all active goals."},
+		{Command: "done", Usage: "DONE <goal-id>", Description: "Mark a goal as completed."},
+		{Command: "status", Usage: "STATUS", Description: "Report progress on current goals (LLM-enhanced)."},
+		{Command: "assign", Usage: "ASSIGN <nick> <task>", Description: "Manually assign a task to an agent."},
+		{Command: "checkin", Usage: "CHECKIN", Description: "Trigger a check-in round with assigned agents."},
+		{Command: "plan", Usage: "PLAN", Description: "Generate a work plan from goals using LLM."},
 	},
 }
 
