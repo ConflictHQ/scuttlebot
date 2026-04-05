@@ -13,11 +13,11 @@ import (
 	"time"
 )
 
-// ansiRE matches ANSI escape sequences.
-var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\(B`)
+// ansiRE matches ANSI escape sequences (including partial/split ones).
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\].*?\x07|\x1b\(B|\[\?[0-9]+[hl]`)
 
 // noiseRE matches common terminal noise: spinner chars, progress bars, cursor movement.
-var noiseRE = regexp.MustCompile(`^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\-\\|/]+$|^\s*\d+%\s*$|^[.]+$`)
+var noiseRE = regexp.MustCompile(`^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\-\\|/]+$|^\s*\d+%\s*$|^[.]+$|^\[?\?[0-9]+[hl]`)
 
 // PTYMirror reads PTY output and emits clean text lines to IRC.
 // It includes rate limiting and noise filtering for clean IRC output.
