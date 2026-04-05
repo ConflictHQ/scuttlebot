@@ -536,7 +536,7 @@ canvas { display:block; width:100% !important; }
   <div class="sidebar-resize" id="resize-left" title="drag to resize"></div>
   <div class="chat-main">
     <div class="chat-topbar">
-      <span class="chat-ch-name" id="chat-ch-name">select a channel</span>
+      <span class="chat-ch-name" id="chat-ch-name">select a channel</span><span id="chat-channel-modes" style="color:#8b949e;font-size:11px;margin-left:6px"></span>
       <div class="spacer"></div>
       <span style="font-size:11px;color:#8b949e;margin-right:6px">chatting as</span>
       <select id="chat-identity" style="width:140px;padding:3px 6px;font-size:12px" onchange="saveChatIdentity()">
@@ -665,6 +665,24 @@ canvas { display:block; width:100% !important; }
       </div>
       <div class="card-body" style="padding:0">
         <div id="behaviors-list"></div>
+      </div>
+    </div>
+
+    <!-- on-join instructions -->
+    <div class="card" id="card-onjoin">
+      <div class="card-header" onclick="toggleCard('card-onjoin',event)">
+        <h2>on-join instructions</h2><span class="card-desc">messages sent to agents when they join a channel</span><span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <button class="sm primary" onclick="event.stopPropagation();savePolicies()">save</button>
+      </div>
+      <div class="card-body">
+        <p style="font-size:12px;color:#8b949e;margin-bottom:12px">Per-channel instructions delivered to agents on join. Supports <code>{nick}</code> and <code>{channel}</code> template variables.</p>
+        <div id="onjoin-list"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
+          <div style="flex:0 0 160px"><label>channel</label><input type="text" id="onjoin-new-channel" placeholder="#channel" style="width:100%"></div>
+          <div style="flex:1"><label>message</label><input type="text" id="onjoin-new-message" placeholder="Welcome to {channel}, {nick}!" style="width:100%"></div>
+          <button class="sm primary" onclick="addOnJoinMessage()">add</button>
+        </div>
       </div>
     </div>
 
@@ -2058,7 +2076,7 @@ async function loadNicklist(ch) {
   try {
     const slug = ch.replace(/^#/,'');
     const data = await api('GET', `/v1/channels/${slug}/users`);
-    renderNicklist(data.users || []);
+    renderNicklist(data.users || [], data.channel_modes || '');
   } catch(e) {}
 }
 const SYSTEM_BOTS = new Set(['bridge','oracle','sentinel','steward','scribe','warden','snitch','herald','scroll','systembot','auditbot']);
@@ -2081,20 +2099,31 @@ function nickPrefix(nick) {
   return '';
 }
 
-function renderNicklist(users) {
+function renderNicklist(users, channelModes) {
   const el = document.getElementById('nicklist-users');
+  // users may be [{nick, modes}] or ["nick"] for backwards compat.
+  const normalized = users.map(u => typeof u === 'string' ? {nick: u, modes: []} : u);
   // Sort: ops > system bots > agents > users, alpha within each tier.
-  const sorted = users.slice().sort((a, b) => {
-    const ta = nickTier(a), tb = nickTier(b);
+  const sorted = normalized.slice().sort((a, b) => {
+    const ta = nickTier(a.nick), tb = nickTier(b.nick);
     if (ta !== tb) return ta - tb;
-    return a.localeCompare(b);
+    return a.nick.localeCompare(b.nick);
   });
-  el.innerHTML = sorted.map(nick => {
-    const tier = nickTier(nick);
-    const prefix = nickPrefix(nick);
-    const cls = tier === 1 ? ' is-bot' : tier === 0 ? ' is-op' : '';
-    return `<div class="nicklist-nick${cls}" title="${esc(nick)}">${prefix}${esc(nick)}</div>`;
+  el.innerHTML = sorted.map(u => {
+    const modes = u.modes || [];
+    // IRC mode prefix: @ for op, + for voice
+    let prefix = '';
+    if (modes.includes('o') || modes.includes('a') || modes.includes('q')) prefix = '@';
+    else if (modes.includes('v')) prefix = '+';
+    else prefix = nickPrefix(u.nick);
+    const tier = nickTier(u.nick);
+    const cls = (modes.includes('o') || tier === 0) ? ' is-op' : tier === 1 ? ' is-bot' : '';
+    const modeStr = modes.length ? ` [+${modes.join('')}]` : '';
+    return `<div class="nicklist-nick${cls}" title="${esc(u.nick)}${modeStr}">${prefix}${esc(u.nick)}</div>`;
   }).join('');
+  // Show channel modes in header if available.
+  const modesEl = document.getElementById('chat-channel-modes');
+  if (modesEl) modesEl.textContent = channelModes ? ` ${channelModes}` : '';
 }
 // Nick colors — deterministic hash over a palette
 const NICK_PALETTE = ['#58a6ff','#3fb950','#ffa657','#d2a8ff','#56d364','#79c0ff','#ff7b72','#a5d6ff','#f0883e','#39d353'];
@@ -3184,6 +3213,37 @@ function showAIExample(e) {
 
 // --- settings / policies ---
 let currentPolicies = null;
+let _botCommands = {};
+
+function renderOnJoinMessages(msgs) {
+  const el = document.getElementById('onjoin-list');
+  if (!msgs || !Object.keys(msgs).length) { el.innerHTML = '<div style="color:#8b949e;font-size:12px">No on-join instructions configured.</div>'; return; }
+  el.innerHTML = Object.entries(msgs).sort().map(([ch, msg]) => `
+    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #21262d">
+      <code style="font-size:12px;min-width:120px">${esc(ch)}</code>
+      <input type="text" value="${esc(msg)}" style="flex:1;font-size:12px" onchange="updateOnJoinMessage('${esc(ch)}',this.value)">
+      <button class="sm danger" onclick="removeOnJoinMessage('${esc(ch)}')">remove</button>
+    </div>
+  `).join('');
+}
+function addOnJoinMessage() {
+  const ch = document.getElementById('onjoin-new-channel').value.trim();
+  const msg = document.getElementById('onjoin-new-message').value.trim();
+  if (!ch || !msg) return;
+  if (!currentPolicies.on_join_messages) currentPolicies.on_join_messages = {};
+  currentPolicies.on_join_messages[ch] = msg;
+  document.getElementById('onjoin-new-channel').value = '';
+  document.getElementById('onjoin-new-message').value = '';
+  renderOnJoinMessages(currentPolicies.on_join_messages);
+}
+function updateOnJoinMessage(ch, msg) {
+  if (!currentPolicies.on_join_messages) currentPolicies.on_join_messages = {};
+  currentPolicies.on_join_messages[ch] = msg;
+}
+function removeOnJoinMessage(ch) {
+  if (currentPolicies.on_join_messages) delete currentPolicies.on_join_messages[ch];
+  renderOnJoinMessages(currentPolicies.on_join_messages);
+}
 let _llmBackendNames = []; // cached backend names for oracle dropdown
 
 async function loadSettings() {
@@ -3195,7 +3255,9 @@ async function loadSettings() {
     _llmBackendNames = (backends || []).map(b => b.name);
     renderTLSStatus(s.tls);
     currentPolicies = s.policies;
+    _botCommands = s.bot_commands || {};
     renderBehaviors(s.policies.behaviors || []);
+    renderOnJoinMessages(s.policies.on_join_messages || {});
     renderAgentPolicy(s.policies.agent_policy || {});
     renderBridgePolicy(s.policies.bridge || {});
     renderLoggingPolicy(s.policies.logging || {});
@@ -3259,6 +3321,10 @@ function renderBehaviors(behaviors) {
         </div>
       </div>
       ${b.enabled && hasSchema(b.id) ? renderBehConfig(b) : ''}
+      ${_botCommands[b.id] ? `<div style="padding:6px 16px 8px 42px;border-bottom:1px solid #21262d;background:#0d1117">
+        <span style="font-size:11px;color:#8b949e;font-weight:600">commands:</span>
+        ${_botCommands[b.id].map(c => `<code style="font-size:11px;margin-left:8px;background:#161b22;padding:1px 5px;border-radius:3px" title="${esc(c.description)}&#10;${esc(c.usage)}">${esc(c.command)}</code>`).join('')}
+      </div>` : ''}
     </div>
   `).join('');
 }

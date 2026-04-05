@@ -37,6 +37,9 @@ type ChannelConfig struct {
 
 	// Modes is a list of channel modes to set (e.g. "+m" for moderated).
 	Modes []string
+
+	// OnJoinMessage is sent to agents when they join this channel.
+	OnJoinMessage string
 }
 
 // channelRecord tracks a provisioned channel for TTL-based reaping.
