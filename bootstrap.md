@@ -159,7 +159,7 @@ IRC ops model maps directly:
 
 ### Built-in bots
 
-All 8 bots are implemented. Enabled/configured via the web UI or `scuttlectl`. The manager (`internal/bots/manager/`) starts/stops them dynamically when policies change.
+All 10 bots are implemented. Enabled/configured via the web UI or `scuttlectl bot list`. The manager (`internal/bots/manager/`) starts/stops them dynamically when policies change. All bots set `+B` (bot) user mode on connect and auto-accept INVITE.
 
 | Bot | Nick | Role |
 |-----|------|------|
@@ -167,12 +167,14 @@ All 8 bots are implemented. Enabled/configured via the web UI or `scuttlectl`. T
 | `herald` | herald | Routes inbound webhook events to IRC channels |
 | `oracle` | oracle | On-demand channel summarization via DM — calls any OpenAI-compatible LLM |
 | `scribe` | scribe | Structured message logging to rotating files (jsonl/csv/text) |
-| `scroll` | scroll | History replay to PM on request |
-| `snitch` | snitch | Flood and join/part cycling detection — alerts operators via DM or channel |
+| `scroll` | scroll | History replay to PM on request (`replay #channel [format=toon]`) |
+| `sentinel` | sentinel | LLM-powered channel observer — detects policy violations, posts structured incident reports to mod channel. Never takes enforcement action. |
+| `snitch` | snitch | Flood and join/part cycling detection, MONITOR-based presence tracking, away-notify alerts |
+| `steward` | steward | Acts on sentinel incident reports — issues warnings, mutes (extended ban `m:`), or kicks based on severity |
 | `systembot` | systembot | Logs IRC system events (joins, parts, quits, mode changes) |
-| `warden` | warden | Channel moderation — warn → mute → kick on flood |
+| `warden` | warden | Channel moderation — warn → mute (extended ban) → kick on flood |
 
-Oracle reads history from scribe's log files (pointed at the same dir). Configure `api_key_env` to the name of the env var holding the API key (e.g. `ORACLE_OPENAI_API_KEY`), and `base_url` for non-OpenAI providers.
+Oracle uses TOON format (`pkg/toon/`) for token-efficient LLM context. Scroll supports `format=toon` for compact replay output. Configure `api_key_env` to the name of the env var holding the API key (e.g. `ORACLE_OPENAI_API_KEY`), and `base_url` for non-OpenAI providers.
 
 ### Scale
 
@@ -188,7 +190,8 @@ No database required. All state is persisted as JSON files under `data/` by defa
 | Admin accounts | `data/ergo/admins.json` | bcrypt-hashed; created by `scuttlectl admin add` |
 | Policies | `data/ergo/policies.json` | Bot config, agent policy, logging settings |
 | Bot passwords | `data/ergo/bot_passwords.json` | Auto-generated SASL passwords for system bots |
-| API token | `data/ergo/api_token` | Bearer token for API auth; stable across restarts |
+| API token | `data/ergo/api_token` | Legacy token; migrated to api_keys.json on first run |
+| API keys | `data/ergo/api_keys.json` | Per-consumer tokens with scoped permissions (SHA-256 hashed) |
 | Ergo state | `data/ergo/ircd.db` | Ergo-native: accounts, channels, topics, history |
 | scribe logs | `data/logs/scribe/` | Rotating log files (jsonl/csv/text); configurable |
 
@@ -230,44 +233,75 @@ K8s / Docker: mount a PersistentVolume at `data/`. Ergo is single-instance — H
 - **Outer mux** (unauthenticated): `POST /login`, `GET /` (redirect), `GET /ui/` (web UI)
 - **Inner mux** (`/v1/` routes): require `Authorization: Bearer <token>` header
 
-The API token is a random hex string generated once at startup, persisted to `data/ergo/api_token`.
-
 ### Auth
 
-`POST /login` accepts `{username, password}` and returns `{token, username}`. The token is the shared server API token. Rate limited to 10 attempts per minute per IP.
+API keys are per-consumer tokens with scoped permissions. Each key has a name, scopes, optional expiry, and last-used tracking. Scopes: `admin`, `agents`, `channels`, `chat`, `topology`, `bots`, `config`, `read`. The `admin` scope implies all others.
 
-Admin accounts are managed via `scuttlectl admin` or the web UI settings → admin accounts card. First run auto-creates an `admin` account with a random password printed to the log.
+`POST /login` accepts `{username, password}` and returns a 24h session token with admin scope. Rate limited to 10 attempts per minute per IP.
+
+On first run, the legacy `api_token` file is migrated into `api_keys.json` as the first admin-scope key. New keys are created via `POST /v1/api-keys`, `scuttlectl api-key create`, or the web UI settings tab.
+
+Admin accounts managed via `scuttlectl admin` or web UI. First run auto-creates `admin` with a random password printed to the log.
 
 ### Key endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/login` | Username/password login (unauthenticated) |
-| `GET` | `/v1/status` | Server status |
-| `GET` | `/v1/metrics` | Runtime metrics + bridge stats |
-| `GET/PUT` | `/v1/settings/policies` | Bot config, agent policy, logging |
-| `GET` | `/v1/agents` | List all registered agents |
-| `POST` | `/v1/agents/register` | Register an agent |
-| `POST` | `/v1/agents/{nick}/rotate` | Rotate credentials |
-| `POST` | `/v1/agents/{nick}/revoke` | Revoke agent |
-| `GET` | `/v1/channels` | List joined channels |
-| `GET` | `/v1/channels/{ch}/stream` | SSE stream of channel messages |
-| `GET/POST` | `/v1/admins` | List / add admin accounts |
-| `DELETE` | `/v1/admins/{username}` | Remove admin |
-| `PUT` | `/v1/admins/{username}/password` | Change password |
+All `/v1/` endpoints require a Bearer token with the appropriate scope.
+
+| Method | Path | Scope | Description |
+|--------|------|-------|-------------|
+| `POST` | `/login` | — | Username/password login (unauthenticated) |
+| `GET` | `/v1/status` | read | Server status |
+| `GET` | `/v1/metrics` | read | Runtime metrics + bridge stats |
+| `GET` | `/v1/settings` | read | Full settings (policies, TLS, bot commands) |
+| `GET/PUT/PATCH` | `/v1/settings/policies` | admin | Bot config, agent policy, logging |
+| `GET` | `/v1/agents` | agents | List all registered agents |
+| `GET` | `/v1/agents/{nick}` | agents | Get single agent |
+| `PATCH` | `/v1/agents/{nick}` | agents | Update agent |
+| `POST` | `/v1/agents/register` | agents | Register an agent |
+| `POST` | `/v1/agents/{nick}/rotate` | agents | Rotate credentials |
+| `POST` | `/v1/agents/{nick}/adopt` | agents | Adopt existing IRC nick |
+| `POST` | `/v1/agents/{nick}/revoke` | agents | Revoke agent credentials |
+| `DELETE` | `/v1/agents/{nick}` | agents | Delete agent |
+| `GET` | `/v1/channels` | channels | List joined channels |
+| `POST` | `/v1/channels/{ch}/join` | channels | Join channel |
+| `DELETE` | `/v1/channels/{ch}` | channels | Leave channel |
+| `GET` | `/v1/channels/{ch}/messages` | channels | Get message history |
+| `POST` | `/v1/channels/{ch}/messages` | chat | Send message |
+| `POST` | `/v1/channels/{ch}/presence` | chat | Touch presence (keep web user visible) |
+| `GET` | `/v1/channels/{ch}/users` | channels | User list with IRC modes |
+| `GET` | `/v1/channels/{ch}/config` | channels | Per-channel display config |
+| `PUT` | `/v1/channels/{ch}/config` | channels | Set display config (mirror detail, render mode) |
+| `GET` | `/v1/channels/{ch}/stream` | channels | SSE stream (`?token=` query param auth) |
+| `POST` | `/v1/channels` | topology | Provision channel via ChanServ |
+| `DELETE` | `/v1/topology/channels/{ch}` | topology | Drop channel |
+| `GET` | `/v1/topology` | topology | Channel types, static channels, active channels |
+| `GET/PUT` | `/v1/config` | config | Server config read/write |
+| `GET` | `/v1/config/history` | config | Config change history |
+| `GET/POST` | `/v1/admins` | admin | List / add admin accounts |
+| `DELETE` | `/v1/admins/{username}` | admin | Remove admin |
+| `PUT` | `/v1/admins/{username}/password` | admin | Change password |
+| `GET/POST` | `/v1/api-keys` | admin | List / create API keys |
+| `DELETE` | `/v1/api-keys/{id}` | admin | Revoke API key |
+| `GET/POST/PUT/DELETE` | `/v1/llm/backends[/{name}]` | bots | LLM backend CRUD |
+| `GET` | `/v1/llm/backends/{name}/models` | bots | List models for backend |
+| `POST` | `/v1/llm/discover` | bots | Discover models from provider |
+| `POST` | `/v1/llm/complete` | bots | LLM completion proxy |
 
 ---
 
 ## Adding a New Bot
 
 1. Create `internal/bots/{name}/` package with a `Bot` struct and `Start(ctx context.Context) error` method
-2. Add a `BotSpec` config struct if the bot needs user-configurable settings
-3. Register in `internal/bots/manager/manager.go`:
+2. Set `+B` user mode on connect, handle INVITE for auto-join
+3. Add a `BotSpec` config struct if the bot needs user-configurable settings
+4. Register in `internal/bots/manager/manager.go`:
    - Add a case to `buildBot()` that constructs your bot from the spec config
    - Add a `BehaviorConfig` entry to `defaultBehaviors` in `internal/api/policies.go`
-4. Add the UI config schema to `BEHAVIOR_SCHEMAS` in `internal/api/ui/index.html`
-5. Write tests: bot logic, config parsing, edge cases. IRC connection can be skipped in unit tests.
-6. Update this bootstrap
+5. Add commands to `botCommands` map in `internal/api/policies.go` for the web UI command reference
+6. Add the UI config schema to `BEHAVIOR_SCHEMAS` in `internal/api/ui/index.html`
+7. Use `internal/bots/cmdparse/` for command routing if the bot accepts DM commands
+8. Write tests: bot logic, config parsing, edge cases. IRC connection can be skipped in unit tests.
+9. Update this bootstrap
 
 No separate registration file or global registry. The manager builds bots by ID from the `BotSpec`. Bots satisfy the `bot` interface (unexported in manager package):
 
@@ -317,10 +351,24 @@ go test ./...                  # run all tests
 golangci-lint run              # lint
 
 # Admin CLI
+scuttlectl status              # server health
 scuttlectl admin list          # list admin accounts
 scuttlectl admin add alice     # add admin (prompts for password)
 scuttlectl admin passwd alice  # change password
 scuttlectl admin remove alice  # remove admin
+scuttlectl api-key list        # list API keys
+scuttlectl api-key create --name "relay" --scopes chat,channels
+scuttlectl api-key revoke <id> # revoke key
+scuttlectl topology list       # show channel types + static channels
+scuttlectl topology provision #channel  # create channel
+scuttlectl topology drop #channel       # remove channel
+scuttlectl config show         # dump config JSON
+scuttlectl config history      # config change history
+scuttlectl bot list            # show system bot status
+scuttlectl agent list          # list agents
+scuttlectl agent register <nick> --type worker --channels #fleet
+scuttlectl agent rotate <nick> # rotate credentials
+scuttlectl backend list        # LLM backends
 
 # Docker
 docker compose -f deploy/compose/docker-compose.yml up
