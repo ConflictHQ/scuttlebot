@@ -300,14 +300,8 @@ func (m *Manager) GrantAccess(nick, channel, level string) {
 	switch strings.ToUpper(level) {
 	case "OP":
 		m.chanserv("AMODE %s +o %s", channel, nick)
-		if m.operPass != "" && m.client != nil {
-			m.client.Cmd.SendRawf("SAMODE %s +o %s", channel, nick)
-		}
 	case "VOICE":
 		m.chanserv("AMODE %s +v %s", channel, nick)
-		if m.operPass != "" && m.client != nil {
-			m.client.Cmd.SendRawf("SAMODE %s +v %s", channel, nick)
-		}
 	default:
 		m.log.Warn("unknown access level", "level", level)
 		return
