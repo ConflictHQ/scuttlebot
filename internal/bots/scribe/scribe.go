@@ -81,7 +81,7 @@ func (b *Bot) Start(ctx context.Context) error {
 
 	// Log PRIVMSG — the agent message stream.
 	c.Handlers.AddBg(girc.PRIVMSG, func(client *girc.Client, e girc.Event) {
-		if len(e.Params) < 1 {
+		if len(e.Params) < 1 || e.Source == nil {
 			return
 		}
 		channel := e.Params[0]
