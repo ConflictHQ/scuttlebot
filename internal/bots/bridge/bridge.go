@@ -105,6 +105,9 @@ type Bot struct {
 
 	joinCh chan string
 	client *girc.Client
+
+	// RELAYMSG support detected from ISUPPORT.
+	relaySep string // separator (e.g. "/"), empty if unsupported
 }
 
 // New creates a bridge Bot.
@@ -174,6 +177,18 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
+		// Check RELAYMSG support from ISUPPORT (RPL_005).
+		if sep, ok := cl.GetServerOption("RELAYMSG"); ok && sep != "" {
+			b.relaySep = sep
+			if b.log != nil {
+				b.log.Info("bridge: RELAYMSG supported", "separator", sep)
+			}
+		} else {
+			b.relaySep = ""
+			if b.log != nil {
+				b.log.Info("bridge: RELAYMSG not supported, using [nick] prefix fallback")
+			}
+		}
 		if b.log != nil {
 			b.log.Info("bridge connected")
 		}
@@ -340,15 +355,23 @@ func (b *Bot) Send(ctx context.Context, channel, text, senderNick string) error 
 // SendWithMeta sends a message to channel with optional structured metadata.
 // IRC receives only the plain text; SSE subscribers receive the full message
 // including meta for rich rendering in the web UI.
+//
+// When the server supports RELAYMSG (IRCv3), messages are attributed natively
+// so other clients see the real sender nick. Falls back to [nick] prefix.
 func (b *Bot) SendWithMeta(ctx context.Context, channel, text, senderNick string, meta *Meta) error {
 	if b.client == nil {
 		return fmt.Errorf("bridge: not connected")
 	}
-	ircText := text
-	if senderNick != "" {
-		ircText = "[" + senderNick + "] " + text
+	if senderNick != "" && b.relaySep != "" {
+		// Use RELAYMSG for native attribution.
+		b.client.Cmd.SendRawf("RELAYMSG %s %s :%s", channel, senderNick, text)
+	} else {
+		ircText := text
+		if senderNick != "" {
+			ircText = "[" + senderNick + "] " + text
+		}
+		b.client.Cmd.Message(channel, ircText)
 	}
-	b.client.Cmd.Message(channel, ircText)
 
 	if senderNick != "" {
 		b.TouchUser(channel, senderNick)

@@ -140,6 +140,26 @@ func (c *Client) RemoveAdmin(username string) error {
 	return err
 }
 
+// ListAPIKeys returns GET /v1/api-keys.
+func (c *Client) ListAPIKeys() (json.RawMessage, error) {
+	return c.get("/v1/api-keys")
+}
+
+// CreateAPIKey sends POST /v1/api-keys.
+func (c *Client) CreateAPIKey(name string, scopes []string, expiresIn string) (json.RawMessage, error) {
+	body := map[string]any{"name": name, "scopes": scopes}
+	if expiresIn != "" {
+		body["expires_in"] = expiresIn
+	}
+	return c.post("/v1/api-keys", body)
+}
+
+// RevokeAPIKey sends DELETE /v1/api-keys/{id}.
+func (c *Client) RevokeAPIKey(id string) error {
+	_, err := c.doNoBody("DELETE", "/v1/api-keys/"+id)
+	return err
+}
+
 // SetAdminPassword sends PUT /v1/admins/{username}/password.
 func (c *Client) SetAdminPassword(username, password string) error {
 	_, err := c.put("/v1/admins/"+username+"/password", map[string]string{"password": password})

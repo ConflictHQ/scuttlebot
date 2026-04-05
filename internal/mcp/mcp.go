@@ -55,26 +55,27 @@ type ChannelInfo struct {
 	Count int    `json:"count"`
 }
 
+// TokenValidator validates API tokens.
+type TokenValidator interface {
+	ValidToken(token string) bool
+}
+
 // Server is the MCP server.
 type Server struct {
 	registry *registry.Registry
 	channels ChannelLister
 	sender   Sender         // optional — send_message returns error if nil
 	history  HistoryQuerier // optional — get_history returns error if nil
-	tokens   map[string]struct{}
+	tokens   TokenValidator
 	log      *slog.Logger
 }
 
 // New creates an MCP Server.
-func New(reg *registry.Registry, channels ChannelLister, tokens []string, log *slog.Logger) *Server {
-	t := make(map[string]struct{}, len(tokens))
-	for _, tok := range tokens {
-		t[tok] = struct{}{}
-	}
+func New(reg *registry.Registry, channels ChannelLister, tokens TokenValidator, log *slog.Logger) *Server {
 	return &Server{
 		registry: reg,
 		channels: channels,
-		tokens:   t,
+		tokens:   tokens,
 		log:      log,
 	}
 }
@@ -103,7 +104,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := bearerToken(r)
-		if _, ok := s.tokens[token]; !ok {
+		if !s.tokens.ValidToken(token) {
 			writeRPCError(w, nil, -32001, "unauthorized")
 			return
 		}
