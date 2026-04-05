@@ -130,7 +130,7 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 			onJoined()
 		}
 	})
-	client.Handlers.AddBg(girc.PRIVMSG, func(_ *girc.Client, e girc.Event) {
+	client.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
 			return
 		}
@@ -138,15 +138,35 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		if !c.hasChannel(target) {
 			return
 		}
+		// Prefer account-tag (IRCv3) over source nick.
 		sender := e.Source.Name
+		if acct, ok := e.Tags.Get("account"); ok && acct != "" {
+			sender = acct
+		}
 		text := strings.TrimSpace(e.Last())
+		// RELAYMSG: server delivers as "nick/bridge" — strip the relay suffix.
+		if sep, ok := cl.GetServerOption("RELAYMSG"); ok && sep != "" {
+			if idx := strings.Index(sender, sep); idx != -1 {
+				sender = sender[:idx]
+			}
+		}
+		// Fallback: parse legacy [nick] prefix from bridge bot.
 		if sender == "bridge" && strings.HasPrefix(text, "[") {
 			if end := strings.Index(text, "] "); end != -1 {
 				sender = text[1:end]
 				text = strings.TrimSpace(text[end+2:])
 			}
 		}
-		c.appendMessage(Message{At: time.Now(), Channel: target, Nick: sender, Text: text})
+		// Use server-time when available; fall back to local clock.
+		at := e.Timestamp
+		if at.IsZero() {
+			at = time.Now()
+		}
+		var msgID string
+		if id, ok := e.Tags.Get("msgid"); ok {
+			msgID = id
+		}
+		c.appendMessage(Message{At: at, Channel: target, Nick: sender, Text: text, MsgID: msgID})
 	})
 
 	c.mu.Lock()

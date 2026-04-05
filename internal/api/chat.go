@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/conflicthq/scuttlebot/internal/auth"
 	"github.com/conflicthq/scuttlebot/internal/bots/bridge"
 )
 
@@ -154,7 +155,8 @@ func (s *Server) handlePutChannelConfig(w http.ResponseWriter, r *http.Request) 
 // Auth is via ?token= query param because EventSource doesn't support custom headers.
 func (s *Server) handleChannelStream(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
-	if _, ok := s.tokens[token]; !ok {
+	key := s.apiKeys.Lookup(token)
+	if key == nil || (!key.HasScope(auth.ScopeChannels) && !key.HasScope(auth.ScopeChat)) {
 		writeError(w, http.StatusUnauthorized, "invalid or missing token")
 		return
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/conflicthq/scuttlebot/internal/auth"
 	"github.com/conflicthq/scuttlebot/internal/config"
 	"github.com/conflicthq/scuttlebot/internal/registry"
 )
@@ -27,7 +28,7 @@ func newCfgTestServer(t *testing.T) (*httptest.Server, *ConfigStore) {
 	store := NewConfigStore(path, cfg)
 	reg := registry.New(nil, []byte("key"))
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(New(reg, []string{"tok"}, nil, nil, nil, nil, nil, store, "", log).Handler())
+	srv := httptest.NewServer(New(reg, auth.TestStore("tok"), nil, nil, nil, nil, nil, store, "", log).Handler())
 	t.Cleanup(srv.Close)
 	return srv, store
 }

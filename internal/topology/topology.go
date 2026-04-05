@@ -26,14 +26,17 @@ type ChannelConfig struct {
 	// Topic is the initial channel topic (shared state header).
 	Topic string
 
-	// Ops is a list of nicks to grant +o (channel operator) status.
+	// Ops is a list of nicks to grant +o (channel operator) status via AMODE.
 	Ops []string
 
-	// Voice is a list of nicks to grant +v status.
+	// Voice is a list of nicks to grant +v status via AMODE.
 	Voice []string
 
 	// Autojoin is a list of bot nicks to invite after provisioning.
 	Autojoin []string
+
+	// Modes is a list of channel modes to set (e.g. "+m" for moderated).
+	Modes []string
 }
 
 // channelRecord tracks a provisioned channel for TTL-based reaping.
@@ -209,11 +212,17 @@ func (m *Manager) provision(ch ChannelConfig) error {
 		m.chanserv("TOPIC %s %s", ch.Name, ch.Topic)
 	}
 
+	// Use AMODE for persistent auto-mode on join (survives reconnects).
 	for _, nick := range ch.Ops {
-		m.chanserv("ACCESS %s ADD %s OP", ch.Name, nick)
+		m.chanserv("AMODE %s +o %s", ch.Name, nick)
 	}
 	for _, nick := range ch.Voice {
-		m.chanserv("ACCESS %s ADD %s VOICE", ch.Name, nick)
+		m.chanserv("AMODE %s +v %s", ch.Name, nick)
+	}
+
+	// Apply channel modes (e.g. +m for moderated).
+	for _, mode := range ch.Modes {
+		m.client.Cmd.Mode(ch.Name, mode)
 	}
 
 	if len(ch.Autojoin) > 0 {
@@ -276,28 +285,70 @@ func (m *Manager) reap() {
 	}
 }
 
-// GrantAccess sets a ChanServ ACCESS entry for nick on the given channel.
-// level is "OP" or "VOICE". If level is empty, no access is granted.
+// GrantAccess sets a ChanServ AMODE entry for nick on the given channel.
+// level is "OP" or "VOICE". AMODE persists across reconnects — ChanServ
+// automatically applies the mode every time the nick joins.
 func (m *Manager) GrantAccess(nick, channel, level string) {
 	if m.client == nil || level == "" {
 		return
 	}
-	m.chanserv("ACCESS %s ADD %s %s", channel, nick, level)
-	m.log.Info("granted channel access", "nick", nick, "channel", channel, "level", level)
+	switch strings.ToUpper(level) {
+	case "OP":
+		m.chanserv("AMODE %s +o %s", channel, nick)
+	case "VOICE":
+		m.chanserv("AMODE %s +v %s", channel, nick)
+	default:
+		m.log.Warn("unknown access level", "level", level)
+		return
+	}
+	m.log.Info("granted channel access (AMODE)", "nick", nick, "channel", channel, "level", level)
 }
 
-// RevokeAccess removes a ChanServ ACCESS entry for nick on the given channel.
+// RevokeAccess removes ChanServ AMODE entries for nick on the given channel.
 func (m *Manager) RevokeAccess(nick, channel string) {
 	if m.client == nil {
 		return
 	}
-	m.chanserv("ACCESS %s DEL %s", channel, nick)
-	m.log.Info("revoked channel access", "nick", nick, "channel", channel)
+	m.chanserv("AMODE %s -o %s", channel, nick)
+	m.chanserv("AMODE %s -v %s", channel, nick)
+	m.log.Info("revoked channel access (AMODE)", "nick", nick, "channel", channel)
 }
 
 func (m *Manager) chanserv(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	m.client.Cmd.Message("ChanServ", msg)
+}
+
+// ChannelInfo describes an active provisioned channel.
+type ChannelInfo struct {
+	Name          string    `json:"name"`
+	ProvisionedAt time.Time `json:"provisioned_at"`
+	Type          string    `json:"type,omitempty"`
+	Ephemeral     bool      `json:"ephemeral,omitempty"`
+	TTLSeconds    int64     `json:"ttl_seconds,omitempty"`
+}
+
+// ListChannels returns all actively provisioned channels.
+func (m *Manager) ListChannels() []ChannelInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]ChannelInfo, 0, len(m.channels))
+	for _, rec := range m.channels {
+		ci := ChannelInfo{
+			Name:          rec.name,
+			ProvisionedAt: rec.provisionedAt,
+		}
+		if m.policy != nil {
+			ci.Type = m.policy.TypeName(rec.name)
+			ci.Ephemeral = m.policy.IsEphemeral(rec.name)
+			ttl := m.policy.TTLFor(rec.name)
+			if ttl > 0 {
+				ci.TTLSeconds = int64(ttl.Seconds())
+			}
+		}
+		out = append(out, ci)
+	}
+	return out
 }
 
 // ValidateName checks that a channel name follows scuttlebot conventions.
