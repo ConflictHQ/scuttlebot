@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/lrstanley/girc"
+
+	"github.com/conflicthq/scuttlebot/internal/bots/cmdparse"
 )
 
 const defaultNick = "snitch"
@@ -168,8 +170,27 @@ func (b *Bot) Start(ctx context.Context) error {
 		b.recordJoinPart(e.Params[0], e.Source.Name)
 	})
 
+	router := cmdparse.NewRouter(b.cfg.Nick)
+	router.Register(cmdparse.Command{
+		Name:        "status",
+		Usage:       "STATUS",
+		Description: "show current active alerts",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+	router.Register(cmdparse.Command{
+		Name:        "acknowledge",
+		Usage:       "ACKNOWLEDGE <alert-id>",
+		Description: "acknowledge an alert",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+
 	c.Handlers.AddBg(girc.PRIVMSG, func(_ *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
+			return
+		}
+		// Dispatch commands (DMs and channel messages).
+		if reply := router.Dispatch(e.Source.Name, e.Params[0], e.Last()); reply != nil {
+			c.Cmd.Message(reply.Target, reply.Text)
 			return
 		}
 		channel := e.Params[0]

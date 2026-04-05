@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/lrstanley/girc"
+
+	"github.com/conflicthq/scuttlebot/internal/bots/cmdparse"
 )
 
 const botNick = "systembot"
@@ -177,6 +179,31 @@ func (b *Bot) Start(ctx context.Context) error {
 			nick = e.Source.Name
 		}
 		b.write(Entry{Kind: KindMode, Channel: channel, Nick: nick, Text: strings.Join(e.Params, " ")})
+	})
+
+	router := cmdparse.NewRouter(botNick)
+	router.Register(cmdparse.Command{
+		Name:        "status",
+		Usage:       "STATUS",
+		Description: "show connected users and channel counts",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+	router.Register(cmdparse.Command{
+		Name:        "who",
+		Usage:       "WHO [#channel]",
+		Description: "show detailed user list",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+
+	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
+		if len(e.Params) < 1 || e.Source == nil {
+			return
+		}
+		// Dispatch commands (DMs and channel messages).
+		if reply := router.Dispatch(e.Source.Name, e.Params[0], e.Last()); reply != nil {
+			cl.Cmd.Message(reply.Target, reply.Text)
+			return
+		}
 	})
 
 	b.client = c
