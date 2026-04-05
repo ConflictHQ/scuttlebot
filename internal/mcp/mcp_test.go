@@ -22,6 +22,13 @@ const testToken = "test-mcp-token"
 
 // --- mocks ---
 
+type tokenSet map[string]struct{}
+
+func (t tokenSet) ValidToken(tok string) bool {
+	_, ok := t[tok]
+	return ok
+}
+
 type mockProvisioner struct {
 	mu       sync.Mutex
 	accounts map[string]string
@@ -95,7 +102,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 			{Nick: "agent-01", MessageType: "task.create", MessageID: "01HX", Raw: `{"v":1}`},
 		},
 	}}
-	srv := mcp.New(reg, channels, []string{testToken}, testLog).
+	srv := mcp.New(reg, channels, tokenSet{testToken: {}}, testLog).
 		WithSender(sender).
 		WithHistory(hist)
 	return httptest.NewServer(srv.Handler())

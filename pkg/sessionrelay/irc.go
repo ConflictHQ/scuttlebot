@@ -128,7 +128,7 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 			onJoined()
 		}
 	})
-	client.Handlers.AddBg(girc.PRIVMSG, func(_ *girc.Client, e girc.Event) {
+	client.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
 			return
 		}
@@ -142,6 +142,12 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 			sender = acct
 		}
 		text := strings.TrimSpace(e.Last())
+		// RELAYMSG: server delivers as "nick/bridge" — strip the relay suffix.
+		if sep, ok := cl.GetServerOption("RELAYMSG"); ok && sep != "" {
+			if idx := strings.Index(sender, sep); idx != -1 {
+				sender = sender[:idx]
+			}
+		}
 		// Fallback: parse legacy [nick] prefix from bridge bot.
 		if sender == "bridge" && strings.HasPrefix(text, "[") {
 			if end := strings.Index(text, "] "); end != -1 {
