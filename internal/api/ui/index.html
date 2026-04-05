@@ -197,6 +197,35 @@ select option { background:#161b22; }
 .msg-meta .meta-kv dd { color:#e6edf3; word-break:break-all; }
 .msg-meta pre { margin:4px 0 0; padding:6px 8px; background:#161b22; border:1px solid #21262d; border-radius:4px; overflow-x:auto; white-space:pre-wrap; word-break:break-all; color:#e6edf3; font-size:12px; }
 .msg-meta img { max-width:100%; max-height:300px; border-radius:4px; margin-top:4px; }
+/* rich rendering v2 */
+.rich-card { border-radius:6px; overflow:hidden; margin-top:4px; font-size:12px; }
+.rich-card-header { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:11px; }
+.rich-card-body { padding:0; }
+.rich-card-body pre { margin:0; border:0; border-radius:0; padding:8px 10px; font-size:12px; line-height:1.5; }
+/* terminal block */
+.rich-terminal { border:1px solid #30363d; background:#0d1117; }
+.rich-terminal .rich-card-header { background:#161b22; color:#8b949e; border-bottom:1px solid #21262d; }
+.rich-terminal .rich-card-header .cmd { color:#a5d6ff; font-family:monospace; font-weight:600; }
+.rich-terminal .exit-ok { color:#3fb950; } .rich-terminal .exit-fail { color:#f85149; }
+/* file card */
+.rich-file { border:1px solid #30363d; background:#0d1117; }
+.rich-file .rich-card-header { background:#161b22; border-bottom:1px solid #21262d; }
+.rich-file .rich-card-header .path { color:#79c0ff; font-family:monospace; font-weight:600; }
+.rich-file .rich-card-header .lang { background:#1f6feb33; color:#58a6ff; padding:1px 6px; border-radius:3px; font-size:10px; }
+/* diff rendering */
+.rich-diff .line-add { background:#3fb95015; color:#3fb950; }
+.rich-diff .line-del { background:#f8514915; color:#f85149; }
+.rich-diff .line-ctx { color:#8b949e; }
+.rich-diff .line-hdr { color:#d2a8ff; font-weight:600; }
+/* error card */
+.rich-error { border:1px solid #f8514944; background:#f8514910; }
+.rich-error .rich-card-header { background:#f8514918; color:#f85149; border-bottom:1px solid #f8514944; }
+/* thinking block */
+.rich-thinking { border:1px solid #30363d; background:#0d1117; font-style:italic; color:#8b949e; padding:6px 10px; border-radius:6px; margin-top:4px; font-size:12px; }
+/* search results */
+.rich-search { border:1px solid #30363d; background:#0d1117; }
+.rich-search .rich-card-header { background:#161b22; border-bottom:1px solid #21262d; }
+.rich-search .url { color:#58a6ff; word-break:break-all; }
 .chat-input { padding:9px 13px; padding-bottom:calc(9px + env(safe-area-inset-bottom, 0px)); border-top:1px solid #30363d; display:flex; gap:7px; flex-shrink:0; background:#161b22; }
 
 /* channels tab */
@@ -2338,47 +2367,132 @@ function renderMeta(meta) {
   }
 }
 function renderToolResult(d) {
-  let html = '<div class="meta-type">tool call</div><dl class="meta-kv">';
-  html += '<dt>tool</dt><dd class="meta-tool">' + esc(d.tool || '?') + '</dd>';
-  if (d.file)    html += '<dt>file</dt><dd class="meta-file">' + esc(d.file) + '</dd>';
-  if (d.command) html += '<dt>command</dt><dd class="meta-cmd">' + esc(d.command) + '</dd>';
-  if (d.pattern) html += '<dt>pattern</dt><dd>' + esc(d.pattern) + '</dd>';
-  if (d.query)   html += '<dt>query</dt><dd>' + esc(d.query) + '</dd>';
-  if (d.url)     html += '<dt>url</dt><dd>' + esc(d.url) + '</dd>';
-  if (d.result)  html += '<dt>result</dt><dd>' + esc(d.result) + '</dd>';
-  html += '</dl>';
-  return html;
+  const tool = (d.tool || '').toLowerCase();
+  // Bash/exec: terminal card
+  if (tool === 'bash' || tool === 'exec' || tool === 'execute' || d.command) {
+    return renderTerminal(d);
+  }
+  // Edit/Write/apply_patch: file card with diff
+  if (tool === 'edit' || tool === 'write' || tool === 'apply_patch' || tool === 'notebookedit') {
+    return renderFileCard(d);
+  }
+  // Read/Glob/Grep: file browser
+  if (tool === 'read' || tool === 'glob' || tool === 'grep') {
+    return renderFileSearch(d);
+  }
+  // WebSearch/WebFetch
+  if (tool === 'websearch' || tool === 'webfetch' || tool === 'web_search' || d.url) {
+    return renderSearchCard(d);
+  }
+  // Thinking
+  if (tool === 'thinking' || d.thinking) {
+    return '<div class="rich-thinking">' + esc(d.result || d.thinking || '') + '</div>';
+  }
+  // Fallback: generic tool card
+  return renderGenericTool(d);
+}
+function renderTerminal(d) {
+  const cmd = d.command || d.tool || 'command';
+  const exitOk = d.exit_code === undefined || d.exit_code === 0;
+  const exitCls = exitOk ? 'exit-ok' : 'exit-fail';
+  const exitText = d.exit_code !== undefined ? ` [exit ${d.exit_code}]` : '';
+  let output = d.result || d.output || '';
+  if (output.length > 2000) output = output.slice(0, 1997) + '...';
+  return `<div class="rich-card rich-terminal">
+    <div class="rich-card-header"><span class="cmd">$ ${esc(cmd)}</span><span class="${exitCls}">${exitText}</span></div>
+    <div class="rich-card-body"><pre>${esc(output)}</pre></div>
+  </div>`;
+}
+function renderFileCard(d) {
+  const path = d.file || d.file_path || d.path || '?';
+  const ext = path.split('.').pop().toLowerCase();
+  const langMap = {go:'Go',js:'JS',ts:'TS',py:'Python',rb:'Ruby',rs:'Rust',java:'Java',md:'Markdown',yaml:'YAML',json:'JSON',html:'HTML',css:'CSS',sh:'Shell',sql:'SQL'};
+  const lang = langMap[ext] || ext;
+  const tool = d.tool || 'file';
+  let body = '';
+  if (d.diff || d.hunks) {
+    body = renderDiffBlock(d.diff || d.hunks);
+  } else if (d.result) {
+    body = `<pre>${esc(d.result.length > 2000 ? d.result.slice(0, 1997) + '...' : d.result)}</pre>`;
+  }
+  return `<div class="rich-card rich-file">
+    <div class="rich-card-header"><span class="path">${esc(path)}</span><span class="lang">${esc(lang)}</span><span style="color:#8b949e;margin-left:auto">${esc(tool)}</span></div>
+    <div class="rich-card-body">${body}</div>
+  </div>`;
+}
+function renderDiffBlock(raw) {
+  const text = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
+  const lines = text.split('\n').map(line => {
+    if (line.startsWith('@@'))      return `<span class="line-hdr">${esc(line)}</span>`;
+    else if (line.startsWith('+'))  return `<span class="line-add">${esc(line)}</span>`;
+    else if (line.startsWith('-'))  return `<span class="line-del">${esc(line)}</span>`;
+    else                            return `<span class="line-ctx">${esc(line)}</span>`;
+  });
+  return `<pre class="rich-diff">${lines.join('\n')}</pre>`;
+}
+function renderFileSearch(d) {
+  const path = d.file || d.pattern || d.path || '';
+  const tool = d.tool || 'search';
+  let body = d.result || '';
+  if (body.length > 2000) body = body.slice(0, 1997) + '...';
+  return `<div class="rich-card rich-file">
+    <div class="rich-card-header"><span class="path">${esc(path)}</span><span style="color:#8b949e;margin-left:auto">${esc(tool)}</span></div>
+    <div class="rich-card-body"><pre>${esc(body)}</pre></div>
+  </div>`;
+}
+function renderSearchCard(d) {
+  const url = d.url || '';
+  const result = d.result || d.summary || '';
+  return `<div class="rich-card rich-search">
+    <div class="rich-card-header"><span class="url">${esc(url)}</span></div>
+    <div class="rich-card-body"><pre>${esc(result.length > 2000 ? result.slice(0, 1997) + '...' : result)}</pre></div>
+  </div>`;
+}
+function renderGenericTool(d) {
+  const tool = d.tool || '?';
+  let body = '';
+  if (d.result) body = d.result;
+  else body = JSON.stringify(d, null, 2);
+  if (body.length > 2000) body = body.slice(0, 1997) + '...';
+  return `<div class="rich-card rich-file">
+    <div class="rich-card-header"><span style="color:#d2a8ff;font-weight:600">${esc(tool)}</span></div>
+    <div class="rich-card-body"><pre>${esc(body)}</pre></div>
+  </div>`;
 }
 function renderDiff(d) {
-  let html = '<div class="meta-type">diff</div>';
-  if (d.file) html += '<div class="meta-file">' + esc(d.file) + '</div>';
-  if (d.hunks) html += '<pre>' + esc(typeof d.hunks === 'string' ? d.hunks : JSON.stringify(d.hunks, null, 2)) + '</pre>';
-  return html;
+  const file = d.file || '';
+  return `<div class="rich-card rich-file">
+    <div class="rich-card-header"><span class="path">${esc(file)}</span><span style="color:#8b949e;margin-left:auto">diff</span></div>
+    <div class="rich-card-body">${renderDiffBlock(d.hunks || d.diff || '')}</div>
+  </div>`;
 }
 function renderError(d) {
-  let html = '<div class="meta-type meta-error">error</div>';
-  html += '<div class="meta-error">' + esc(d.message || '') + '</div>';
-  if (d.stack) html += '<pre>' + esc(d.stack) + '</pre>';
-  return html;
+  const msg = d.message || d.error || '';
+  const stack = d.stack || '';
+  return `<div class="rich-card rich-error">
+    <div class="rich-card-header">error</div>
+    <div class="rich-card-body"><pre>${esc(msg)}${stack ? '\n\n' + esc(stack) : ''}</pre></div>
+  </div>`;
 }
 function renderStatus(d) {
   const state = (d.state || 'running').toLowerCase();
   const cls = state === 'ok' || state === 'success' || state === 'done' ? 'ok' : state === 'error' || state === 'failed' ? 'error' : 'running';
-  let html = '<div class="meta-type">status</div>';
-  html += '<span class="meta-status ' + cls + '">' + esc(d.state || '') + '</span>';
+  let html = '<span class="meta-status ' + cls + '">' + esc(d.state || '') + '</span>';
   if (d.message) html += ' <span>' + esc(d.message) + '</span>';
   return html;
 }
 function renderArtifact(d) {
-  let html = '<div class="meta-type">artifact</div>';
-  html += '<div class="meta-file">' + esc(d.name || d.path || '?') + '</div>';
-  if (d.language) html += '<span class="tag perm">' + esc(d.language) + '</span>';
-  return html;
+  const path = d.name || d.path || '?';
+  const ext = path.split('.').pop().toLowerCase();
+  const langMap = {go:'Go',js:'JS',ts:'TS',py:'Python',rb:'Ruby',rs:'Rust'};
+  const lang = d.language || langMap[ext] || ext;
+  return `<div class="rich-card rich-file">
+    <div class="rich-card-header"><span class="path">${esc(path)}</span><span class="lang">${esc(lang)}</span><span style="color:#8b949e;margin-left:auto">artifact</span></div>
+  </div>`;
 }
 function renderImage(d) {
-  let html = '<div class="meta-type">image</div>';
-  if (d.url) html += '<img src="' + esc(d.url) + '" alt="' + esc(d.alt || '') + '" loading="lazy">';
-  return html;
+  if (!d.url) return '';
+  return `<div style="margin-top:4px"><img src="${esc(d.url)}" alt="${esc(d.alt || '')}" loading="lazy" style="max-width:100%;max-height:400px;border-radius:6px;cursor:pointer" onclick="window.open(this.src)"></div>`;
 }
 function renderGeneric(meta) {
   return '<div class="meta-type">' + esc(meta.type) + '</div><pre>' + esc(JSON.stringify(meta.data, null, 2)) + '</pre>';
