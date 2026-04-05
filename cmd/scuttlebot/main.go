@@ -140,14 +140,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Shared API token — persisted so the UI token survives restarts.
-	apiToken, err := loadOrCreateToken(filepath.Join(cfg.Ergo.DataDir, "api_token"))
+	// API key store — per-consumer tokens with scoped permissions.
+	apiKeyStore, err := auth.NewAPIKeyStore(filepath.Join(cfg.Ergo.DataDir, "api_keys.json"))
 	if err != nil {
-		log.Error("api token", "err", err)
+		log.Error("api key store", "err", err)
 		os.Exit(1)
 	}
-	log.Info("api token", "token", apiToken) // printed on every startup
-	tokens := []string{apiToken}
+	// Migrate legacy api_token into key store on first run.
+	if apiKeyStore.IsEmpty() {
+		apiToken, err := loadOrCreateToken(filepath.Join(cfg.Ergo.DataDir, "api_token"))
+		if err != nil {
+			log.Error("api token", "err", err)
+			os.Exit(1)
+		}
+		if _, err := apiKeyStore.Insert("server", apiToken, []auth.Scope{auth.ScopeAdmin}); err != nil {
+			log.Error("migrate api token to key store", "err", err)
+			os.Exit(1)
+		}
+		log.Info("migrated api_token to api_keys.json", "token", apiToken)
+	} else {
+		log.Info("api key store loaded", "keys", len(apiKeyStore.List()))
+	}
 
 	// Start bridge bot (powers the web chat UI).
 	var bridgeBot *bridge.Bot
@@ -206,6 +219,7 @@ func main() {
 				Ops:      sc.Ops,
 				Voice:    sc.Voice,
 				Autojoin: sc.Autojoin,
+				Modes:    sc.Modes,
 			})
 		}
 		if err := topoMgr.Provision(staticChannels); err != nil {
@@ -232,6 +246,21 @@ func main() {
 	}
 	if bridgeBot != nil {
 		bridgeBot.SetWebUserTTL(time.Duration(policyStore.Get().Bridge.WebUserTTLMinutes) * time.Minute)
+		// Deliver on-join instructions when agents join channels.
+		bridgeBot.SetOnUserJoin(func(channel, nick string) {
+			p := policyStore.Get()
+			msg, ok := p.OnJoinMessages[channel]
+			if !ok || msg == "" {
+				return
+			}
+			msg = strings.ReplaceAll(msg, "{nick}", nick)
+			msg = strings.ReplaceAll(msg, "{channel}", channel)
+			for _, line := range strings.Split(msg, "\n") {
+				if line != "" {
+					bridgeBot.Notice(nick, line)
+				}
+			}
+		})
 	}
 
 	// Admin store — bcrypt-hashed admin accounts.
@@ -330,6 +359,7 @@ func main() {
 				staticChannels = append(staticChannels, topology.ChannelConfig{
 					Name: sc.Name, Topic: sc.Topic,
 					Ops: sc.Ops, Voice: sc.Voice, Autojoin: sc.Autojoin,
+					Modes: sc.Modes,
 				})
 			}
 			if err := topoMgr.Provision(staticChannels); err != nil {
@@ -339,6 +369,14 @@ func main() {
 		// Hot-reload bridge web TTL.
 		if bridgeBot != nil {
 			bridgeBot.SetWebUserTTL(time.Duration(updated.Bridge.WebUserTTLMinutes) * time.Minute)
+		}
+		// Regenerate ircd.yaml and rehash Ergo on config changes.
+		if ergoMgr != nil {
+			if err := ergoMgr.UpdateConfig(updated.Ergo); err != nil {
+				log.Error("ergo config hot-reload failed", "err", err)
+			} else {
+				log.Info("ergo config reloaded")
+			}
 		}
 	})
 
@@ -354,7 +392,7 @@ func main() {
 	if topoMgr != nil {
 		topoIface = topoMgr
 	}
-	apiSrv := api.New(reg, tokens, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, cfg.TLS.Domain, log)
+	apiSrv := api.New(reg, apiKeyStore, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, cfg.TLS.Domain, log)
 	handler := apiSrv.Handler()
 
 	var httpServer, tlsServer *http.Server
@@ -420,7 +458,7 @@ func main() {
 	}
 
 	// Start MCP server.
-	mcpSrv := mcp.New(reg, &ergoChannelLister{ergoMgr.API()}, tokens, log)
+	mcpSrv := mcp.New(reg, &ergoChannelLister{ergoMgr.API()}, apiKeyStore, log)
 	mcpServer := &http.Server{
 		Addr:    cfg.MCPAddr,
 		Handler: mcpSrv.Handler(),

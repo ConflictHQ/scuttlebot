@@ -45,11 +45,19 @@ type LoggingPolicy struct {
 	MaxAgeDays int    `json:"max_age_days"` // prune rotated files older than N days; 0 = keep all
 }
 
+// ChannelDisplayConfig holds per-channel rendering preferences.
+type ChannelDisplayConfig struct {
+	MirrorDetail string `json:"mirror_detail,omitempty"` // "full", "compact", "minimal"
+	RenderMode   string `json:"render_mode,omitempty"`   // "rich", "text"
+}
+
 // BridgePolicy configures bridge-specific UI/relay behavior.
 type BridgePolicy struct {
 	// WebUserTTLMinutes controls how long HTTP bridge sender nicks remain
 	// visible in the channel user list after their last post.
 	WebUserTTLMinutes int `json:"web_user_ttl_minutes"`
+	// ChannelDisplay holds per-channel rendering config.
+	ChannelDisplay map[string]ChannelDisplayConfig `json:"channel_display,omitempty"`
 }
 
 // PolicyLLMBackend stores an LLM backend configuration in the policy store.
@@ -71,13 +79,27 @@ type PolicyLLMBackend struct {
 	Default      bool     `json:"default,omitempty"`
 }
 
+// ROETemplate is a rules-of-engagement template.
+type ROETemplate struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Channels    []string `json:"channels,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+	RateLimit   struct {
+		MessagesPerSecond float64 `json:"messages_per_second,omitempty"`
+		Burst             int     `json:"burst,omitempty"`
+	} `json:"rate_limit,omitempty"`
+}
+
 // Policies is the full mutable settings blob, persisted to policies.json.
 type Policies struct {
-	Behaviors   []BehaviorConfig   `json:"behaviors"`
-	AgentPolicy AgentPolicy        `json:"agent_policy"`
-	Bridge      BridgePolicy       `json:"bridge"`
-	Logging     LoggingPolicy      `json:"logging"`
-	LLMBackends []PolicyLLMBackend `json:"llm_backends,omitempty"`
+	Behaviors      []BehaviorConfig   `json:"behaviors"`
+	AgentPolicy    AgentPolicy        `json:"agent_policy"`
+	Bridge         BridgePolicy       `json:"bridge"`
+	Logging        LoggingPolicy      `json:"logging"`
+	LLMBackends    []PolicyLLMBackend `json:"llm_backends,omitempty"`
+	ROETemplates   []ROETemplate      `json:"roe_templates,omitempty"`
+	OnJoinMessages map[string]string  `json:"on_join_messages,omitempty"` // channel → message template
 }
 
 // defaultBehaviors lists every built-in bot with conservative defaults (disabled).
@@ -151,6 +173,38 @@ var defaultBehaviors = []BehaviorConfig{
 		Description:     "Acts on sentinel incident reports — issues warnings, mutes, or kicks based on severity. Operators can also issue direct commands via DM.",
 		Nick:            "steward",
 		JoinAllChannels: true,
+	},
+}
+
+// BotCommand describes a single command a bot responds to.
+type BotCommand struct {
+	Command     string `json:"command"`
+	Usage       string `json:"usage"`
+	Description string `json:"description"`
+}
+
+// botCommands maps bot ID to its available commands.
+var botCommands = map[string][]BotCommand{
+	"oracle": {
+		{Command: "summarize", Usage: "summarize #channel [last=N] [format=toon|json]", Description: "Summarize recent channel activity using an LLM."},
+	},
+	"scroll": {
+		{Command: "replay", Usage: "replay #channel [last=N] [since=<unix_ms>]", Description: "Replay recent channel history via DM."},
+	},
+	"steward": {
+		{Command: "mute", Usage: "mute <nick> [duration]", Description: "Mute a nick in the current channel."},
+		{Command: "unmute", Usage: "unmute <nick>", Description: "Remove mute from a nick."},
+		{Command: "kick", Usage: "kick <nick> [reason]", Description: "Kick a nick from the current channel."},
+		{Command: "warn", Usage: "warn <nick> <message>", Description: "Send a warning notice to a nick."},
+	},
+	"warden": {
+		{Command: "status", Usage: "status", Description: "Show warden rate-limit status for all tracked nicks."},
+	},
+	"snitch": {
+		{Command: "status", Usage: "status", Description: "Show snitch monitoring status and alert history."},
+	},
+	"herald": {
+		{Command: "announce", Usage: "announce #channel <message>", Description: "Post an announcement to a channel."},
 	},
 }
 
@@ -229,6 +283,8 @@ func (ps *PolicyStore) applyRaw(raw []byte) error {
 	ps.data.Bridge = p.Bridge
 	ps.data.Logging = p.Logging
 	ps.data.LLMBackends = p.LLMBackends
+	ps.data.ROETemplates = p.ROETemplates
+	ps.data.OnJoinMessages = p.OnJoinMessages
 	return nil
 }
 
@@ -338,6 +394,16 @@ func (ps *PolicyStore) Merge(patch Policies) error {
 	// Merge LLM backends if provided.
 	if patch.LLMBackends != nil {
 		ps.data.LLMBackends = patch.LLMBackends
+	}
+
+	// Merge ROE templates if provided.
+	if patch.ROETemplates != nil {
+		ps.data.ROETemplates = patch.ROETemplates
+	}
+
+	// Merge on-join messages if provided.
+	if patch.OnJoinMessages != nil {
+		ps.data.OnJoinMessages = patch.OnJoinMessages
 	}
 
 	ps.normalize(&ps.data)

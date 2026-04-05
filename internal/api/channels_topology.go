@@ -16,14 +16,17 @@ type topologyManager interface {
 	Policy() *topology.Policy
 	GrantAccess(nick, channel, level string)
 	RevokeAccess(nick, channel string)
+	ListChannels() []topology.ChannelInfo
 }
 
 type provisionChannelRequest struct {
-	Name     string   `json:"name"`
-	Topic    string   `json:"topic,omitempty"`
-	Ops      []string `json:"ops,omitempty"`
-	Voice    []string `json:"voice,omitempty"`
-	Autojoin []string `json:"autojoin,omitempty"`
+	Name         string   `json:"name"`
+	Topic        string   `json:"topic,omitempty"`
+	Ops          []string `json:"ops,omitempty"`
+	Voice        []string `json:"voice,omitempty"`
+	Autojoin     []string `json:"autojoin,omitempty"`
+	Instructions string   `json:"instructions,omitempty"`
+	MirrorDetail string   `json:"mirror_detail,omitempty"`
 }
 
 type provisionChannelResponse struct {
@@ -53,10 +56,14 @@ func (s *Server) handleProvisionChannel(w http.ResponseWriter, r *http.Request) 
 
 	policy := s.topoMgr.Policy()
 
-	// Merge autojoin from policy if the caller didn't specify any.
+	// Merge autojoin and modes from policy if the caller didn't specify any.
 	autojoin := req.Autojoin
 	if len(autojoin) == 0 && policy != nil {
 		autojoin = policy.AutojoinFor(req.Name)
+	}
+	var modes []string
+	if policy != nil {
+		modes = policy.ModesFor(req.Name)
 	}
 
 	ch := topology.ChannelConfig{
@@ -65,11 +72,30 @@ func (s *Server) handleProvisionChannel(w http.ResponseWriter, r *http.Request) 
 		Ops:      req.Ops,
 		Voice:    req.Voice,
 		Autojoin: autojoin,
+		Modes:    modes,
 	}
 	if err := s.topoMgr.ProvisionChannel(ch); err != nil {
 		s.log.Error("provision channel", "channel", req.Name, "err", err)
 		writeError(w, http.StatusInternalServerError, "provision failed")
 		return
+	}
+
+	// Save instructions to policies if provided.
+	if req.Instructions != "" && s.policies != nil {
+		p := s.policies.Get()
+		if p.OnJoinMessages == nil {
+			p.OnJoinMessages = make(map[string]string)
+		}
+		p.OnJoinMessages[req.Name] = req.Instructions
+		if req.MirrorDetail != "" {
+			if p.Bridge.ChannelDisplay == nil {
+				p.Bridge.ChannelDisplay = make(map[string]ChannelDisplayConfig)
+			}
+			cfg := p.Bridge.ChannelDisplay[req.Name]
+			cfg.MirrorDetail = req.MirrorDetail
+			p.Bridge.ChannelDisplay[req.Name] = cfg
+		}
+		_ = s.policies.Set(p)
 	}
 
 	resp := provisionChannelResponse{
@@ -93,8 +119,9 @@ type channelTypeInfo struct {
 }
 
 type topologyResponse struct {
-	StaticChannels []string          `json:"static_channels"`
-	Types          []channelTypeInfo `json:"types"`
+	StaticChannels []string               `json:"static_channels"`
+	Types          []channelTypeInfo      `json:"types"`
+	ActiveChannels []topology.ChannelInfo `json:"active_channels,omitempty"`
 }
 
 // handleDropChannel handles DELETE /v1/topology/channels/{channel}.
@@ -110,6 +137,60 @@ func (s *Server) handleDropChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.topoMgr.DropChannel(channel)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetInstructions handles GET /v1/channels/{channel}/instructions.
+func (s *Server) handleGetInstructions(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	if s.policies == nil {
+		writeJSON(w, http.StatusOK, map[string]string{"channel": channel, "instructions": ""})
+		return
+	}
+	p := s.policies.Get()
+	msg := p.OnJoinMessages[channel]
+	writeJSON(w, http.StatusOK, map[string]string{"channel": channel, "instructions": msg})
+}
+
+// handlePutInstructions handles PUT /v1/channels/{channel}/instructions.
+func (s *Server) handlePutInstructions(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	if s.policies == nil {
+		writeError(w, http.StatusServiceUnavailable, "policies not configured")
+		return
+	}
+	var req struct {
+		Instructions string `json:"instructions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	p := s.policies.Get()
+	if p.OnJoinMessages == nil {
+		p.OnJoinMessages = make(map[string]string)
+	}
+	p.OnJoinMessages[channel] = req.Instructions
+	if err := s.policies.Set(p); err != nil {
+		writeError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeleteInstructions handles DELETE /v1/channels/{channel}/instructions.
+func (s *Server) handleDeleteInstructions(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	if s.policies == nil {
+		writeError(w, http.StatusServiceUnavailable, "policies not configured")
+		return
+	}
+	p := s.policies.Get()
+	delete(p.OnJoinMessages, channel)
+	if err := s.policies.Set(p); err != nil {
+		writeError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -148,5 +229,6 @@ func (s *Server) handleGetTopology(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, topologyResponse{
 		StaticChannels: staticNames,
 		Types:          typeInfos,
+		ActiveChannels: s.topoMgr.ListChannels(),
 	})
 }

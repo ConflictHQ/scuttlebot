@@ -27,6 +27,7 @@ type ircConnector struct {
 	agentType     string
 	pass          string
 	deleteOnClose bool
+	envelopeMode  bool
 
 	mu       sync.RWMutex
 	channels []string
@@ -52,6 +53,7 @@ func newIRCConnector(cfg Config) (Connector, error) {
 		agentType:     cfg.IRC.AgentType,
 		pass:          cfg.IRC.Pass,
 		deleteOnClose: cfg.IRC.DeleteOnClose,
+		envelopeMode:  cfg.IRC.EnvelopeMode,
 		channels:      append([]string(nil), cfg.Channels...),
 		messages:      make([]Message, 0, defaultBufferSize),
 		errCh:         make(chan error, 1),
@@ -128,7 +130,7 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 			onJoined()
 		}
 	})
-	client.Handlers.AddBg(girc.PRIVMSG, func(_ *girc.Client, e girc.Event) {
+	client.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
 			return
 		}
@@ -136,15 +138,35 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		if !c.hasChannel(target) {
 			return
 		}
+		// Prefer account-tag (IRCv3) over source nick.
 		sender := e.Source.Name
+		if acct, ok := e.Tags.Get("account"); ok && acct != "" {
+			sender = acct
+		}
 		text := strings.TrimSpace(e.Last())
+		// RELAYMSG: server delivers as "nick/bridge" — strip the relay suffix.
+		if sep, ok := cl.GetServerOption("RELAYMSG"); ok && sep != "" {
+			if idx := strings.Index(sender, sep); idx != -1 {
+				sender = sender[:idx]
+			}
+		}
+		// Fallback: parse legacy [nick] prefix from bridge bot.
 		if sender == "bridge" && strings.HasPrefix(text, "[") {
 			if end := strings.Index(text, "] "); end != -1 {
 				sender = text[1:end]
 				text = strings.TrimSpace(text[end+2:])
 			}
 		}
-		c.appendMessage(Message{At: time.Now(), Channel: target, Nick: sender, Text: text})
+		// Use server-time when available; fall back to local clock.
+		at := e.Timestamp
+		if at.IsZero() {
+			at = time.Now()
+		}
+		var msgID string
+		if id, ok := e.Tags.Get("msgid"); ok {
+			msgID = id
+		}
+		c.appendMessage(Message{At: at, Channel: target, Nick: sender, Text: text, MsgID: msgID})
 	})
 
 	c.mu.Lock()
@@ -223,22 +245,24 @@ func (c *ircConnector) PostTo(_ context.Context, channel, text string) error {
 	return c.PostToWithMeta(context.Background(), channel, text, nil)
 }
 
-// PostWithMeta sends text to all channels. Meta is ignored — IRC is text-only.
-func (c *ircConnector) PostWithMeta(_ context.Context, text string, _ json.RawMessage) error {
+// PostWithMeta sends text to all channels.
+// In envelope mode, wraps the message in a protocol.Envelope JSON.
+func (c *ircConnector) PostWithMeta(_ context.Context, text string, meta json.RawMessage) error {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()
 	if client == nil {
 		return fmt.Errorf("sessionrelay: irc client not connected")
 	}
+	msg := c.formatMessage(text, meta)
 	for _, channel := range c.Channels() {
-		client.Cmd.Message(channel, text)
+		client.Cmd.Message(channel, msg)
 	}
 	return nil
 }
 
-// PostToWithMeta sends text to a specific channel. Meta is ignored — IRC is text-only.
-func (c *ircConnector) PostToWithMeta(_ context.Context, channel, text string, _ json.RawMessage) error {
+// PostToWithMeta sends text to a specific channel.
+func (c *ircConnector) PostToWithMeta(_ context.Context, channel, text string, meta json.RawMessage) error {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()
@@ -249,8 +273,32 @@ func (c *ircConnector) PostToWithMeta(_ context.Context, channel, text string, _
 	if channel == "" {
 		return fmt.Errorf("sessionrelay: post channel is required")
 	}
-	client.Cmd.Message(channel, text)
+	client.Cmd.Message(channel, c.formatMessage(text, meta))
 	return nil
+}
+
+// formatMessage wraps text in a JSON envelope when envelope mode is enabled.
+func (c *ircConnector) formatMessage(text string, meta json.RawMessage) string {
+	if !c.envelopeMode {
+		return text
+	}
+	env := map[string]any{
+		"v":    1,
+		"type": "relay.message",
+		"from": c.nick,
+		"ts":   time.Now().UnixMilli(),
+		"payload": map[string]any{
+			"text": text,
+		},
+	}
+	if len(meta) > 0 {
+		env["payload"] = json.RawMessage(meta)
+	}
+	data, err := json.Marshal(env)
+	if err != nil {
+		return text // fallback to plain text
+	}
+	return string(data)
 }
 
 func (c *ircConnector) MessagesSince(_ context.Context, since time.Time) ([]Message, error) {

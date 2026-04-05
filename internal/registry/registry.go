@@ -37,6 +37,7 @@ type Agent struct {
 	Channels    []string         `json:"channels"`    // convenience: same as Config.Channels
 	Permissions []string         `json:"permissions"` // convenience: same as Config.Permissions
 	Config      EngagementConfig `json:"config"`
+	Skills      []string         `json:"skills,omitempty"` // agent capabilities (e.g. "go", "python", "react")
 	CreatedAt   time.Time        `json:"created_at"`
 	Revoked     bool             `json:"revoked"`
 	LastSeen    *time.Time       `json:"last_seen,omitempty"`
@@ -356,6 +357,18 @@ func (r *Registry) Delete(nick string) error {
 
 // UpdateChannels replaces the channel list for an active agent.
 // Used by relay brokers to sync runtime /join and /part changes back to the registry.
+// Update persists changes to an existing agent record.
+func (r *Registry) Update(agent *Agent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.agents[agent.Nick]; !ok {
+		return fmt.Errorf("registry: agent %q not found", agent.Nick)
+	}
+	r.agents[agent.Nick] = agent
+	r.saveOne(agent)
+	return nil
+}
+
 func (r *Registry) UpdateChannels(nick string, channels []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
