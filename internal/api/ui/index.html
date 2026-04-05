@@ -1692,7 +1692,7 @@ function renderAgentTable() {
   });
   renderTable('agents-container', null, rows,
     bots.length ? 'no agents match the filter' : 'no agents registered yet',
-    ['nick','type','channels','last seen','']);
+    ['<input type="checkbox" id="agent-select-all" onchange="toggleSelectAllAgents(this.checked)" style="margin-right:6px">nick','type','channels','last seen','']);
 }
 
 async function revokeAgent(nick) {
@@ -1704,6 +1704,10 @@ async function deleteAgent(nick) {
   if (!confirm(`Delete "${nick}"? This permanently removes the agent from the registry.`)) return;
   try { await api('DELETE', `/v1/agents/${nick}`); await loadAgents(); await loadStatus(); }
   catch(e) { alert('Delete failed: '+e.message); }
+}
+function toggleSelectAllAgents(checked) {
+  document.querySelectorAll('.agent-select').forEach(cb => cb.checked = checked);
+  updateBulkBtn();
 }
 function updateBulkBtn() {
   const checked = document.querySelectorAll('.agent-select:checked');
