@@ -249,7 +249,18 @@ func main() {
 	if bridgeBot != nil {
 		bridgeBot.SetWebUserTTL(time.Duration(policyStore.Get().Bridge.WebUserTTLMinutes) * time.Minute)
 		// Deliver on-join instructions when agents join channels.
+		// Skip system bots to avoid flooding the bridge IRC connection on startup.
 		bridgeBot.SetOnUserJoin(func(channel, nick string) {
+			// Don't send on-join to system bots — they already know what to do.
+			systemBots := map[string]bool{
+				"bridge": true, "auditbot": true, "scribe": true, "herald": true,
+				"oracle": true, "warden": true, "scroll": true, "systembot": true,
+				"snitch": true, "sentinel": true, "steward": true, "shepherd": true,
+				"topology": true,
+			}
+			if systemBots[nick] {
+				return
+			}
 			p := policyStore.Get()
 			msg, ok := p.OnJoinMessages[channel]
 			if !ok || msg == "" {
