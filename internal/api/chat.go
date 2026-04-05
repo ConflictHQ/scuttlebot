@@ -23,6 +23,8 @@ type chatBridge interface {
 	Stats() bridge.Stats
 	TouchUser(channel, nick string)
 	Users(channel string) []string
+	UsersWithModes(channel string) []bridge.UserInfo
+	ChannelModes(channel string) string
 }
 
 func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
@@ -110,11 +112,12 @@ func (s *Server) handleChannelPresence(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChannelUsers(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
-	users := s.bridge.Users(channel)
+	users := s.bridge.UsersWithModes(channel)
 	if users == nil {
-		users = []string{}
+		users = []bridge.UserInfo{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+	modes := s.bridge.ChannelModes(channel)
+	writeJSON(w, http.StatusOK, map[string]any{"users": users, "channel_modes": modes})
 }
 
 // handleChannelStream serves an SSE stream of IRC messages for a channel.
