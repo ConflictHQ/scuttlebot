@@ -39,7 +39,7 @@ var ValidScopes = map[Scope]bool{
 type APIKey struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	Hash      string    `json:"hash"`               // SHA-256 of the plaintext token
+	Hash      string    `json:"hash"` // SHA-256 of the plaintext token
 	Scopes    []Scope   `json:"scopes"`
 	CreatedAt time.Time `json:"created_at"`
 	LastUsed  time.Time `json:"last_used,omitempty"`
