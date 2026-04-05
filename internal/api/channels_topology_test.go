@@ -51,6 +51,8 @@ func (s *stubTopologyManager) RevokeAccess(nick, channel string) {
 	s.revokes = append(s.revokes, accessCall{Nick: nick, Channel: channel})
 }
 
+func (s *stubTopologyManager) ListChannels() []topology.ChannelInfo { return nil }
+
 // stubProvisioner is a minimal AccountProvisioner for agent registration tests.
 type stubProvisioner struct {
 	accounts map[string]string
