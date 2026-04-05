@@ -140,14 +140,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Shared API token — persisted so the UI token survives restarts.
-	apiToken, err := loadOrCreateToken(filepath.Join(cfg.Ergo.DataDir, "api_token"))
+	// API key store — per-consumer tokens with scoped permissions.
+	apiKeyStore, err := auth.NewAPIKeyStore(filepath.Join(cfg.Ergo.DataDir, "api_keys.json"))
 	if err != nil {
-		log.Error("api token", "err", err)
+		log.Error("api key store", "err", err)
 		os.Exit(1)
 	}
-	log.Info("api token", "token", apiToken) // printed on every startup
-	tokens := []string{apiToken}
+	// Migrate legacy api_token into key store on first run.
+	if apiKeyStore.IsEmpty() {
+		apiToken, err := loadOrCreateToken(filepath.Join(cfg.Ergo.DataDir, "api_token"))
+		if err != nil {
+			log.Error("api token", "err", err)
+			os.Exit(1)
+		}
+		if _, err := apiKeyStore.Insert("server", apiToken, []auth.Scope{auth.ScopeAdmin}); err != nil {
+			log.Error("migrate api token to key store", "err", err)
+			os.Exit(1)
+		}
+		log.Info("migrated api_token to api_keys.json", "token", apiToken)
+	} else {
+		log.Info("api key store loaded", "keys", len(apiKeyStore.List()))
+	}
 
 	// Start bridge bot (powers the web chat UI).
 	var bridgeBot *bridge.Bot
@@ -354,7 +367,7 @@ func main() {
 	if topoMgr != nil {
 		topoIface = topoMgr
 	}
-	apiSrv := api.New(reg, tokens, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, cfg.TLS.Domain, log)
+	apiSrv := api.New(reg, apiKeyStore, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, cfg.TLS.Domain, log)
 	handler := apiSrv.Handler()
 
 	var httpServer, tlsServer *http.Server
@@ -420,7 +433,7 @@ func main() {
 	}
 
 	// Start MCP server.
-	mcpSrv := mcp.New(reg, &ergoChannelLister{ergoMgr.API()}, tokens, log)
+	mcpSrv := mcp.New(reg, &ergoChannelLister{ergoMgr.API()}, apiKeyStore, log)
 	mcpServer := &http.Server{
 		Addr:    cfg.MCPAddr,
 		Handler: mcpSrv.Handler(),
