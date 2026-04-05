@@ -50,12 +50,13 @@ type channelRecord struct {
 
 // Manager provisions and maintains IRC channel topology.
 type Manager struct {
-	ircAddr  string
-	nick     string
-	password string
-	log      *slog.Logger
-	policy   *Policy
-	client   *girc.Client
+	ircAddr    string
+	nick       string
+	password   string
+	operPass   string // oper password for SAMODE access
+	log        *slog.Logger
+	policy     *Policy
+	client     *girc.Client
 
 	mu       sync.Mutex
 	channels map[string]channelRecord // channel name → record
@@ -64,11 +65,12 @@ type Manager struct {
 // NewManager creates a topology Manager. nick and password are the Ergo
 // credentials of the scuttlebot oper account used to manage channels.
 // policy may be nil if the caller only uses the manager for ad-hoc provisioning.
-func NewManager(ircAddr, nick, password string, policy *Policy, log *slog.Logger) *Manager {
+func NewManager(ircAddr, nick, password, operPass string, policy *Policy, log *slog.Logger) *Manager {
 	return &Manager{
 		ircAddr:  ircAddr,
 		nick:     nick,
 		password: password,
+		operPass: operPass,
 		policy:   policy,
 		log:      log,
 		channels: make(map[string]channelRecord),
@@ -98,6 +100,10 @@ func (m *Manager) Connect(ctx context.Context) error {
 
 	connected := make(chan struct{})
 	c.Handlers.AddBg(girc.CONNECTED, func(client *girc.Client, e girc.Event) {
+		// OPER up for SAMODE access.
+		if m.operPass != "" {
+			client.Cmd.SendRawf("OPER scuttlebot %s", m.operPass)
+		}
 		close(connected)
 	})
 
@@ -215,12 +221,19 @@ func (m *Manager) provision(ch ChannelConfig) error {
 		m.chanserv("TOPIC %s %s", ch.Name, ch.Topic)
 	}
 
-	// Use AMODE for persistent auto-mode on join (survives reconnects).
+	// Set persistent auto-modes. Use ChanServ AMODE when possible,
+	// and SAMODE (oper) as immediate fallback.
 	for _, nick := range ch.Ops {
 		m.chanserv("AMODE %s +o %s", ch.Name, nick)
+		if m.operPass != "" {
+			m.client.Cmd.SendRawf("SAMODE %s +o %s", ch.Name, nick)
+		}
 	}
 	for _, nick := range ch.Voice {
 		m.chanserv("AMODE %s +v %s", ch.Name, nick)
+		if m.operPass != "" {
+			m.client.Cmd.SendRawf("SAMODE %s +v %s", ch.Name, nick)
+		}
 	}
 
 	// Apply channel modes (e.g. +m for moderated).
@@ -298,8 +311,14 @@ func (m *Manager) GrantAccess(nick, channel, level string) {
 	switch strings.ToUpper(level) {
 	case "OP":
 		m.chanserv("AMODE %s +o %s", channel, nick)
+		if m.operPass != "" && m.client != nil {
+			m.client.Cmd.SendRawf("SAMODE %s +o %s", channel, nick)
+		}
 	case "VOICE":
 		m.chanserv("AMODE %s +v %s", channel, nick)
+		if m.operPass != "" && m.client != nil {
+			m.client.Cmd.SendRawf("SAMODE %s +v %s", channel, nick)
+		}
 	default:
 		m.log.Warn("unknown access level", "level", level)
 		return

@@ -43,7 +43,7 @@ func TestReaperExpiry(t *testing.T) {
 		},
 	})
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	m := NewManager("localhost:6667", "topology", "pass", pol, log)
+	m := NewManager("localhost:6667", "topology", "pass", "", pol, log)
 
 	// Simulate that channels were provisioned at different times.
 	m.mu.Lock()
