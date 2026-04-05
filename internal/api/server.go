@@ -98,6 +98,15 @@ func (s *Server) Handler() http.Handler {
 		apiMux.HandleFunc("DELETE /v1/topology/channels/{channel}", s.requireScope(auth.ScopeTopology, s.handleDropChannel))
 		apiMux.HandleFunc("GET /v1/topology", s.requireScope(auth.ScopeTopology, s.handleGetTopology))
 	}
+	// Blocker escalation — agents can signal they're stuck.
+	if s.bridge != nil {
+		apiMux.HandleFunc("POST /v1/agents/{nick}/blocker", s.requireScope(auth.ScopeAgents, s.handleAgentBlocker))
+	}
+
+	// Instructions — available even without topology (uses policies store).
+	apiMux.HandleFunc("GET /v1/channels/{channel}/instructions", s.requireScope(auth.ScopeTopology, s.handleGetInstructions))
+	apiMux.HandleFunc("PUT /v1/channels/{channel}/instructions", s.requireScope(auth.ScopeTopology, s.handlePutInstructions))
+	apiMux.HandleFunc("DELETE /v1/channels/{channel}/instructions", s.requireScope(auth.ScopeTopology, s.handleDeleteInstructions))
 
 	// Config — config scope.
 	if s.cfgStore != nil {
