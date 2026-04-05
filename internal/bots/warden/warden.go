@@ -65,13 +65,22 @@ type nickState struct {
 	lastRefill time.Time
 	violations int
 	lastAction time.Time
+	// Loop detection: track recent messages for repetition.
+	recentMsgs []string
+}
+
+// channelMsg is a recent message for ping-pong detection.
+type channelMsg struct {
+	nick string
+	text string
 }
 
 // channelState holds per-channel warden state.
 type channelState struct {
-	mu    sync.Mutex
-	cfg   ChannelConfig
-	nicks map[string]*nickState
+	mu         sync.Mutex
+	cfg        ChannelConfig
+	nicks      map[string]*nickState
+	recentMsgs []channelMsg // channel-wide message history for ping-pong detection
 }
 
 func newChannelState(cfg ChannelConfig) *channelState {
@@ -105,6 +114,70 @@ func (cs *channelState) consume(nick string) bool {
 		return true
 	}
 	return false
+}
+
+// recordMessage tracks a message for loop detection. Returns true if a loop
+// is detected (same message repeated 3+ times in recent history).
+func (cs *channelState) recordMessage(nick, text string) bool {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	ns, ok := cs.nicks[nick]
+	if !ok {
+		ns = &nickState{tokens: float64(cs.cfg.Burst), lastRefill: time.Now()}
+		cs.nicks[nick] = ns
+	}
+
+	ns.recentMsgs = append(ns.recentMsgs, text)
+	// Keep last 10 messages.
+	if len(ns.recentMsgs) > 10 {
+		ns.recentMsgs = ns.recentMsgs[len(ns.recentMsgs)-10:]
+	}
+
+	// Check for repetition: same message 3+ times in last 10.
+	count := 0
+	for _, m := range ns.recentMsgs {
+		if m == text {
+			count++
+		}
+	}
+	return count >= 3
+}
+
+// recordChannelMessage tracks messages at channel level for ping-pong detection.
+// Returns the offending nick if a ping-pong loop is detected (two nicks
+// alternating back and forth 4+ times with no other participants).
+func (cs *channelState) recordChannelMessage(nick, text string) string {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	cs.recentMsgs = append(cs.recentMsgs, channelMsg{nick: nick, text: text})
+	if len(cs.recentMsgs) > 20 {
+		cs.recentMsgs = cs.recentMsgs[len(cs.recentMsgs)-20:]
+	}
+
+	// Check last 8 messages for A-B-A-B pattern.
+	msgs := cs.recentMsgs
+	if len(msgs) < 8 {
+		return ""
+	}
+	tail := msgs[len(msgs)-8:]
+	nickA := tail[0].nick
+	nickB := tail[1].nick
+	if nickA == nickB {
+		return ""
+	}
+	for i, m := range tail {
+		expected := nickA
+		if i%2 == 1 {
+			expected = nickB
+		}
+		if m.nick != expected {
+			return ""
+		}
+	}
+	// A-B-A-B-A-B-A-B pattern detected — return the most recent speaker.
+	return nick
 }
 
 // violation records an enforcement action and returns the appropriate Action.
@@ -276,6 +349,18 @@ func (b *Bot) Start(ctx context.Context) error {
 
 		// Skip enforcement for channel ops (+o and above).
 		if isChannelOp(cl, channel, nick) {
+			return
+		}
+
+		// Loop detection: same message repeated 3+ times → mute.
+		if cs.recordMessage(nick, text) {
+			b.enforce(cl, channel, nick, ActionMute, "repetitive message loop detected")
+			return
+		}
+
+		// Ping-pong detection: two agents alternating back and forth → mute the latest.
+		if loopNick := cs.recordChannelMessage(nick, text); loopNick != "" {
+			b.enforce(cl, channel, loopNick, ActionMute, "agent ping-pong loop detected")
 			return
 		}
 
