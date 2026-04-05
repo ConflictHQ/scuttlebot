@@ -23,6 +23,8 @@ import (
 	"github.com/lrstanley/girc"
 
 	"github.com/conflicthq/scuttlebot/internal/bots/scribe"
+	"github.com/conflicthq/scuttlebot/pkg/chathistory"
+	"github.com/conflicthq/scuttlebot/pkg/toon"
 )
 
 const (
@@ -40,7 +42,8 @@ type Bot struct {
 	store     scribe.Store
 	log       *slog.Logger
 	client    *girc.Client
-	rateLimit sync.Map // nick → last request time
+	history   *chathistory.Fetcher // nil until connected, if CHATHISTORY is available
+	rateLimit sync.Map             // nick → last request time
 }
 
 // New creates a scroll Bot backed by the given scribe Store.
@@ -74,13 +77,22 @@ func (b *Bot) Start(ctx context.Context) error {
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
 		SSL:         false,
+		SupportedCaps: map[string][]string{
+			"draft/chathistory": nil,
+			"chathistory":       nil,
+		},
 	})
 
+	// Register CHATHISTORY batch handlers before connecting.
+	b.history = chathistory.New(c)
+
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, e girc.Event) {
+		cl.Cmd.Mode(cl.GetNick(), "+B")
 		for _, ch := range b.channels {
 			cl.Cmd.Join(ch)
 		}
-		b.log.Info("scroll connected", "channels", b.channels)
+		hasCH := cl.HasCapability("chathistory") || cl.HasCapability("draft/chathistory")
+		b.log.Info("scroll connected", "channels", b.channels, "chathistory", hasCH)
 	})
 
 	// Only respond to DMs — ignore anything in a channel.
@@ -131,11 +143,11 @@ func (b *Bot) handle(client *girc.Client, nick, text string) {
 	req, err := ParseCommand(text)
 	if err != nil {
 		client.Cmd.Notice(nick, fmt.Sprintf("error: %s", err))
-		client.Cmd.Notice(nick, "usage: replay #channel [last=N] [since=<unix_ms>]")
+		client.Cmd.Notice(nick, "usage: replay #channel [last=N] [since=<unix_ms>] [format=json|toon]")
 		return
 	}
 
-	entries, err := b.store.Query(req.Channel, req.Limit)
+	entries, err := b.fetchHistory(req)
 	if err != nil {
 		client.Cmd.Notice(nick, fmt.Sprintf("error fetching history: %s", err))
 		return
@@ -146,12 +158,60 @@ func (b *Bot) handle(client *girc.Client, nick, text string) {
 		return
 	}
 
-	client.Cmd.Notice(nick, fmt.Sprintf("--- replay %s (%d entries) ---", req.Channel, len(entries)))
-	for _, e := range entries {
-		line, _ := json.Marshal(e)
-		client.Cmd.Notice(nick, string(line))
+	if req.Format == "toon" {
+		toonEntries := make([]toon.Entry, len(entries))
+		for i, e := range entries {
+			toonEntries[i] = toon.Entry{
+				Nick:        e.Nick,
+				MessageType: e.MessageType,
+				Text:        e.Raw,
+				At:          e.At,
+			}
+		}
+		output := toon.Format(toonEntries, toon.Options{Channel: req.Channel})
+		for _, line := range strings.Split(output, "\n") {
+			if line != "" {
+				client.Cmd.Notice(nick, line)
+			}
+		}
+	} else {
+		client.Cmd.Notice(nick, fmt.Sprintf("--- replay %s (%d entries) ---", req.Channel, len(entries)))
+		for _, e := range entries {
+			line, _ := json.Marshal(e)
+			client.Cmd.Notice(nick, string(line))
+		}
+		client.Cmd.Notice(nick, fmt.Sprintf("--- end replay %s ---", req.Channel))
 	}
-	client.Cmd.Notice(nick, fmt.Sprintf("--- end replay %s ---", req.Channel))
+}
+
+// fetchHistory tries CHATHISTORY first, falls back to scribe store.
+func (b *Bot) fetchHistory(req *replayRequest) ([]scribe.Entry, error) {
+	if b.history != nil && b.client != nil {
+		hasCH := b.client.HasCapability("chathistory") || b.client.HasCapability("draft/chathistory")
+		if hasCH {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			msgs, err := b.history.Latest(ctx, req.Channel, req.Limit)
+			if err == nil {
+				entries := make([]scribe.Entry, len(msgs))
+				for i, m := range msgs {
+					entries[i] = scribe.Entry{
+						At:      m.At,
+						Channel: req.Channel,
+						Nick:    m.Nick,
+						Kind:    scribe.EntryKindRaw,
+						Raw:     m.Text,
+					}
+					if m.Account != "" {
+						entries[i].Nick = m.Account
+					}
+				}
+				return entries, nil
+			}
+			b.log.Warn("chathistory failed, falling back to store", "err", err)
+		}
+	}
+	return b.store.Query(req.Channel, req.Limit)
 }
 
 func (b *Bot) checkRateLimit(nick string) bool {
@@ -169,7 +229,8 @@ func (b *Bot) checkRateLimit(nick string) bool {
 type replayRequest struct {
 	Channel string
 	Limit   int
-	Since   int64 // unix ms, 0 = no filter
+	Since   int64  // unix ms, 0 = no filter
+	Format  string // "json" (default) or "toon"
 }
 
 // ParseCommand parses a replay command string. Exported for testing.
@@ -207,6 +268,13 @@ func ParseCommand(text string) (*replayRequest, error) {
 				return nil, fmt.Errorf("invalid since=%q (must be unix milliseconds)", kv[1])
 			}
 			req.Since = ts
+		case "format":
+			switch strings.ToLower(kv[1]) {
+			case "json", "toon":
+				req.Format = strings.ToLower(kv[1])
+			default:
+				return nil, fmt.Errorf("unknown format %q (use json or toon)", kv[1])
+			}
 		default:
 			return nil, fmt.Errorf("unknown argument %q", kv[0])
 		}

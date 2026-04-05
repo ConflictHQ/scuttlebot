@@ -7,8 +7,9 @@ import (
 )
 
 type settingsResponse struct {
-	TLS      tlsInfo  `json:"tls"`
-	Policies Policies `json:"policies"`
+	TLS         tlsInfo                 `json:"tls"`
+	Policies    Policies                `json:"policies"`
+	BotCommands map[string][]BotCommand `json:"bot_commands,omitempty"`
 }
 
 type tlsInfo struct {
@@ -35,6 +36,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		resp.Policies.Logging = toAPILogging(cfg.Logging)
 		resp.Policies.Bridge.WebUserTTLMinutes = cfg.Bridge.WebUserTTLMinutes
 	}
+	resp.BotCommands = botCommands
 	writeJSON(w, http.StatusOK, resp)
 }
 

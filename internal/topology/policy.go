@@ -13,6 +13,7 @@ type ChannelType struct {
 	Name        string
 	Prefix      string
 	Autojoin    []string
+	Modes       []string
 	Supervision string
 	Ephemeral   bool
 	TTL         time.Duration
@@ -63,6 +64,7 @@ func NewPolicy(cfg config.TopologyConfig) *Policy {
 			Name:        t.Name,
 			Prefix:      t.Prefix,
 			Autojoin:    append([]string(nil), t.Autojoin...),
+			Modes:       append([]string(nil), t.Modes...),
 			Supervision: t.Supervision,
 			Ephemeral:   t.Ephemeral,
 			TTL:         t.TTL.Duration,
@@ -134,6 +136,14 @@ func (p *Policy) TTLFor(channel string) time.Duration {
 		return t.TTL
 	}
 	return 0
+}
+
+// ModesFor returns the channel modes for the given channel, or nil.
+func (p *Policy) ModesFor(channel string) []string {
+	if t := p.Match(channel); t != nil {
+		return append([]string(nil), t.Modes...)
+	}
+	return nil
 }
 
 // StaticChannels returns the list of channels to provision at startup.

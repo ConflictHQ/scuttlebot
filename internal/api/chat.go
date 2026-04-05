@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/conflicthq/scuttlebot/internal/auth"
 	"github.com/conflicthq/scuttlebot/internal/bots/bridge"
 )
 
@@ -22,6 +23,8 @@ type chatBridge interface {
 	Stats() bridge.Stats
 	TouchUser(channel, nick string)
 	Users(channel string) []string
+	UsersWithModes(channel string) []bridge.UserInfo
+	ChannelModes(channel string) string
 }
 
 func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
@@ -109,18 +112,54 @@ func (s *Server) handleChannelPresence(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChannelUsers(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
-	users := s.bridge.Users(channel)
+	users := s.bridge.UsersWithModes(channel)
 	if users == nil {
-		users = []string{}
+		users = []bridge.UserInfo{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+	modes := s.bridge.ChannelModes(channel)
+	writeJSON(w, http.StatusOK, map[string]any{"users": users, "channel_modes": modes})
+}
+
+func (s *Server) handleGetChannelConfig(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	if s.policies == nil {
+		writeJSON(w, http.StatusOK, ChannelDisplayConfig{})
+		return
+	}
+	p := s.policies.Get()
+	cfg := p.Bridge.ChannelDisplay[channel]
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) handlePutChannelConfig(w http.ResponseWriter, r *http.Request) {
+	channel := "#" + r.PathValue("channel")
+	if s.policies == nil {
+		writeError(w, http.StatusServiceUnavailable, "policies not configured")
+		return
+	}
+	var cfg ChannelDisplayConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	p := s.policies.Get()
+	if p.Bridge.ChannelDisplay == nil {
+		p.Bridge.ChannelDisplay = make(map[string]ChannelDisplayConfig)
+	}
+	p.Bridge.ChannelDisplay[channel] = cfg
+	if err := s.policies.Set(p); err != nil {
+		writeError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleChannelStream serves an SSE stream of IRC messages for a channel.
 // Auth is via ?token= query param because EventSource doesn't support custom headers.
 func (s *Server) handleChannelStream(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
-	if _, ok := s.tokens[token]; !ok {
+	key := s.apiKeys.Lookup(token)
+	if key == nil || (!key.HasScope(auth.ScopeChannels) && !key.HasScope(auth.ScopeChat)) {
 		writeError(w, http.StatusUnauthorized, "invalid or missing token")
 		return
 	}
