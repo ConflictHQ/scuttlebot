@@ -24,6 +24,7 @@ import (
 	"github.com/lrstanley/girc"
 
 	"github.com/conflicthq/scuttlebot/pkg/chathistory"
+	"github.com/conflicthq/scuttlebot/pkg/toon"
 )
 
 const (
@@ -307,18 +308,16 @@ func (b *Bot) fetchHistory(ctx context.Context, channel string, limit int) ([]Hi
 }
 
 func buildPrompt(channel string, entries []HistoryEntry) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Summarize the following IRC conversation from %s.\n", channel)
-	fmt.Fprintf(&sb, "Focus on: key decisions, actions taken, outstanding tasks, and important context.\n")
-	fmt.Fprintf(&sb, "Be concise. %d messages:\n\n", len(entries))
-	for _, e := range entries {
-		if e.MessageType != "" {
-			fmt.Fprintf(&sb, "[%s] (type=%s) %s\n", e.Nick, e.MessageType, e.Raw)
-		} else {
-			fmt.Fprintf(&sb, "[%s] %s\n", e.Nick, e.Raw)
+	// Convert to TOON entries for token-efficient LLM context.
+	toonEntries := make([]toon.Entry, len(entries))
+	for i, e := range entries {
+		toonEntries[i] = toon.Entry{
+			Nick:        e.Nick,
+			MessageType: e.MessageType,
+			Text:        e.Raw,
 		}
 	}
-	return sb.String()
+	return toon.FormatPrompt(channel, toonEntries)
 }
 
 func formatResponse(channel string, count int, summary string, format Format) string {

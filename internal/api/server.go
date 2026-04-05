@@ -87,6 +87,8 @@ func (s *Server) Handler() http.Handler {
 		apiMux.HandleFunc("POST /v1/channels/{channel}/messages", s.requireScope(auth.ScopeChat, s.handleSendMessage))
 		apiMux.HandleFunc("POST /v1/channels/{channel}/presence", s.requireScope(auth.ScopeChat, s.handleChannelPresence))
 		apiMux.HandleFunc("GET /v1/channels/{channel}/users", s.requireScope(auth.ScopeChannels, s.handleChannelUsers))
+		apiMux.HandleFunc("GET /v1/channels/{channel}/config", s.requireScope(auth.ScopeChannels, s.handleGetChannelConfig))
+		apiMux.HandleFunc("PUT /v1/channels/{channel}/config", s.requireScope(auth.ScopeAdmin, s.handlePutChannelConfig))
 	}
 
 	// Topology — topology scope.
