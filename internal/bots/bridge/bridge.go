@@ -36,6 +36,7 @@ type Message struct {
 	Channel string    `json:"channel"`
 	Nick    string    `json:"nick"`
 	Text    string    `json:"text"`
+	MsgID   string    `json:"msgid,omitempty"`
 	Meta    *Meta     `json:"meta,omitempty"`
 }
 
@@ -105,6 +106,9 @@ type Bot struct {
 
 	joinCh chan string
 	client *girc.Client
+
+	// RELAYMSG support detected from ISUPPORT.
+	relaySep string // separator (e.g. "/"), empty if unsupported
 }
 
 // New creates a bridge Bot.
@@ -174,6 +178,19 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
+		cl.Cmd.Mode(cl.GetNick(), "+B")
+		// Check RELAYMSG support from ISUPPORT (RPL_005).
+		if sep, ok := cl.GetServerOption("RELAYMSG"); ok && sep != "" {
+			b.relaySep = sep
+			if b.log != nil {
+				b.log.Info("bridge: RELAYMSG supported", "separator", sep)
+			}
+		} else {
+			b.relaySep = ""
+			if b.log != nil {
+				b.log.Info("bridge: RELAYMSG not supported, using [nick] prefix fallback")
+			}
+		}
 		if b.log != nil {
 			b.log.Info("bridge connected")
 		}
@@ -221,12 +238,22 @@ func (b *Bot) Start(ctx context.Context) error {
 			nick = acct
 		}
 
-		b.dispatch(Message{
+		var msgID string
+		if id, ok := e.Tags.Get("msgid"); ok {
+			msgID = id
+		}
+		msg := Message{
 			At:      e.Timestamp,
 			Channel: channel,
 			Nick:    nick,
 			Text:    e.Last(),
-		})
+			MsgID:   msgID,
+		}
+		// Read meta-type from IRCv3 client tags if present.
+		if metaType, ok := e.Tags.Get("+scuttlebot/meta-type"); ok && metaType != "" {
+			msg.Meta = &Meta{Type: metaType}
+		}
+		b.dispatch(msg)
 	})
 
 	b.client = c
@@ -340,15 +367,35 @@ func (b *Bot) Send(ctx context.Context, channel, text, senderNick string) error 
 // SendWithMeta sends a message to channel with optional structured metadata.
 // IRC receives only the plain text; SSE subscribers receive the full message
 // including meta for rich rendering in the web UI.
+//
+// When meta is present, key fields are attached as IRCv3 client-only tags
+// (+scuttlebot/meta-type) so any IRCv3 client can read them.
+//
+// When the server supports RELAYMSG (IRCv3), messages are attributed natively
+// so other clients see the real sender nick. Falls back to [nick] prefix.
 func (b *Bot) SendWithMeta(ctx context.Context, channel, text, senderNick string, meta *Meta) error {
 	if b.client == nil {
 		return fmt.Errorf("bridge: not connected")
 	}
-	ircText := text
-	if senderNick != "" {
-		ircText = "[" + senderNick + "] " + text
+	// Build optional IRCv3 tag prefix for meta-type.
+	tagPrefix := ""
+	if meta != nil && meta.Type != "" {
+		tagPrefix = "@+scuttlebot/meta-type=" + meta.Type + " "
 	}
-	b.client.Cmd.Message(channel, ircText)
+	if senderNick != "" && b.relaySep != "" {
+		// Use RELAYMSG for native attribution.
+		b.client.Cmd.SendRawf("%sRELAYMSG %s %s :%s", tagPrefix, channel, senderNick, text)
+	} else {
+		ircText := text
+		if senderNick != "" {
+			ircText = "[" + senderNick + "] " + text
+		}
+		if tagPrefix != "" {
+			b.client.Cmd.SendRawf("%sPRIVMSG %s :%s", tagPrefix, channel, ircText)
+		} else {
+			b.client.Cmd.Message(channel, ircText)
+		}
+	}
 
 	if senderNick != "" {
 		b.TouchUser(channel, senderNick)
@@ -422,6 +469,82 @@ func (b *Bot) Users(channel string) []string {
 	b.mu.Unlock()
 
 	return nicks
+}
+
+// UserInfo describes a user with their IRC modes.
+type UserInfo struct {
+	Nick  string   `json:"nick"`
+	Modes []string `json:"modes,omitempty"` // e.g. ["o", "v", "B"]
+}
+
+// UsersWithModes returns the current user list with mode info for a channel.
+func (b *Bot) UsersWithModes(channel string) []UserInfo {
+	seen := make(map[string]bool)
+	var users []UserInfo
+
+	if b.client != nil {
+		if ch := b.client.LookupChannel(channel); ch != nil {
+			for _, u := range ch.Users(b.client) {
+				if u.Nick == b.nick {
+					continue
+				}
+				if seen[u.Nick] {
+					continue
+				}
+				seen[u.Nick] = true
+				var modes []string
+				if u.Perms != nil {
+					if perms, ok := u.Perms.Lookup(channel); ok {
+						if perms.Owner {
+							modes = append(modes, "q")
+						}
+						if perms.Admin {
+							modes = append(modes, "a")
+						}
+						if perms.Op {
+							modes = append(modes, "o")
+						}
+						if perms.HalfOp {
+							modes = append(modes, "h")
+						}
+						if perms.Voice {
+							modes = append(modes, "v")
+						}
+					}
+				}
+				users = append(users, UserInfo{Nick: u.Nick, Modes: modes})
+			}
+		}
+	}
+
+	now := time.Now()
+	b.mu.Lock()
+	cutoff := now.Add(-b.webUserTTL)
+	for nick, last := range b.webUsers[channel] {
+		if !last.After(cutoff) {
+			delete(b.webUsers[channel], nick)
+			continue
+		}
+		if !seen[nick] {
+			seen[nick] = true
+			users = append(users, UserInfo{Nick: nick})
+		}
+	}
+	b.mu.Unlock()
+
+	return users
+}
+
+// ChannelModes returns the channel mode string (e.g. "+mnt") for a channel.
+func (b *Bot) ChannelModes(channel string) string {
+	if b.client == nil {
+		return ""
+	}
+	ch := b.client.LookupChannel(channel)
+	if ch == nil {
+		return ""
+	}
+	return ch.Modes.String()
 }
 
 // Stats returns a snapshot of bridge activity.

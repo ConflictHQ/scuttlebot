@@ -132,6 +132,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
+		cl.Cmd.Mode(cl.GetNick(), "+B")
 		for _, ch := range b.cfg.Channels {
 			cl.Cmd.Join(ch)
 		}

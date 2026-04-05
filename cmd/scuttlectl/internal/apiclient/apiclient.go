@@ -140,35 +140,24 @@ func (c *Client) RemoveAdmin(username string) error {
 	return err
 }
 
-// GetTopology returns GET /v1/topology.
-func (c *Client) GetTopology() (json.RawMessage, error) {
-	return c.get("/v1/topology")
+// ListAPIKeys returns GET /v1/api-keys.
+func (c *Client) ListAPIKeys() (json.RawMessage, error) {
+	return c.get("/v1/api-keys")
 }
 
-// ProvisionChannel sends POST /v1/channels.
-func (c *Client) ProvisionChannel(name string) (json.RawMessage, error) {
-	return c.post("/v1/channels", map[string]string{"name": name})
+// CreateAPIKey sends POST /v1/api-keys.
+func (c *Client) CreateAPIKey(name string, scopes []string, expiresIn string) (json.RawMessage, error) {
+	body := map[string]any{"name": name, "scopes": scopes}
+	if expiresIn != "" {
+		body["expires_in"] = expiresIn
+	}
+	return c.post("/v1/api-keys", body)
 }
 
-// DropChannel sends DELETE /v1/topology/channels/{channel}.
-func (c *Client) DropChannel(channel string) error {
-	_, err := c.doNoBody("DELETE", "/v1/topology/channels/"+strings.TrimPrefix(channel, "#"))
+// RevokeAPIKey sends DELETE /v1/api-keys/{id}.
+func (c *Client) RevokeAPIKey(id string) error {
+	_, err := c.doNoBody("DELETE", "/v1/api-keys/"+id)
 	return err
-}
-
-// GetConfig returns GET /v1/config.
-func (c *Client) GetConfig() (json.RawMessage, error) {
-	return c.get("/v1/config")
-}
-
-// GetConfigHistory returns GET /v1/config/history.
-func (c *Client) GetConfigHistory() (json.RawMessage, error) {
-	return c.get("/v1/config/history")
-}
-
-// GetSettings returns GET /v1/settings.
-func (c *Client) GetSettings() (json.RawMessage, error) {
-	return c.get("/v1/settings")
 }
 
 // SetAdminPassword sends PUT /v1/admins/{username}/password.

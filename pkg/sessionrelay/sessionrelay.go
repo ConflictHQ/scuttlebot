@@ -37,6 +37,9 @@ type IRCConfig struct {
 	Pass          string
 	AgentType     string
 	DeleteOnClose bool
+	// EnvelopeMode wraps outgoing messages in protocol.Envelope JSON.
+	// When true, agents in the channel can parse relay output as structured data.
+	EnvelopeMode bool
 }
 
 type Message struct {
@@ -44,6 +47,7 @@ type Message struct {
 	Channel string
 	Nick    string
 	Text    string
+	MsgID   string
 }
 
 type Connector interface {
