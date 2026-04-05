@@ -111,6 +111,24 @@ func main() {
 			fmt.Fprintf(os.Stderr, "unknown subcommand: admin %s\n", args[1])
 			os.Exit(1)
 		}
+	case "api-key", "api-keys":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl api-key <list|create|revoke>\n")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "list":
+			cmdAPIKeyList(api, *jsonFlag)
+		case "create":
+			requireArgs(args, 3, "scuttlectl api-key create --name <name> --scopes <scope1,scope2>")
+			cmdAPIKeyCreate(api, args[2:], *jsonFlag)
+		case "revoke":
+			requireArgs(args, 3, "scuttlectl api-key revoke <id>")
+			cmdAPIKeyRevoke(api, args[2])
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand: api-key %s\n", args[1])
+			os.Exit(1)
+		}
 	case "channels", "channel":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: scuttlectl channels <list|users <channel>>\n")
@@ -148,50 +166,6 @@ func main() {
 			cmdBackendRename(api, args[2], args[3])
 		default:
 			fmt.Fprintf(os.Stderr, "unknown subcommand: backend %s\n", args[1])
-			os.Exit(1)
-		}
-	case "topology", "topo":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: scuttlectl topology <list|provision|drop>\n")
-			os.Exit(1)
-		}
-		switch args[1] {
-		case "list", "show":
-			cmdTopologyList(api, *jsonFlag)
-		case "provision", "create":
-			requireArgs(args, 3, "scuttlectl topology provision #channel")
-			cmdTopologyProvision(api, args[2], *jsonFlag)
-		case "drop", "rm":
-			requireArgs(args, 3, "scuttlectl topology drop #channel")
-			cmdTopologyDrop(api, args[2])
-		default:
-			fmt.Fprintf(os.Stderr, "unknown subcommand: topology %s\n", args[1])
-			os.Exit(1)
-		}
-	case "config":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: scuttlectl config <show|history>\n")
-			os.Exit(1)
-		}
-		switch args[1] {
-		case "show", "get":
-			cmdConfigShow(api, *jsonFlag)
-		case "history":
-			cmdConfigHistory(api, *jsonFlag)
-		default:
-			fmt.Fprintf(os.Stderr, "unknown subcommand: config %s\n", args[1])
-			os.Exit(1)
-		}
-	case "bot", "bots":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: scuttlectl bot <list>\n")
-			os.Exit(1)
-		}
-		switch args[1] {
-		case "list":
-			cmdBotList(api, *jsonFlag)
-		default:
-			fmt.Fprintf(os.Stderr, "unknown subcommand: bot %s\n", args[1])
 			os.Exit(1)
 		}
 	default:
@@ -538,135 +512,82 @@ func cmdAgentRotate(api *apiclient.Client, nick string, asJSON bool) {
 	fmt.Println("\nStore this password — it will not be shown again.")
 }
 
-// --- topology ---
-
-func cmdTopologyList(api *apiclient.Client, asJSON bool) {
-	raw, err := api.GetTopology()
+func cmdAPIKeyList(api *apiclient.Client, asJSON bool) {
+	raw, err := api.ListAPIKeys()
 	die(err)
 	if asJSON {
 		printJSON(raw)
 		return
 	}
-	var data struct {
-		StaticChannels []string `json:"static_channels"`
-		Types          []struct {
-			Name      string   `json:"name"`
-			Prefix    string   `json:"prefix"`
-			Autojoin  []string `json:"autojoin"`
-			Ephemeral bool     `json:"ephemeral"`
-			TTL       int64    `json:"ttl_seconds"`
-		} `json:"types"`
+
+	var keys []struct {
+		ID        string   `json:"id"`
+		Name      string   `json:"name"`
+		Scopes    []string `json:"scopes"`
+		CreatedAt string   `json:"created_at"`
+		LastUsed  *string  `json:"last_used"`
+		ExpiresAt *string  `json:"expires_at"`
+		Active    bool     `json:"active"`
 	}
-	must(json.Unmarshal(raw, &data))
+	must(json.Unmarshal(raw, &keys))
+
+	if len(keys) == 0 {
+		fmt.Println("no API keys")
+		return
+	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "STATIC CHANNELS")
-	for _, ch := range data.StaticChannels {
-		fmt.Fprintf(tw, "  %s\n", ch)
-	}
-	if len(data.Types) > 0 {
-		fmt.Fprintln(tw, "\nCHANNEL TYPES")
-		fmt.Fprintln(tw, "  NAME\tPREFIX\tAUTOJOIN\tEPHEMERAL\tTTL")
-		for _, t := range data.Types {
-			ttl := "—"
-			if t.TTL > 0 {
-				ttl = fmt.Sprintf("%dh", t.TTL/3600)
-			}
-			eph := "no"
-			if t.Ephemeral {
-				eph = "yes"
-			}
-			fmt.Fprintf(tw, "  %s\t#%s*\t%s\t%s\t%s\n", t.Name, t.Prefix, strings.Join(t.Autojoin, ","), eph, ttl)
+	fmt.Fprintln(tw, "ID\tNAME\tSCOPES\tACTIVE\tLAST USED")
+	for _, k := range keys {
+		lastUsed := "-"
+		if k.LastUsed != nil {
+			lastUsed = *k.LastUsed
 		}
-	}
-	tw.Flush()
-}
-
-func cmdTopologyProvision(api *apiclient.Client, channel string, asJSON bool) {
-	if !strings.HasPrefix(channel, "#") {
-		channel = "#" + channel
-	}
-	raw, err := api.ProvisionChannel(channel)
-	die(err)
-	if asJSON {
-		printJSON(raw)
-		return
-	}
-	fmt.Printf("Channel provisioned: %s\n", channel)
-}
-
-func cmdTopologyDrop(api *apiclient.Client, channel string) {
-	if !strings.HasPrefix(channel, "#") {
-		channel = "#" + channel
-	}
-	die(api.DropChannel(channel))
-	fmt.Printf("Channel dropped: %s\n", channel)
-}
-
-// --- config ---
-
-func cmdConfigShow(api *apiclient.Client, asJSON bool) {
-	raw, err := api.GetConfig()
-	die(err)
-	printJSON(raw) // always JSON — config is a complex nested object
-}
-
-func cmdConfigHistory(api *apiclient.Client, asJSON bool) {
-	raw, err := api.GetConfigHistory()
-	die(err)
-	if asJSON {
-		printJSON(raw)
-		return
-	}
-	var data struct {
-		Entries []struct {
-			Filename string `json:"filename"`
-			At       string `json:"at"`
-		} `json:"entries"`
-	}
-	must(json.Unmarshal(raw, &data))
-	if len(data.Entries) == 0 {
-		fmt.Println("no config history")
-		return
-	}
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SNAPSHOT\tTIME")
-	for _, e := range data.Entries {
-		fmt.Fprintf(tw, "%s\t%s\n", e.Filename, e.At)
-	}
-	tw.Flush()
-}
-
-// --- bots ---
-
-func cmdBotList(api *apiclient.Client, asJSON bool) {
-	raw, err := api.GetSettings()
-	die(err)
-	if asJSON {
-		printJSON(raw)
-		return
-	}
-	var data struct {
-		Policies struct {
-			Behaviors []struct {
-				ID      string `json:"id"`
-				Name    string `json:"name"`
-				Nick    string `json:"nick"`
-				Enabled bool   `json:"enabled"`
-			} `json:"behaviors"`
-		} `json:"policies"`
-	}
-	must(json.Unmarshal(raw, &data))
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "BOT\tNICK\tSTATUS")
-	for _, b := range data.Policies.Behaviors {
-		status := "disabled"
-		if b.Enabled {
-			status = "enabled"
+		status := "yes"
+		if !k.Active {
+			status = "revoked"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", b.Name, b.Nick, status)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, strings.Join(k.Scopes, ","), status, lastUsed)
 	}
 	tw.Flush()
+}
+
+func cmdAPIKeyCreate(api *apiclient.Client, args []string, asJSON bool) {
+	fs := flag.NewFlagSet("api-key create", flag.ExitOnError)
+	nameFlag := fs.String("name", "", "key name (required)")
+	scopesFlag := fs.String("scopes", "", "comma-separated scopes (required)")
+	expiresFlag := fs.String("expires", "", "expiry duration (e.g. 720h for 30 days)")
+	_ = fs.Parse(args)
+
+	if *nameFlag == "" || *scopesFlag == "" {
+		fmt.Fprintln(os.Stderr, "usage: scuttlectl api-key create --name <name> --scopes <scope1,scope2> [--expires 720h]")
+		os.Exit(1)
+	}
+
+	scopes := strings.Split(*scopesFlag, ",")
+	raw, err := api.CreateAPIKey(*nameFlag, scopes, *expiresFlag)
+	die(err)
+
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+
+	var key struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Token string `json:"token"`
+	}
+	must(json.Unmarshal(raw, &key))
+
+	fmt.Printf("API key created: %s\n\n", key.Name)
+	fmt.Printf("  Token: %s\n\n", key.Token)
+	fmt.Println("Store this token — it will not be shown again.")
+}
+
+func cmdAPIKeyRevoke(api *apiclient.Client, id string) {
+	die(api.RevokeAPIKey(id))
+	fmt.Printf("API key revoked: %s\n", id)
 }
 
 func usage() {
@@ -703,12 +624,9 @@ Commands:
   admin add <username>          add admin (prompts for password)
   admin remove <username>       remove admin
   admin passwd <username>       change admin password (prompts)
-  topology list                 show topology (static channels, types)
-  topology provision #channel   provision a new channel via ChanServ
-  topology drop #channel        drop a channel
-  config show                   dump current config (JSON)
-  config history                show config change history
-  bot list                      show system bot status
+  api-key list                  list API keys
+  api-key create --name <name> --scopes <s1,s2> [--expires 720h]
+  api-key revoke <id>           revoke an API key
 `, version)
 }
 
