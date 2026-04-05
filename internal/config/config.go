@@ -280,6 +280,9 @@ type StaticChannelConfig struct {
 
 	// Autojoin is a list of bot nicks to invite when the channel is provisioned.
 	Autojoin []string `yaml:"autojoin" json:"autojoin,omitempty"`
+
+	// Modes is a list of channel modes to set after provisioning (e.g. "+m" for moderated).
+	Modes []string `yaml:"modes" json:"modes,omitempty"`
 }
 
 // ChannelTypeConfig defines policy rules for a class of dynamically created channels.
@@ -297,6 +300,9 @@ type ChannelTypeConfig struct {
 
 	// Supervision is the coordination channel where summaries should surface.
 	Supervision string `yaml:"supervision" json:"supervision,omitempty"`
+
+	// Modes is a list of channel modes to set when provisioning (e.g. "+m" for moderated).
+	Modes []string `yaml:"modes" json:"modes,omitempty"`
 
 	// Ephemeral marks channels of this type for automatic cleanup.
 	Ephemeral bool `yaml:"ephemeral" json:"ephemeral,omitempty"`
