@@ -424,6 +424,82 @@ func (b *Bot) Users(channel string) []string {
 	return nicks
 }
 
+// UserInfo describes a user with their IRC modes.
+type UserInfo struct {
+	Nick  string   `json:"nick"`
+	Modes []string `json:"modes,omitempty"` // e.g. ["o", "v", "B"]
+}
+
+// UsersWithModes returns the current user list with mode info for a channel.
+func (b *Bot) UsersWithModes(channel string) []UserInfo {
+	seen := make(map[string]bool)
+	var users []UserInfo
+
+	if b.client != nil {
+		if ch := b.client.LookupChannel(channel); ch != nil {
+			for _, u := range ch.Users(b.client) {
+				if u.Nick == b.nick {
+					continue
+				}
+				if seen[u.Nick] {
+					continue
+				}
+				seen[u.Nick] = true
+				var modes []string
+				if u.Perms != nil {
+					if perms, ok := u.Perms.Lookup(channel); ok {
+						if perms.Owner {
+							modes = append(modes, "q")
+						}
+						if perms.Admin {
+							modes = append(modes, "a")
+						}
+						if perms.Op {
+							modes = append(modes, "o")
+						}
+						if perms.HalfOp {
+							modes = append(modes, "h")
+						}
+						if perms.Voice {
+							modes = append(modes, "v")
+						}
+					}
+				}
+				users = append(users, UserInfo{Nick: u.Nick, Modes: modes})
+			}
+		}
+	}
+
+	now := time.Now()
+	b.mu.Lock()
+	cutoff := now.Add(-b.webUserTTL)
+	for nick, last := range b.webUsers[channel] {
+		if !last.After(cutoff) {
+			delete(b.webUsers[channel], nick)
+			continue
+		}
+		if !seen[nick] {
+			seen[nick] = true
+			users = append(users, UserInfo{Nick: nick})
+		}
+	}
+	b.mu.Unlock()
+
+	return users
+}
+
+// ChannelModes returns the channel mode string (e.g. "+mnt") for a channel.
+func (b *Bot) ChannelModes(channel string) string {
+	if b.client == nil {
+		return ""
+	}
+	ch := b.client.LookupChannel(channel)
+	if ch == nil {
+		return ""
+	}
+	return ch.Modes.String()
+}
+
 // Stats returns a snapshot of bridge activity.
 func (b *Bot) Stats() Stats {
 	b.mu.RLock()
