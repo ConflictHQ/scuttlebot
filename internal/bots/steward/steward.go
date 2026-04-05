@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"github.com/lrstanley/girc"
+
+	"github.com/conflicthq/scuttlebot/internal/bots/cmdparse"
 )
 
 const defaultNick = "steward"
@@ -148,8 +150,33 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	router := cmdparse.NewRouter(b.cfg.Nick)
+	router.Register(cmdparse.Command{
+		Name:        "act",
+		Usage:       "ACT <incident-id>",
+		Description: "manually trigger action on incident",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+	router.Register(cmdparse.Command{
+		Name:        "override",
+		Usage:       "OVERRIDE <incident-id>",
+		Description: "override pending action",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+	router.Register(cmdparse.Command{
+		Name:        "status",
+		Usage:       "STATUS",
+		Description: "show current pending actions",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+
 	c.Handlers.AddBg(girc.PRIVMSG, func(_ *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
+			return
+		}
+		// Dispatch commands (DMs and channel messages).
+		if reply := router.Dispatch(e.Source.Name, e.Params[0], e.Last()); reply != nil {
+			c.Cmd.Message(reply.Target, reply.Text)
 			return
 		}
 		target := e.Params[0]

@@ -17,6 +17,7 @@ import (
 
 	"github.com/lrstanley/girc"
 
+	"github.com/conflicthq/scuttlebot/internal/bots/cmdparse"
 	"github.com/conflicthq/scuttlebot/pkg/protocol"
 )
 
@@ -79,14 +80,33 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	router := cmdparse.NewRouter(botNick)
+	router.Register(cmdparse.Command{
+		Name:        "search",
+		Usage:       "SEARCH <term>",
+		Description: "search channel logs",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+	router.Register(cmdparse.Command{
+		Name:        "stats",
+		Usage:       "STATS",
+		Description: "show channel message statistics",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+
 	// Log PRIVMSG — the agent message stream.
 	c.Handlers.AddBg(girc.PRIVMSG, func(client *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
 			return
 		}
+		// Dispatch commands (DMs and channel messages).
+		if reply := router.Dispatch(e.Source.Name, e.Params[0], e.Last()); reply != nil {
+			client.Cmd.Message(reply.Target, reply.Text)
+			return
+		}
 		channel := e.Params[0]
 		if !strings.HasPrefix(channel, "#") {
-			return // ignore DMs to scribe itself
+			return // non-command DMs ignored
 		}
 		text := e.Last()
 		nick := e.Source.Name

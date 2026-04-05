@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/lrstanley/girc"
+
+	"github.com/conflicthq/scuttlebot/internal/bots/cmdparse"
 )
 
 const botNick = "herald"
@@ -165,6 +167,31 @@ func (b *Bot) Start(ctx context.Context) error {
 	c.Handlers.AddBg(girc.INVITE, func(cl *girc.Client, e girc.Event) {
 		if ch := e.Last(); strings.HasPrefix(ch, "#") {
 			cl.Cmd.Join(ch)
+		}
+	})
+
+	router := cmdparse.NewRouter(botNick)
+	router.Register(cmdparse.Command{
+		Name:        "status",
+		Usage:       "STATUS",
+		Description: "show webhook endpoint status and recent events",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+	router.Register(cmdparse.Command{
+		Name:        "test",
+		Usage:       "TEST #channel",
+		Description: "send a test event to a channel",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+
+	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
+		if len(e.Params) < 1 || e.Source == nil {
+			return
+		}
+		// Dispatch commands (DMs and channel messages).
+		if reply := router.Dispatch(e.Source.Name, e.Params[0], e.Last()); reply != nil {
+			cl.Cmd.Message(reply.Target, reply.Text)
+			return
 		}
 	})
 

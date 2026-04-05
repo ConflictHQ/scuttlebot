@@ -20,6 +20,7 @@ import (
 
 	"github.com/lrstanley/girc"
 
+	"github.com/conflicthq/scuttlebot/internal/bots/cmdparse"
 	"github.com/conflicthq/scuttlebot/pkg/protocol"
 )
 
@@ -219,13 +220,44 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	router := cmdparse.NewRouter(botNick)
+	router.Register(cmdparse.Command{
+		Name:        "warn",
+		Usage:       "WARN <nick> [reason]",
+		Description: "issue a warning to a user",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+	router.Register(cmdparse.Command{
+		Name:        "mute",
+		Usage:       "MUTE <nick> [duration]",
+		Description: "mute a user",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+	router.Register(cmdparse.Command{
+		Name:        "kick",
+		Usage:       "KICK <nick> [reason]",
+		Description: "kick a user from channel",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+	router.Register(cmdparse.Command{
+		Name:        "status",
+		Usage:       "STATUS",
+		Description: "show current warnings and mutes",
+		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+	})
+
 	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
 			return
 		}
+		// Dispatch commands (DMs and channel messages).
+		if reply := router.Dispatch(e.Source.Name, e.Params[0], e.Last()); reply != nil {
+			cl.Cmd.Message(reply.Target, reply.Text)
+			return
+		}
 		channel := e.Params[0]
 		if !strings.HasPrefix(channel, "#") {
-			return
+			return // non-command DMs ignored
 		}
 		nick := e.Source.Name
 		text := e.Last()
