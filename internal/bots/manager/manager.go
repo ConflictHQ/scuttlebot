@@ -19,6 +19,7 @@ import (
 	"github.com/conflicthq/scuttlebot/internal/bots/scribe"
 	"github.com/conflicthq/scuttlebot/internal/bots/scroll"
 	"github.com/conflicthq/scuttlebot/internal/bots/sentinel"
+	"github.com/conflicthq/scuttlebot/internal/bots/shepherd"
 	"github.com/conflicthq/scuttlebot/internal/bots/snitch"
 	"github.com/conflicthq/scuttlebot/internal/bots/steward"
 	"github.com/conflicthq/scuttlebot/internal/bots/systembot"
@@ -336,6 +337,41 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 			CooldownPerNick: time.Duration(cfgInt(cfg, "cooldown_sec", 300)) * time.Second,
 			Channels:        channels,
 		}, m.log), nil
+
+	case "shepherd":
+		apiKey := cfgStr(cfg, "api_key", "")
+		if apiKey == "" {
+			if env := cfgStr(cfg, "api_key_env", ""); env != "" {
+				apiKey = os.Getenv(env)
+			}
+		}
+		var provider shepherd.LLMProvider
+		if apiKey != "" {
+			llmCfg := llm.BackendConfig{
+				Backend:      cfgStr(cfg, "backend", "openai"),
+				APIKey:       apiKey,
+				BaseURL:      cfgStr(cfg, "base_url", ""),
+				Model:        cfgStr(cfg, "model", ""),
+				Region:       cfgStr(cfg, "region", ""),
+				AWSKeyID:     cfgStr(cfg, "aws_key_id", ""),
+				AWSSecretKey: cfgStr(cfg, "aws_secret_key", ""),
+			}
+			p, err := llm.New(llmCfg)
+			if err != nil {
+				return nil, fmt.Errorf("shepherd: build llm provider: %w", err)
+			}
+			provider = p
+		}
+		checkinSec := cfgInt(cfg, "checkin_interval_sec", 0)
+		return shepherd.New(shepherd.Config{
+			IRCAddr:         m.ircAddr,
+			Nick:            spec.Nick,
+			Password:        pass,
+			Channels:        channels,
+			ReportChannel:   cfgStr(cfg, "report_channel", "#ops"),
+			CheckinInterval: time.Duration(checkinSec) * time.Second,
+			GoalSource:      cfgStr(cfg, "goal_source", ""),
+		}, provider, m.log), nil
 
 	default:
 		return nil, fmt.Errorf("unknown bot ID %q", spec.ID)
