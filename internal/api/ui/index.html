@@ -583,6 +583,36 @@ canvas { display:block; width:100% !important; }
       </div>
     </div>
 
+    <!-- api keys -->
+    <div class="card" id="card-apikeys">
+      <div class="card-header" onclick="toggleCard('card-apikeys',event)"><h2>API keys</h2><span class="card-desc">per-consumer tokens with scoped permissions</span><span class="collapse-icon">▾</span></div>
+      <div id="apikeys-list-container"></div>
+      <div class="card-body" style="border-top:1px solid #21262d">
+        <p style="font-size:12px;color:#8b949e;margin-bottom:12px">Create an API key with a name and scopes. The token is shown only once.</p>
+        <form id="add-apikey-form" onsubmit="createAPIKey(event)" style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div style="flex:1;min-width:160px"><label>name</label><input type="text" id="new-apikey-name" placeholder="e.g. kohakku-controller" autocomplete="off"></div>
+            <div style="flex:1;min-width:160px"><label>expires in</label><input type="text" id="new-apikey-expires" placeholder="e.g. 720h (empty=never)" autocomplete="off"></div>
+          </div>
+          <div>
+            <label style="margin-bottom:6px;display:block">scopes</label>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px">
+              <label><input type="checkbox" value="admin" class="apikey-scope"> admin</label>
+              <label><input type="checkbox" value="agents" class="apikey-scope"> agents</label>
+              <label><input type="checkbox" value="channels" class="apikey-scope"> channels</label>
+              <label><input type="checkbox" value="chat" class="apikey-scope"> chat</label>
+              <label><input type="checkbox" value="topology" class="apikey-scope"> topology</label>
+              <label><input type="checkbox" value="bots" class="apikey-scope"> bots</label>
+              <label><input type="checkbox" value="config" class="apikey-scope"> config</label>
+              <label><input type="checkbox" value="read" class="apikey-scope"> read</label>
+            </div>
+          </div>
+          <button type="submit" class="primary sm" style="align-self:flex-start">create key</button>
+        </form>
+        <div id="add-apikey-result" style="margin-top:10px"></div>
+      </div>
+    </div>
+
     <!-- tls -->
     <div class="card" id="card-tls">
       <div class="card-header" onclick="toggleCard('card-tls',event)"><h2>TLS / SSL</h2><span class="card-desc">certificate status</span><span class="collapse-icon">▾</span><div class="spacer"></div><span id="tls-badge" class="badge">loading…</span></div>
@@ -2545,6 +2575,69 @@ async function promptAdminPassword(username) {
   } catch(e) { alert('Failed: ' + e.message); }
 }
 
+// --- API keys ---
+async function loadAPIKeys() {
+  try {
+    const keys = await api('GET', '/v1/api-keys');
+    renderAPIKeys(keys || []);
+  } catch(e) {
+    document.getElementById('apikeys-list-container').innerHTML = '';
+  }
+}
+
+function renderAPIKeys(keys) {
+  const el = document.getElementById('apikeys-list-container');
+  if (!keys.length) { el.innerHTML = ''; return; }
+  const rows = keys.map(k => {
+    const status = k.active ? '<span style="color:#3fb950">active</span>' : '<span style="color:#f85149">revoked</span>';
+    const scopes = (k.scopes || []).map(s => `<code style="font-size:11px;background:#21262d;padding:1px 5px;border-radius:3px">${esc(s)}</code>`).join(' ');
+    const lastUsed = k.last_used ? fmtTime(k.last_used) : '—';
+    const revokeBtn = k.active ? `<button class="sm danger" onclick="revokeAPIKey('${esc(k.id)}')">revoke</button>` : '';
+    return `<tr>
+      <td><strong>${esc(k.name)}</strong><br><span style="color:#8b949e;font-size:11px">${esc(k.id)}</span></td>
+      <td>${scopes}</td>
+      <td style="font-size:12px">${status}</td>
+      <td style="color:#8b949e;font-size:12px">${lastUsed}</td>
+      <td><div class="actions">${revokeBtn}</div></td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<table><thead><tr><th>name</th><th>scopes</th><th>status</th><th>last used</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function createAPIKey(e) {
+  e.preventDefault();
+  const name = document.getElementById('new-apikey-name').value.trim();
+  const expires = document.getElementById('new-apikey-expires').value.trim();
+  const scopes = [...document.querySelectorAll('.apikey-scope:checked')].map(cb => cb.value);
+  const resultEl = document.getElementById('add-apikey-result');
+  if (!name) { resultEl.innerHTML = '<span style="color:#f85149">name is required</span>'; return; }
+  if (!scopes.length) { resultEl.innerHTML = '<span style="color:#f85149">select at least one scope</span>'; return; }
+  try {
+    const body = { name, scopes };
+    if (expires) body.expires_in = expires;
+    const result = await api('POST', '/v1/api-keys', body);
+    resultEl.innerHTML = `<div style="background:#0d1117;border:1px solid #3fb95044;border-radius:6px;padding:12px;margin-top:8px">
+      <div style="color:#3fb950;font-weight:600;margin-bottom:6px">Key created: ${esc(result.name)}</div>
+      <div style="margin-bottom:4px;font-size:12px;color:#8b949e">Copy this token now — it will not be shown again:</div>
+      <code style="display:block;padding:8px;background:#161b22;border-radius:4px;word-break:break-all;user-select:all">${esc(result.token)}</code>
+    </div>`;
+    document.getElementById('new-apikey-name').value = '';
+    document.getElementById('new-apikey-expires').value = '';
+    document.querySelectorAll('.apikey-scope:checked').forEach(cb => cb.checked = false);
+    loadAPIKeys();
+  } catch(e) {
+    resultEl.innerHTML = `<span style="color:#f85149">${esc(e.message)}</span>`;
+  }
+}
+
+async function revokeAPIKey(id) {
+  if (!confirm('Revoke this API key? This cannot be undone.')) return;
+  try {
+    await api('DELETE', `/v1/api-keys/${encodeURIComponent(id)}`);
+    loadAPIKeys();
+  } catch(e) { alert('Failed: ' + e.message); }
+}
+
 // --- AI / LLM tab ---
 async function loadAI() {
   await Promise.all([loadAIBackends(), loadAIKnown()]);
@@ -2917,6 +3010,7 @@ async function loadSettings() {
     renderBridgePolicy(s.policies.bridge || {});
     renderLoggingPolicy(s.policies.logging || {});
     loadAdmins();
+    loadAPIKeys();
     loadConfigCards();
   } catch(e) {
     document.getElementById('tls-badge').textContent = 'error';
