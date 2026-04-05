@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/conflicthq/scuttlebot/pkg/ircagent"
+	"github.com/conflicthq/scuttlebot/pkg/relaymirror"
 	"github.com/conflicthq/scuttlebot/pkg/sessionrelay"
 	"github.com/creack/pty"
 	"github.com/google/uuid"
@@ -213,8 +214,13 @@ func run(cfg config) error {
 		"SCUTTLEBOT_NICK="+cfg.Nick,
 		"SCUTTLEBOT_ACTIVITY_VIA_BROKER="+boolString(relayActive),
 	)
+	// Create PTY mirror early so session file loop can dedup against it.
+	var ptyMirror *relaymirror.PTYMirror
 	if relayActive {
-		go mirrorSessionLoop(ctx, relay, cfg, startedAt)
+		ptyMirror = relaymirror.NewPTYMirror(defaultMirrorLineMax, 500*time.Millisecond, func(line string) {
+			_ = relay.Post(ctx, line)
+		})
+		go mirrorSessionLoop(ctx, relay, cfg, startedAt, ptyMirror)
 		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
 	}
 
@@ -265,9 +271,21 @@ func run(cfg config) error {
 	go func() {
 		_, _ = io.Copy(ptmx, os.Stdin)
 	}()
-	go func() {
-		copyPTYOutput(ptmx, os.Stdout, state)
-	}()
+	// Wire PTY mirror for dual-path: real-time text to IRC + session file for metadata.
+	if ptyMirror != nil {
+		ptyMirror.BusyCallback = func(now time.Time) {
+			state.mu.Lock()
+			state.lastBusy = now
+			state.mu.Unlock()
+		}
+		go func() {
+			_ = ptyMirror.Copy(ptmx, os.Stdout)
+		}()
+	} else {
+		go func() {
+			copyPTYOutput(ptmx, os.Stdout, state)
+		}()
+	}
 	if relayActive {
 		go relayInputLoop(ctx, relay, cfg, state, ptmx, onlineAt)
 		go handleReconnectSignal(ctx, &relay, cfg, state, ptmx, startedAt)
@@ -285,7 +303,7 @@ func run(cfg config) error {
 
 // --- Session mirroring ---
 
-func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time) {
+func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, startedAt time.Time, ptyDedup *relaymirror.PTYMirror) {
 	for {
 		if ctx.Err() != nil {
 			return
@@ -295,14 +313,19 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, cfg co
 			if ctx.Err() != nil {
 				return
 			}
-			// Session not found yet — wait and retry instead of giving up.
+			fmt.Fprintf(os.Stderr, "claude-relay: session discovery failed: %v (retrying in 10s)\n", err)
 			time.Sleep(10 * time.Second)
 			continue
 		}
+		fmt.Fprintf(os.Stderr, "claude-relay: session file discovered: %s\n", sessionPath)
 		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(ml mirrorLine) {
 			for _, line := range splitMirrorText(ml.Text) {
 				if line == "" {
 					continue
+				}
+				// Mark as seen so PTY mirror deduplicates.
+				if ptyDedup != nil {
+					ptyDedup.MarkSeen(line)
 				}
 				if len(ml.Meta) > 0 {
 					_ = relay.PostWithMeta(ctx, line, ml.Meta)
@@ -750,7 +773,7 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 			// Restart mirror and input loops with the new connector.
 			// Use epoch time for mirror so it finds the existing session file
 			// regardless of when it was last modified.
-			go mirrorSessionLoop(ctx, conn, cfg, time.Time{})
+			go mirrorSessionLoop(ctx, conn, cfg, time.Time{}, nil)
 			go relayInputLoop(ctx, conn, cfg, state, ptmx, now)
 			break
 		}
