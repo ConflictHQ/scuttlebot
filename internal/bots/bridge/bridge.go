@@ -288,6 +288,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	}()
 
 	go b.joinLoop(ctx, c)
+	go b.namesRefreshLoop(ctx)
 
 	select {
 	case <-ctx.Done():
@@ -457,6 +458,35 @@ func (b *Bot) TouchUser(channel, nick string) {
 func (b *Bot) RefreshNames(channel string) {
 	if b.client != nil {
 		b.client.Cmd.SendRawf("NAMES %s", channel)
+	}
+}
+
+// namesRefreshLoop periodically sends NAMES for all joined channels so
+// girc's user tracking stays in sync with the server.
+func (b *Bot) namesRefreshLoop(ctx context.Context) {
+	// Wait for initial connection and bot joins to settle.
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(30 * time.Second):
+	}
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			b.mu.RLock()
+			channels := make([]string, 0, len(b.joined))
+			for ch := range b.joined {
+				channels = append(channels, ch)
+			}
+			b.mu.RUnlock()
+			for _, ch := range channels {
+				b.RefreshNames(ch)
+			}
+		}
 	}
 }
 
