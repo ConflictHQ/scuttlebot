@@ -280,8 +280,8 @@ func (b *Bot) warn(c *girc.Client, nick, channel, reason string) {
 }
 
 func (b *Bot) mute(c *girc.Client, nick, channel string, d time.Duration) {
-	// +q (quiet) mode — supported by Ergo.
-	c.Cmd.Mode(channel, "+q", nick)
+	// Extended ban m: to mute — agent stays in channel but cannot speak.
+	c.Cmd.Mode(channel, "+b", "m:"+nick+"!*@*")
 	key := channel + ":" + nick
 	b.mu.Lock()
 	b.mutes[key] = time.Now().Add(d)
@@ -293,7 +293,7 @@ func (b *Bot) mute(c *girc.Client, nick, channel string, d time.Duration) {
 }
 
 func (b *Bot) unmute(c *girc.Client, nick, channel string) {
-	c.Cmd.Mode(channel, "-q", nick)
+	c.Cmd.Mode(channel, "-b", "m:"+nick+"!*@*")
 	key := channel + ":" + nick
 	b.mu.Lock()
 	delete(b.mutes, key)
