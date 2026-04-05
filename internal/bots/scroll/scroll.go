@@ -97,7 +97,7 @@ func (b *Bot) Start(ctx context.Context) error {
 
 	// Only respond to DMs — ignore anything in a channel.
 	c.Handlers.AddBg(girc.PRIVMSG, func(client *girc.Client, e girc.Event) {
-		if len(e.Params) < 1 {
+		if len(e.Params) < 1 || e.Source == nil {
 			return
 		}
 		target := e.Params[0]
