@@ -37,6 +37,7 @@ func (b *stubChatBridge) Stats() bridge.Stats                { return bridge.Sta
 func (b *stubChatBridge) Users(string) []string              { return nil }
 func (b *stubChatBridge) UsersWithModes(string) []bridge.UserInfo { return nil }
 func (b *stubChatBridge) ChannelModes(string) string         { return "" }
+func (b *stubChatBridge) RefreshNames(string)                {}
 func (b *stubChatBridge) TouchUser(channel, nick string) {
 	b.touched = append(b.touched, struct{ channel, nick string }{channel: channel, nick: nick})
 }

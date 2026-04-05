@@ -452,13 +452,21 @@ func (b *Bot) TouchUser(channel, nick string) {
 	b.mu.Unlock()
 }
 
+// RefreshNames sends a NAMES command for a channel, forcing girc to
+// update its user list from the server's authoritative response.
+func (b *Bot) RefreshNames(channel string) {
+	if b.client != nil {
+		b.client.Cmd.SendRawf("NAMES %s", channel)
+	}
+}
+
 // Users returns the current nick list for a channel — IRC connections plus
 // web UI users who have posted recently within the configured TTL.
 func (b *Bot) Users(channel string) []string {
 	seen := make(map[string]bool)
 	var nicks []string
 
-	// IRC-connected nicks from NAMES — exclude the bridge bot itself.
+	// IRC-connected nicks from girc's state — exclude the bridge bot itself.
 	if b.client != nil {
 		if ch := b.client.LookupChannel(channel); ch != nil {
 			for _, u := range ch.Users(b.client) {
