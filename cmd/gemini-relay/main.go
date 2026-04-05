@@ -17,7 +17,10 @@ import (
 	"syscall"
 	"time"
 
+	"encoding/json"
+
 	"github.com/conflicthq/scuttlebot/pkg/ircagent"
+	"github.com/conflicthq/scuttlebot/pkg/relaymirror"
 	"github.com/conflicthq/scuttlebot/pkg/sessionrelay"
 	"github.com/creack/pty"
 	"golang.org/x/term"
@@ -25,18 +28,19 @@ import (
 )
 
 const (
-	defaultRelayURL     = "http://localhost:8080"
-	defaultIRCAddr      = "127.0.0.1:6667"
-	defaultChannel      = "general"
-	defaultTransport    = sessionrelay.TransportHTTP
-	defaultPollInterval = 2 * time.Second
-	defaultConnectWait  = 10 * time.Second
-	defaultInjectDelay  = 150 * time.Millisecond
-	defaultBusyWindow   = 1500 * time.Millisecond
-	defaultHeartbeat    = 60 * time.Second
-	defaultConfigFile   = ".config/scuttlebot-relay.env"
-	bracketedPasteStart = "\x1b[200~"
-	bracketedPasteEnd   = "\x1b[201~"
+	defaultRelayURL      = "http://localhost:8080"
+	defaultIRCAddr       = "127.0.0.1:6667"
+	defaultChannel       = "general"
+	defaultTransport     = sessionrelay.TransportHTTP
+	defaultPollInterval  = 2 * time.Second
+	defaultConnectWait   = 10 * time.Second
+	defaultInjectDelay   = 150 * time.Millisecond
+	defaultBusyWindow    = 1500 * time.Millisecond
+	defaultMirrorLineMax = 360
+	defaultHeartbeat     = 60 * time.Second
+	defaultConfigFile    = ".config/scuttlebot-relay.env"
+	bracketedPasteStart  = "\x1b[200~"
+	bracketedPasteEnd    = "\x1b[201~"
 )
 
 var serviceBots = map[string]struct{}{
@@ -217,10 +221,23 @@ func run(cfg config) error {
 	go func() {
 		_, _ = io.Copy(ptmx, os.Stdin)
 	}()
+	// Dual-path mirroring: PTY for real-time text + session file for metadata.
+	ptyMirror := relaymirror.NewPTYMirror(defaultMirrorLineMax, 500*time.Millisecond, func(line string) {
+		if relayActive {
+			_ = relay.Post(ctx, line)
+		}
+	})
+	ptyMirror.BusyCallback = func(now time.Time) {
+		state.mu.Lock()
+		state.lastBusy = now
+		state.mu.Unlock()
+	}
 	go func() {
-		copyPTYOutput(ptmx, os.Stdout, state)
+		_ = ptyMirror.Copy(ptmx, os.Stdout)
 	}()
 	if relayActive {
+		// Start Gemini session file tailing for structured metadata.
+		go geminiSessionMirrorLoop(ctx, relay, cfg, ptyMirror)
 		go relayInputLoop(ctx, relay, cfg, state, ptmx, onlineAt)
 		go handleReconnectSignal(ctx, &relay, cfg, state, ptmx, startedAt)
 	}
@@ -503,6 +520,79 @@ func (s *relayState) shouldInterrupt(now time.Time) bool {
 	lastBusy := s.lastBusy
 	s.mu.RUnlock()
 	return !lastBusy.IsZero() && now.Sub(lastBusy) <= defaultBusyWindow
+}
+
+// geminiSessionMirrorLoop discovers and polls a Gemini CLI session file
+// for structured tool call metadata, emitting it via PostWithMeta.
+func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, ptyDedup *relaymirror.PTYMirror) {
+	// Discover the Gemini session file directory.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gemini-relay: session mirror: %v\n", err)
+		return
+	}
+	chatsDir := filepath.Join(home, ".gemini", "tmp", slugify(cfg.TargetCWD), "chats")
+	if err := os.MkdirAll(chatsDir, 0755); err != nil {
+		// Directory doesn't exist yet — Gemini CLI creates it on first run.
+	}
+	existing := relaymirror.SnapshotDir(chatsDir)
+
+	// Wait for a new session file.
+	watcher := relaymirror.NewSessionWatcher(chatsDir, "session-", 60*time.Second)
+	sessionPath, err := watcher.Discover(ctx, existing)
+	if err != nil {
+		if ctx.Err() == nil {
+			fmt.Fprintf(os.Stderr, "gemini-relay: session discovery: %v\n", err)
+		}
+		return
+	}
+	fmt.Fprintf(os.Stderr, "gemini-relay: session file discovered: %s\n", sessionPath)
+
+	// Poll the session file for new messages.
+	msgIdx := 0
+	tick := time.NewTicker(2 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			msgs, newIdx, err := relaymirror.PollGeminiSession(sessionPath, msgIdx)
+			if err != nil {
+				continue
+			}
+			msgIdx = newIdx
+			for _, msg := range msgs {
+				if msg.Type != "gemini" {
+					continue
+				}
+				for _, tc := range msg.ToolCalls {
+					meta, _ := json.Marshal(map[string]any{
+						"type": "tool_result",
+						"data": map[string]any{
+							"tool":   tc.Name,
+							"status": tc.Status,
+							"args":   tc.Args,
+						},
+					})
+					text := fmt.Sprintf("[%s] %s", tc.Name, tc.Status)
+					if ptyDedup != nil {
+						ptyDedup.MarkSeen(text)
+					}
+					_ = relay.PostWithMeta(ctx, text, meta)
+				}
+			}
+		}
+	}
+}
+
+func slugify(s string) string {
+	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.TrimPrefix(s, "-")
+	if s == "" {
+		return "default"
+	}
+	return s
 }
 
 func filterMessages(messages []message, since time.Time, nick, agentType string) ([]message, time.Time) {
