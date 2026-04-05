@@ -218,7 +218,7 @@ func run(cfg config) error {
 	var ptyMirror *relaymirror.PTYMirror
 	if relayActive {
 		ptyMirror = relaymirror.NewPTYMirror(defaultMirrorLineMax, 500*time.Millisecond, func(line string) {
-			_ = relay.Post(ctx, line)
+			go func() { _ = relay.Post(ctx, line) }()
 		})
 		go mirrorSessionLoop(ctx, relay, cfg, startedAt, ptyMirror)
 		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
