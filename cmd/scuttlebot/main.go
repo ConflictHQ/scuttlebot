@@ -203,7 +203,7 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		topoMgr = topology.NewManager(cfg.Ergo.IRCAddr, cfg.Topology.Nick, topoPass, topoPolicy, log)
+		topoMgr = topology.NewManager(cfg.Ergo.IRCAddr, cfg.Topology.Nick, topoPass, cfg.Ergo.APIToken, topoPolicy, log)
 		topoCtx, topoCancel := context.WithTimeout(ctx, 30*time.Second)
 		if err := topoMgr.Connect(topoCtx); err != nil {
 			topoCancel()

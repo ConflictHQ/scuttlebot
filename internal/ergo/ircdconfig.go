@@ -85,6 +85,19 @@ history:
         direct-messages: opt-in
 {{- end}}
 
+opers:
+    scuttlebot:
+        class: server-admin
+        whois-line: is a scuttlebot system operator
+        password: "{{.APIToken}}"
+
+oper-classes:
+    server-admin:
+        title: Server Admin
+        capabilities:
+            - samode
+            - chanreg
+
 api:
     enabled: true
     listener: "{{.APIAddr}}"
