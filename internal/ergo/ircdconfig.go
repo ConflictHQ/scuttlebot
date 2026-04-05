@@ -25,7 +25,9 @@ server:
     enforce-utf8: true
     max-sendq: 96k
     relaymsg:
-        enabled: false
+        enabled: true
+        separators: /
+        available-to-chanops: false
     ip-cloaking:
         enabled: false
     lookup-hostnames: false

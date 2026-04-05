@@ -1894,10 +1894,12 @@ let _chatUnread = 0;
 function appendMsg(msg, isHistory) {
   const area = document.getElementById('chat-msgs');
 
-  // Parse "[nick] text" sent by the bridge bot on behalf of a web user
+  // Attribution: RELAYMSG delivers nicks as "user/bridge"; legacy uses "[nick] text".
   let displayNick = msg.nick;
   let displayText = msg.text;
-  if (msg.nick === 'bridge') {
+  if (msg.nick && msg.nick.endsWith('/bridge')) {
+    displayNick = msg.nick.slice(0, -'/bridge'.length);
+  } else if (msg.nick === 'bridge') {
     const m = msg.text.match(/^\[([^\]]+)\] ([\s\S]*)$/);
     if (m) { displayNick = m[1]; displayText = m[2]; }
   }
