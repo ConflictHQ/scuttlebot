@@ -15,22 +15,22 @@ type createAPIKeyRequest struct {
 }
 
 type createAPIKeyResponse struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
-	Token     string      `json:"token"` // plaintext, shown only once
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	Token     string       `json:"token"` // plaintext, shown only once
 	Scopes    []auth.Scope `json:"scopes"`
-	CreatedAt time.Time   `json:"created_at"`
-	ExpiresAt *time.Time  `json:"expires_at,omitempty"`
+	CreatedAt time.Time    `json:"created_at"`
+	ExpiresAt *time.Time   `json:"expires_at,omitempty"`
 }
 
 type apiKeyListEntry struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
 	Scopes    []auth.Scope `json:"scopes"`
-	CreatedAt time.Time   `json:"created_at"`
-	LastUsed  *time.Time  `json:"last_used,omitempty"`
-	ExpiresAt *time.Time  `json:"expires_at,omitempty"`
-	Active    bool        `json:"active"`
+	CreatedAt time.Time    `json:"created_at"`
+	LastUsed  *time.Time   `json:"last_used,omitempty"`
+	ExpiresAt *time.Time   `json:"expires_at,omitempty"`
+	Active    bool         `json:"active"`
 }
 
 // handleListAPIKeys handles GET /v1/api-keys.
