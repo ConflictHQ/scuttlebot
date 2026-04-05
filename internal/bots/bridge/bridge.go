@@ -36,6 +36,7 @@ type Message struct {
 	Channel string    `json:"channel"`
 	Nick    string    `json:"nick"`
 	Text    string    `json:"text"`
+	MsgID   string    `json:"msgid,omitempty"`
 	Meta    *Meta     `json:"meta,omitempty"`
 }
 
@@ -221,11 +222,16 @@ func (b *Bot) Start(ctx context.Context) error {
 			nick = acct
 		}
 
+		var msgID string
+		if id, ok := e.Tags.Get("msgid"); ok {
+			msgID = id
+		}
 		b.dispatch(Message{
 			At:      e.Timestamp,
 			Channel: channel,
 			Nick:    nick,
 			Text:    e.Last(),
+			MsgID:   msgID,
 		})
 	})
 
