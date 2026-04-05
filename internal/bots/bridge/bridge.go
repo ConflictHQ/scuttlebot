@@ -242,13 +242,18 @@ func (b *Bot) Start(ctx context.Context) error {
 		if id, ok := e.Tags.Get("msgid"); ok {
 			msgID = id
 		}
-		b.dispatch(Message{
+		msg := Message{
 			At:      e.Timestamp,
 			Channel: channel,
 			Nick:    nick,
 			Text:    e.Last(),
 			MsgID:   msgID,
-		})
+		}
+		// Read meta-type from IRCv3 client tags if present.
+		if metaType, ok := e.Tags.Get("+scuttlebot/meta-type"); ok && metaType != "" {
+			msg.Meta = &Meta{Type: metaType}
+		}
+		b.dispatch(msg)
 	})
 
 	b.client = c
@@ -363,21 +368,33 @@ func (b *Bot) Send(ctx context.Context, channel, text, senderNick string) error 
 // IRC receives only the plain text; SSE subscribers receive the full message
 // including meta for rich rendering in the web UI.
 //
+// When meta is present, key fields are attached as IRCv3 client-only tags
+// (+scuttlebot/meta-type) so any IRCv3 client can read them.
+//
 // When the server supports RELAYMSG (IRCv3), messages are attributed natively
 // so other clients see the real sender nick. Falls back to [nick] prefix.
 func (b *Bot) SendWithMeta(ctx context.Context, channel, text, senderNick string, meta *Meta) error {
 	if b.client == nil {
 		return fmt.Errorf("bridge: not connected")
 	}
+	// Build optional IRCv3 tag prefix for meta-type.
+	tagPrefix := ""
+	if meta != nil && meta.Type != "" {
+		tagPrefix = "@+scuttlebot/meta-type=" + meta.Type + " "
+	}
 	if senderNick != "" && b.relaySep != "" {
 		// Use RELAYMSG for native attribution.
-		b.client.Cmd.SendRawf("RELAYMSG %s %s :%s", channel, senderNick, text)
+		b.client.Cmd.SendRawf("%sRELAYMSG %s %s :%s", tagPrefix, channel, senderNick, text)
 	} else {
 		ircText := text
 		if senderNick != "" {
 			ircText = "[" + senderNick + "] " + text
 		}
-		b.client.Cmd.Message(channel, ircText)
+		if tagPrefix != "" {
+			b.client.Cmd.SendRawf("%sPRIVMSG %s :%s", tagPrefix, channel, ircText)
+		} else {
+			b.client.Cmd.Message(channel, ircText)
+		}
 	}
 
 	if senderNick != "" {
