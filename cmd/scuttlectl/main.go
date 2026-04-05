@@ -168,6 +168,50 @@ func main() {
 			fmt.Fprintf(os.Stderr, "unknown subcommand: backend %s\n", args[1])
 			os.Exit(1)
 		}
+	case "topology", "topo":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl topology <list|provision|drop>\n")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "list", "show":
+			cmdTopologyList(api, *jsonFlag)
+		case "provision", "create":
+			requireArgs(args, 3, "scuttlectl topology provision #channel")
+			cmdTopologyProvision(api, args[2], *jsonFlag)
+		case "drop", "rm":
+			requireArgs(args, 3, "scuttlectl topology drop #channel")
+			cmdTopologyDrop(api, args[2])
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand: topology %s\n", args[1])
+			os.Exit(1)
+		}
+	case "config":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl config <show|history>\n")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "show", "get":
+			cmdConfigShow(api, *jsonFlag)
+		case "history":
+			cmdConfigHistory(api, *jsonFlag)
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand: config %s\n", args[1])
+			os.Exit(1)
+		}
+	case "bot", "bots":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl bot <list>\n")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "list":
+			cmdBotList(api, *jsonFlag)
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand: bot %s\n", args[1])
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		usage()
@@ -512,6 +556,8 @@ func cmdAgentRotate(api *apiclient.Client, nick string, asJSON bool) {
 	fmt.Println("\nStore this password — it will not be shown again.")
 }
 
+// --- api-keys ---
+
 func cmdAPIKeyList(api *apiclient.Client, asJSON bool) {
 	raw, err := api.ListAPIKeys()
 	die(err)
@@ -590,6 +636,137 @@ func cmdAPIKeyRevoke(api *apiclient.Client, id string) {
 	fmt.Printf("API key revoked: %s\n", id)
 }
 
+// --- topology ---
+
+func cmdTopologyList(api *apiclient.Client, asJSON bool) {
+	raw, err := api.GetTopology()
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+	var data struct {
+		StaticChannels []string `json:"static_channels"`
+		Types          []struct {
+			Name      string   `json:"name"`
+			Prefix    string   `json:"prefix"`
+			Autojoin  []string `json:"autojoin"`
+			Ephemeral bool     `json:"ephemeral"`
+			TTL       int64    `json:"ttl_seconds"`
+		} `json:"types"`
+	}
+	must(json.Unmarshal(raw, &data))
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "STATIC CHANNELS")
+	for _, ch := range data.StaticChannels {
+		fmt.Fprintf(tw, "  %s\n", ch)
+	}
+	if len(data.Types) > 0 {
+		fmt.Fprintln(tw, "\nCHANNEL TYPES")
+		fmt.Fprintln(tw, "  NAME\tPREFIX\tAUTOJOIN\tEPHEMERAL\tTTL")
+		for _, t := range data.Types {
+			ttl := "—"
+			if t.TTL > 0 {
+				ttl = fmt.Sprintf("%dh", t.TTL/3600)
+			}
+			eph := "no"
+			if t.Ephemeral {
+				eph = "yes"
+			}
+			fmt.Fprintf(tw, "  %s\t#%s*\t%s\t%s\t%s\n", t.Name, t.Prefix, strings.Join(t.Autojoin, ","), eph, ttl)
+		}
+	}
+	tw.Flush()
+}
+
+func cmdTopologyProvision(api *apiclient.Client, channel string, asJSON bool) {
+	if !strings.HasPrefix(channel, "#") {
+		channel = "#" + channel
+	}
+	raw, err := api.ProvisionChannel(channel)
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+	fmt.Printf("Channel provisioned: %s\n", channel)
+}
+
+func cmdTopologyDrop(api *apiclient.Client, channel string) {
+	if !strings.HasPrefix(channel, "#") {
+		channel = "#" + channel
+	}
+	die(api.DropChannel(channel))
+	fmt.Printf("Channel dropped: %s\n", channel)
+}
+
+// --- config ---
+
+func cmdConfigShow(api *apiclient.Client, asJSON bool) {
+	raw, err := api.GetConfig()
+	die(err)
+	printJSON(raw) // always JSON — config is a complex nested object
+}
+
+func cmdConfigHistory(api *apiclient.Client, asJSON bool) {
+	raw, err := api.GetConfigHistory()
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+	var data struct {
+		Entries []struct {
+			Filename string `json:"filename"`
+			At       string `json:"at"`
+		} `json:"entries"`
+	}
+	must(json.Unmarshal(raw, &data))
+	if len(data.Entries) == 0 {
+		fmt.Println("no config history")
+		return
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "SNAPSHOT\tTIME")
+	for _, e := range data.Entries {
+		fmt.Fprintf(tw, "%s\t%s\n", e.Filename, e.At)
+	}
+	tw.Flush()
+}
+
+// --- bots ---
+
+func cmdBotList(api *apiclient.Client, asJSON bool) {
+	raw, err := api.GetSettings()
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+	var data struct {
+		Policies struct {
+			Behaviors []struct {
+				ID      string `json:"id"`
+				Name    string `json:"name"`
+				Nick    string `json:"nick"`
+				Enabled bool   `json:"enabled"`
+			} `json:"behaviors"`
+		} `json:"policies"`
+	}
+	must(json.Unmarshal(raw, &data))
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "BOT\tNICK\tSTATUS")
+	for _, b := range data.Policies.Behaviors {
+		status := "disabled"
+		if b.Enabled {
+			status = "enabled"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", b.Name, b.Nick, status)
+	}
+	tw.Flush()
+}
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `scuttlectl %s — scuttlebot management CLI
 
@@ -627,6 +804,12 @@ Commands:
   api-key list                  list API keys
   api-key create --name <name> --scopes <s1,s2> [--expires 720h]
   api-key revoke <id>           revoke an API key
+  topology list                 show topology (static channels, types)
+  topology provision #channel   provision a new channel via ChanServ
+  topology drop #channel        drop a channel
+  config show                   dump current config (JSON)
+  config history                show config change history
+  bot list                      show system bot status
 `, version)
 }
 
