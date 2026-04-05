@@ -219,16 +219,24 @@ func (m *Manager) provision(ch ChannelConfig) error {
 	}
 
 	// Fire mode grants asynchronously — don't block provisioning.
+	// ChanServ AMODE persists and auto-applies on join.
+	// SAMODE is immediate but only works for nicks already in the channel,
+	// so we delay it to give bots time to connect first.
 	go func(name string, ops, voice []string) {
+		// Set persistent AMODE first (works regardless of presence).
 		for _, nick := range ops {
 			m.chanserv("AMODE %s +o %s", name, nick)
-			if m.operPass != "" && m.client != nil {
-				m.client.Cmd.SendRawf("SAMODE %s +o %s", name, nick)
-			}
 		}
 		for _, nick := range voice {
 			m.chanserv("AMODE %s +v %s", name, nick)
-			if m.operPass != "" && m.client != nil {
+		}
+		// Delay SAMODE to apply modes to bots that connected after provisioning.
+		if m.operPass != "" && m.client != nil {
+			time.Sleep(30 * time.Second)
+			for _, nick := range ops {
+				m.client.Cmd.SendRawf("SAMODE %s +o %s", name, nick)
+			}
+			for _, nick := range voice {
 				m.client.Cmd.SendRawf("SAMODE %s +v %s", name, nick)
 			}
 		}
