@@ -224,7 +224,7 @@ func run(cfg config) error {
 	// Dual-path mirroring: PTY for real-time text + session file for metadata.
 	ptyMirror := relaymirror.NewPTYMirror(defaultMirrorLineMax, 500*time.Millisecond, func(line string) {
 		if relayActive {
-			go func() { _ = relay.Post(ctx, line) }()
+			// no-op: session file mirror handles IRC output
 		}
 	})
 	ptyMirror.BusyCallback = func(now time.Time) {

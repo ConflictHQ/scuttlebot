@@ -214,11 +214,14 @@ func run(cfg config) error {
 		"SCUTTLEBOT_NICK="+cfg.Nick,
 		"SCUTTLEBOT_ACTIVITY_VIA_BROKER="+boolString(relayActive),
 	)
-	// Create PTY mirror early so session file loop can dedup against it.
+	// PTY mirror: only used for busy signal detection and dedup, NOT for
+	// posting to IRC. The session file mirror handles all IRC output with
+	// clean structured data. PTY output is too noisy (spinners, partial
+	// renders, ANSI fragments) for direct IRC posting.
 	var ptyMirror *relaymirror.PTYMirror
 	if relayActive {
 		ptyMirror = relaymirror.NewPTYMirror(defaultMirrorLineMax, 500*time.Millisecond, func(line string) {
-			go func() { _ = relay.Post(ctx, line) }()
+			// no-op: session file mirror handles IRC output
 		})
 		go mirrorSessionLoop(ctx, relay, cfg, startedAt, ptyMirror)
 		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)

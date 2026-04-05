@@ -233,7 +233,7 @@ func run(cfg config) error {
 	var ptyMirror *relaymirror.PTYMirror
 	if relayActive {
 		ptyMirror = relaymirror.NewPTYMirror(defaultMirrorLineMax, 500*time.Millisecond, func(line string) {
-			go func() { _ = relay.Post(ctx, line) }()
+			// no-op: session file mirror handles IRC output
 		})
 		go mirrorSessionLoop(ctx, relay, cfg, startedAt, preExisting, ptyMirror)
 		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
