@@ -487,6 +487,36 @@ canvas { display:block; width:100% !important; }
       </div>
       <div id="channels-list"><div class="empty">no channels joined yet — type a channel name above</div></div>
     </div>
+
+    <!-- topology panel -->
+    <div class="card" id="card-topology">
+      <div class="card-header" onclick="toggleCard('card-topology',event)">
+        <h2>topology</h2><span class="card-desc">channel types, provisioning rules, active task channels</span><span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="text" id="provision-channel-input" placeholder="#project.name" style="width:160px;padding:5px 8px;font-size:12px" autocomplete="off">
+          <button class="sm primary" onclick="provisionChannel()">provision</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div id="topology-types"></div>
+        <div id="topology-active" style="padding:12px 16px"><div class="empty">loading topology…</div></div>
+      </div>
+    </div>
+
+    <!-- ROE templates -->
+    <div class="card" id="card-roe">
+      <div class="card-header" onclick="toggleCard('card-roe',event)">
+        <h2>ROE templates</h2><span class="card-desc">rules-of-engagement presets for agent registration</span><span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <button class="sm primary" onclick="event.stopPropagation();savePolicies()">save</button>
+      </div>
+      <div class="card-body">
+        <p style="font-size:12px;color:#8b949e;margin-bottom:12px">Define ROE templates applied to agents at registration. Includes channels, permissions, and rate limits.</p>
+        <div id="roe-list"></div>
+        <button class="sm" onclick="addROETemplate()" style="margin-top:10px">+ add template</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1758,6 +1788,15 @@ async function loadChanTab() {
   } catch(e) {
     document.getElementById('channels-list').innerHTML = '<div style="padding:16px">'+renderAlert('error', e.message)+'</div>';
   }
+  loadTopology();
+  // Load ROE templates from policies for the ROE card.
+  try {
+    const s = await api('GET', '/v1/settings');
+    if (s && s.policies) {
+      currentPolicies = s.policies;
+      renderROETemplates(s.policies.roe_templates || []);
+    }
+  } catch(e) {}
 }
 
 function renderChanList() {
@@ -1796,6 +1835,134 @@ async function quickJoin() {
   } catch(e) { alert('Join failed: '+e.message); }
 }
 document.getElementById('quick-join-input').addEventListener('keydown', e => { if(e.key==='Enter')quickJoin(); });
+
+// --- topology panel (#115) + task channels (#114) ---
+async function loadTopology() {
+  try {
+    const data = await api('GET', '/v1/topology');
+    renderTopologyTypes(data.types || []);
+    renderTopologyActive(data.active_channels || [], data.types || []);
+  } catch(e) {
+    document.getElementById('topology-types').innerHTML = '';
+    document.getElementById('topology-active').innerHTML = '<div style="color:#8b949e;font-size:12px">topology not configured</div>';
+  }
+}
+
+function renderTopologyTypes(types) {
+  if (!types.length) { document.getElementById('topology-types').innerHTML = ''; return; }
+  const rows = types.map(t => {
+    const ttl = t.ttl_seconds > 0 ? `${Math.round(t.ttl_seconds/3600)}h` : '—';
+    const tags = [];
+    if (t.ephemeral) tags.push('<span style="background:#f8514922;color:#f85149;padding:1px 5px;border-radius:3px;font-size:10px">ephemeral</span>');
+    if (t.supervision) tags.push(`<span style="font-size:11px;color:#8b949e">→ ${esc(t.supervision)}</span>`);
+    return `<tr>
+      <td><strong>${esc(t.name)}</strong></td>
+      <td><code style="font-size:11px">#${esc(t.prefix)}*</code></td>
+      <td style="font-size:12px">${(t.autojoin||[]).map(n => `<code style="font-size:11px;background:#21262d;padding:1px 4px;border-radius:3px">${esc(n)}</code>`).join(' ')}</td>
+      <td style="font-size:12px">${ttl}</td>
+      <td>${tags.join(' ')}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('topology-types').innerHTML = `<table><thead><tr><th>type</th><th>prefix</th><th>autojoin</th><th>TTL</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderTopologyActive(channels, types) {
+  const el = document.getElementById('topology-active');
+  const tasks = channels.filter(c => c.ephemeral || c.type === 'task');
+  if (!tasks.length) {
+    el.innerHTML = '<div style="color:#8b949e;font-size:12px;padding:4px 0">no active task channels</div>';
+    return;
+  }
+  const rows = tasks.map(c => {
+    const age = c.provisioned_at ? timeSince(new Date(c.provisioned_at)) : '—';
+    const ttl = c.ttl_seconds > 0 ? `${Math.round(c.ttl_seconds/3600)}h` : '—';
+    return `<tr>
+      <td><strong>${esc(c.name)}</strong></td>
+      <td style="font-size:12px;color:#8b949e">${esc(c.type || '—')}</td>
+      <td style="font-size:12px">${age}</td>
+      <td style="font-size:12px">${ttl}</td>
+      <td><button class="sm danger" onclick="dropChannel('${esc(c.name)}')">drop</button></td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<table><thead><tr><th>channel</th><th>type</th><th>age</th><th>TTL</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function timeSince(date) {
+  const s = Math.floor((new Date() - date) / 1000);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm';
+  if (s < 86400) return Math.floor(s/3600) + 'h';
+  return Math.floor(s/86400) + 'd';
+}
+
+async function provisionChannel() {
+  let ch = document.getElementById('provision-channel-input').value.trim();
+  if (!ch) return;
+  if (!ch.startsWith('#')) ch = '#' + ch;
+  try {
+    await api('POST', '/v1/channels', {name: ch});
+    document.getElementById('provision-channel-input').value = '';
+    loadTopology();
+    loadChanTab();
+  } catch(e) { alert('Provision failed: ' + e.message); }
+}
+
+async function dropChannel(ch) {
+  if (!confirm('Drop channel ' + ch + '? This unregisters it from ChanServ.')) return;
+  const slug = ch.replace(/^#/,'');
+  try {
+    await api('DELETE', `/v1/topology/channels/${slug}`);
+    loadTopology();
+    loadChanTab();
+  } catch(e) { alert('Drop failed: ' + e.message); }
+}
+
+// --- ROE template editor (#118) ---
+function renderROETemplates(templates) {
+  const el = document.getElementById('roe-list');
+  if (!templates || !templates.length) {
+    el.innerHTML = '<div style="color:#8b949e;font-size:12px">No ROE templates defined. Click + add template to create one.</div>';
+    return;
+  }
+  el.innerHTML = templates.map((t, i) => `
+    <div style="border:1px solid #21262d;border-radius:6px;padding:12px;margin-bottom:10px;background:#0d1117">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+        <input type="text" value="${esc(t.name)}" placeholder="template name" style="flex:1;font-weight:600" onchange="updateROE(${i},'name',this.value)">
+        <button class="sm danger" onclick="removeROE(${i})">remove</button>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="flex:1;min-width:200px"><label style="font-size:11px">channels (comma-separated)</label><input type="text" value="${esc((t.channels||[]).join(', '))}" onchange="updateROE(${i},'channels',this.value)" style="width:100%"></div>
+        <div style="flex:1;min-width:200px"><label style="font-size:11px">permissions</label><input type="text" value="${esc((t.permissions||[]).join(', '))}" onchange="updateROE(${i},'permissions',this.value)" style="width:100%"></div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <div><label style="font-size:11px">msg/sec</label><input type="number" value="${t.rate_limit?.messages_per_second||''}" placeholder="10" style="width:70px" onchange="updateROERateLimit(${i},'messages_per_second',this.value)"></div>
+        <div><label style="font-size:11px">burst</label><input type="number" value="${t.rate_limit?.burst||''}" placeholder="50" style="width:70px" onchange="updateROERateLimit(${i},'burst',this.value)"></div>
+        <div style="flex:1"><label style="font-size:11px">description</label><input type="text" value="${esc(t.description||'')}" onchange="updateROE(${i},'description',this.value)" style="width:100%"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addROETemplate() {
+  if (!currentPolicies.roe_templates) currentPolicies.roe_templates = [];
+  currentPolicies.roe_templates.push({name: 'new-template', channels: [], permissions: []});
+  renderROETemplates(currentPolicies.roe_templates);
+}
+function removeROE(i) {
+  currentPolicies.roe_templates.splice(i, 1);
+  renderROETemplates(currentPolicies.roe_templates);
+}
+function updateROE(i, field, val) {
+  if (field === 'channels' || field === 'permissions') {
+    currentPolicies.roe_templates[i][field] = val.split(',').map(s => s.trim()).filter(Boolean);
+  } else {
+    currentPolicies.roe_templates[i][field] = val;
+  }
+}
+function updateROERateLimit(i, field, val) {
+  if (!currentPolicies.roe_templates[i].rate_limit) currentPolicies.roe_templates[i].rate_limit = {};
+  currentPolicies.roe_templates[i].rate_limit[field] = Number(val) || 0;
+}
 
 // --- chat ---
 let chatChannel = null, chatSSE = null;
