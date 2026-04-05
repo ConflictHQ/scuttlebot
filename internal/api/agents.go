@@ -68,7 +68,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.registry.Touch(req.Nick)
-	s.setAgentModes(req.Nick, req.Type, cfg)
+	go s.setAgentModes(req.Nick, req.Type, cfg) // async — don't block response
 	writeJSON(w, http.StatusCreated, registerResponse{
 		Credentials: creds,
 		Payload:     payload,
