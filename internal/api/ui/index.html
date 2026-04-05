@@ -802,6 +802,27 @@ canvas { display:block; width:100% !important; }
           <input type="text" id="ergo-irc-addr" placeholder="127.0.0.1:6667" style="width:180px;padding:4px 8px;font-size:12px">
         </div>
         <div class="setting-row">
+          <div class="setting-label">require SASL</div>
+          <div class="setting-desc">Enforce SASL authentication for all IRC connections. Only registered accounts can connect. Hot-reloads.</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="ergo-require-sasl">
+            <span style="font-size:12px">enforce SASL</span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">default channel modes</div>
+          <div class="setting-desc">Modes applied to new channels (e.g. "+n", "+Rn"). Hot-reloads.</div>
+          <input type="text" id="ergo-default-modes" placeholder="+n" style="width:120px;padding:4px 8px;font-size:12px">
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">message history</div>
+          <div class="setting-desc">Enable persistent message history (CHATHISTORY). Hot-reloads.</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="ergo-history-enabled">
+            <span style="font-size:12px">enabled</span>
+          </label>
+        </div>
+        <div class="setting-row">
           <div class="setting-label">external mode</div>
           <div class="setting-desc">Disable subprocess management — scuttlebot expects Ergo to already be running. Requires restart.</div>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
@@ -3224,10 +3245,13 @@ async function loadConfigCards() {
     document.getElementById('general-mcp-addr').value = cfg.mcp_addr || '';
     // ergo
     const e = cfg.ergo || {};
-    document.getElementById('ergo-network-name').value = e.network_name || '';
-    document.getElementById('ergo-server-name').value  = e.server_name  || '';
-    document.getElementById('ergo-irc-addr').value     = e.irc_addr     || '';
-    document.getElementById('ergo-external').checked   = !!e.external;
+    document.getElementById('ergo-network-name').value     = e.network_name || '';
+    document.getElementById('ergo-server-name').value      = e.server_name  || '';
+    document.getElementById('ergo-irc-addr').value         = e.irc_addr     || '';
+    document.getElementById('ergo-require-sasl').checked   = !!e.require_sasl;
+    document.getElementById('ergo-default-modes').value    = e.default_channel_modes || '';
+    document.getElementById('ergo-history-enabled').checked = !!(e.history && e.history.enabled);
+    document.getElementById('ergo-external').checked       = !!e.external;
     // tls
     const t = cfg.tls || {};
     document.getElementById('tls-domain').value           = t.domain  || '';
@@ -3304,10 +3328,13 @@ function saveGeneralConfig() {
 function saveErgoConfig() {
   saveConfigPatch({
     ergo: {
-      network_name: document.getElementById('ergo-network-name').value.trim() || undefined,
-      server_name:  document.getElementById('ergo-server-name').value.trim()  || undefined,
-      irc_addr:     document.getElementById('ergo-irc-addr').value.trim()     || undefined,
-      external:     document.getElementById('ergo-external').checked,
+      network_name:          document.getElementById('ergo-network-name').value.trim() || undefined,
+      server_name:           document.getElementById('ergo-server-name').value.trim()  || undefined,
+      irc_addr:              document.getElementById('ergo-irc-addr').value.trim()     || undefined,
+      require_sasl:          document.getElementById('ergo-require-sasl').checked,
+      default_channel_modes: document.getElementById('ergo-default-modes').value.trim() || undefined,
+      history:               { enabled: document.getElementById('ergo-history-enabled').checked },
+      external:              document.getElementById('ergo-external').checked,
     }
   }, 'ergo-save-result');
 }
