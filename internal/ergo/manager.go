@@ -118,6 +118,13 @@ func (m *Manager) startManaged(ctx context.Context) error {
 	}
 }
 
+// UpdateConfig replaces the Ergo config, regenerates ircd.yaml, and rehashes.
+// Use when scuttlebot.yaml Ergo settings change at runtime.
+func (m *Manager) UpdateConfig(cfg config.ErgoConfig) error {
+	m.cfg = cfg
+	return m.Rehash()
+}
+
 // Rehash reloads the Ergo config. Call after writing a new ircd.yaml.
 func (m *Manager) Rehash() error {
 	if err := m.writeConfig(); err != nil {
