@@ -50,6 +50,10 @@ type Config struct {
 
 	// Channels is the list of channels to join on connect.
 	Channels []string
+
+	// MonitorNicks is the list of nicks to track via IRC MONITOR.
+	// Snitch will alert when a monitored nick goes offline unexpectedly.
+	MonitorNicks []string
 }
 
 func (c *Config) setDefaults() {
@@ -144,8 +148,34 @@ func (b *Bot) Start(ctx context.Context) error {
 		if b.cfg.AlertChannel != "" {
 			cl.Cmd.Join(b.cfg.AlertChannel)
 		}
+		if len(b.cfg.MonitorNicks) > 0 {
+			cl.Cmd.SendRawf("MONITOR + %s", strings.Join(b.cfg.MonitorNicks, ","))
+		}
 		if b.log != nil {
-			b.log.Info("snitch connected", "channels", b.cfg.Channels)
+			b.log.Info("snitch connected", "channels", b.cfg.Channels, "monitor", b.cfg.MonitorNicks)
+		}
+	})
+
+	// away-notify: track agents going idle or returning.
+	c.Handlers.AddBg(girc.AWAY, func(_ *girc.Client, e girc.Event) {
+		if e.Source == nil {
+			return
+		}
+		nick := e.Source.Name
+		reason := e.Last()
+		if reason != "" {
+			b.alert(fmt.Sprintf("agent away: %s (%s)", nick, reason))
+		}
+	})
+
+	c.Handlers.AddBg(girc.RPL_MONOFFLINE, func(_ *girc.Client, e girc.Event) {
+		nicks := e.Last()
+		for _, nick := range strings.Split(nicks, ",") {
+			nick = strings.TrimSpace(nick)
+			if nick == "" {
+				continue
+			}
+			b.alert(fmt.Sprintf("monitored nick offline: %s", nick))
 		}
 	})
 
@@ -203,6 +233,20 @@ func (b *Bot) Start(ctx context.Context) error {
 func (b *Bot) JoinChannel(channel string) {
 	if b.client != nil {
 		b.client.Cmd.Join(channel)
+	}
+}
+
+// MonitorAdd adds nicks to the MONITOR list at runtime.
+func (b *Bot) MonitorAdd(nicks ...string) {
+	if b.client != nil && len(nicks) > 0 {
+		b.client.Cmd.SendRawf("MONITOR + %s", strings.Join(nicks, ","))
+	}
+}
+
+// MonitorRemove removes nicks from the MONITOR list at runtime.
+func (b *Bot) MonitorRemove(nicks ...string) {
+	if b.client != nil && len(nicks) > 0 {
+		b.client.Cmd.SendRawf("MONITOR - %s", strings.Join(nicks, ","))
 	}
 }
 
