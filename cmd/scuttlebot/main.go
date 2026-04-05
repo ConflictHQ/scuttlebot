@@ -355,6 +355,14 @@ func main() {
 		if bridgeBot != nil {
 			bridgeBot.SetWebUserTTL(time.Duration(updated.Bridge.WebUserTTLMinutes) * time.Minute)
 		}
+		// Regenerate ircd.yaml and rehash Ergo on config changes.
+		if ergoMgr != nil {
+			if err := ergoMgr.UpdateConfig(updated.Ergo); err != nil {
+				log.Error("ergo config hot-reload failed", "err", err)
+			} else {
+				log.Info("ergo config reloaded")
+			}
+		}
 	})
 
 	// Start HTTP REST API server.
