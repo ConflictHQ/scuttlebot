@@ -33,7 +33,7 @@ const (
 	defaultChannel       = "general"
 	defaultTransport     = sessionrelay.TransportHTTP
 	defaultPollInterval  = 2 * time.Second
-	defaultConnectWait   = 10 * time.Second
+	defaultConnectWait   = 30 * time.Second
 	defaultInjectDelay   = 150 * time.Millisecond
 	defaultBusyWindow    = 1500 * time.Millisecond
 	defaultHeartbeat     = 60 * time.Second
