@@ -79,13 +79,26 @@ type PolicyLLMBackend struct {
 	Default      bool     `json:"default,omitempty"`
 }
 
+// ROETemplate is a rules-of-engagement template.
+type ROETemplate struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Channels    []string `json:"channels,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+	RateLimit   struct {
+		MessagesPerSecond float64 `json:"messages_per_second,omitempty"`
+		Burst             int     `json:"burst,omitempty"`
+	} `json:"rate_limit,omitempty"`
+}
+
 // Policies is the full mutable settings blob, persisted to policies.json.
 type Policies struct {
-	Behaviors   []BehaviorConfig   `json:"behaviors"`
-	AgentPolicy AgentPolicy        `json:"agent_policy"`
-	Bridge      BridgePolicy       `json:"bridge"`
-	Logging     LoggingPolicy      `json:"logging"`
-	LLMBackends []PolicyLLMBackend `json:"llm_backends,omitempty"`
+	Behaviors    []BehaviorConfig   `json:"behaviors"`
+	AgentPolicy  AgentPolicy        `json:"agent_policy"`
+	Bridge       BridgePolicy       `json:"bridge"`
+	Logging      LoggingPolicy      `json:"logging"`
+	LLMBackends  []PolicyLLMBackend `json:"llm_backends,omitempty"`
+	ROETemplates []ROETemplate      `json:"roe_templates,omitempty"`
 }
 
 // defaultBehaviors lists every built-in bot with conservative defaults (disabled).

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/conflicthq/scuttlebot/internal/auth"
 	"github.com/conflicthq/scuttlebot/internal/config"
 	"github.com/conflicthq/scuttlebot/internal/registry"
 )
@@ -16,7 +17,7 @@ import (
 // Server is the scuttlebot HTTP API server.
 type Server struct {
 	registry  *registry.Registry
-	tokens    map[string]struct{}
+	apiKeys   *auth.APIKeyStore
 	log       *slog.Logger
 	bridge    chatBridge        // nil if bridge is disabled
 	policies  *PolicyStore      // nil if not configured
@@ -33,14 +34,10 @@ type Server struct {
 // Pass nil for llmCfg to disable AI/LLM management endpoints.
 // Pass nil for topo to disable topology provisioning endpoints.
 // Pass nil for cfgStore to disable config read/write endpoints.
-func New(reg *registry.Registry, tokens []string, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, topo topologyManager, cfgStore *ConfigStore, tlsDomain string, log *slog.Logger) *Server {
-	tokenSet := make(map[string]struct{}, len(tokens))
-	for _, t := range tokens {
-		tokenSet[t] = struct{}{}
-	}
+func New(reg *registry.Registry, apiKeys *auth.APIKeyStore, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, topo topologyManager, cfgStore *ConfigStore, tlsDomain string, log *slog.Logger) *Server {
 	return &Server{
 		registry:  reg,
-		tokens:    tokenSet,
+		apiKeys:   apiKeys,
 		log:       log,
 		bridge:    b,
 		policies:  ps,
@@ -55,63 +52,82 @@ func New(reg *registry.Registry, tokens []string, b chatBridge, ps *PolicyStore,
 
 // Handler returns the HTTP handler with all routes registered.
 // /v1/ routes require a valid Bearer token. /ui/ is served unauthenticated.
+// Scoped routes additionally check the API key's scopes.
 func (s *Server) Handler() http.Handler {
 	apiMux := http.NewServeMux()
-	apiMux.HandleFunc("GET /v1/status", s.handleStatus)
-	apiMux.HandleFunc("GET /v1/metrics", s.handleMetrics)
+
+	// Read-scope: status, metrics (also accessible with any scope via admin).
+	apiMux.HandleFunc("GET /v1/status", s.requireScope(auth.ScopeRead, s.handleStatus))
+	apiMux.HandleFunc("GET /v1/metrics", s.requireScope(auth.ScopeRead, s.handleMetrics))
+
+	// Policies — admin scope.
 	if s.policies != nil {
-		apiMux.HandleFunc("GET /v1/settings", s.handleGetSettings)
-		apiMux.HandleFunc("GET /v1/settings/policies", s.handleGetPolicies)
-		apiMux.HandleFunc("PUT /v1/settings/policies", s.handlePutPolicies)
-		apiMux.HandleFunc("PATCH /v1/settings/policies", s.handlePatchPolicies)
+		apiMux.HandleFunc("GET /v1/settings", s.requireScope(auth.ScopeRead, s.handleGetSettings))
+		apiMux.HandleFunc("GET /v1/settings/policies", s.requireScope(auth.ScopeRead, s.handleGetPolicies))
+		apiMux.HandleFunc("PUT /v1/settings/policies", s.requireScope(auth.ScopeAdmin, s.handlePutPolicies))
+		apiMux.HandleFunc("PATCH /v1/settings/policies", s.requireScope(auth.ScopeAdmin, s.handlePatchPolicies))
 	}
-	apiMux.HandleFunc("GET /v1/agents", s.handleListAgents)
-	apiMux.HandleFunc("GET /v1/agents/{nick}", s.handleGetAgent)
-	apiMux.HandleFunc("PATCH /v1/agents/{nick}", s.handleUpdateAgent)
-	apiMux.HandleFunc("POST /v1/agents/register", s.handleRegister)
-	apiMux.HandleFunc("POST /v1/agents/{nick}/rotate", s.handleRotate)
-	apiMux.HandleFunc("POST /v1/agents/{nick}/adopt", s.handleAdopt)
-	apiMux.HandleFunc("POST /v1/agents/{nick}/revoke", s.handleRevoke)
-	apiMux.HandleFunc("DELETE /v1/agents/{nick}", s.handleDelete)
+
+	// Agents — agents scope.
+	apiMux.HandleFunc("GET /v1/agents", s.requireScope(auth.ScopeAgents, s.handleListAgents))
+	apiMux.HandleFunc("GET /v1/agents/{nick}", s.requireScope(auth.ScopeAgents, s.handleGetAgent))
+	apiMux.HandleFunc("PATCH /v1/agents/{nick}", s.requireScope(auth.ScopeAgents, s.handleUpdateAgent))
+	apiMux.HandleFunc("POST /v1/agents/register", s.requireScope(auth.ScopeAgents, s.handleRegister))
+	apiMux.HandleFunc("POST /v1/agents/{nick}/rotate", s.requireScope(auth.ScopeAgents, s.handleRotate))
+	apiMux.HandleFunc("POST /v1/agents/{nick}/adopt", s.requireScope(auth.ScopeAgents, s.handleAdopt))
+	apiMux.HandleFunc("POST /v1/agents/{nick}/revoke", s.requireScope(auth.ScopeAgents, s.handleRevoke))
+	apiMux.HandleFunc("DELETE /v1/agents/{nick}", s.requireScope(auth.ScopeAgents, s.handleDelete))
+
+	// Channels — channels scope (read), chat scope (send).
 	if s.bridge != nil {
-		apiMux.HandleFunc("GET /v1/channels", s.handleListChannels)
-		apiMux.HandleFunc("POST /v1/channels/{channel}/join", s.handleJoinChannel)
-		apiMux.HandleFunc("DELETE /v1/channels/{channel}", s.handleDeleteChannel)
-		apiMux.HandleFunc("GET /v1/channels/{channel}/messages", s.handleChannelMessages)
-		apiMux.HandleFunc("POST /v1/channels/{channel}/messages", s.handleSendMessage)
-		apiMux.HandleFunc("POST /v1/channels/{channel}/presence", s.handleChannelPresence)
-		apiMux.HandleFunc("GET /v1/channels/{channel}/users", s.handleChannelUsers)
-		apiMux.HandleFunc("GET /v1/channels/{channel}/config", s.handleGetChannelConfig)
-		apiMux.HandleFunc("PUT /v1/channels/{channel}/config", s.handlePutChannelConfig)
+		apiMux.HandleFunc("GET /v1/channels", s.requireScope(auth.ScopeChannels, s.handleListChannels))
+		apiMux.HandleFunc("POST /v1/channels/{channel}/join", s.requireScope(auth.ScopeChannels, s.handleJoinChannel))
+		apiMux.HandleFunc("DELETE /v1/channels/{channel}", s.requireScope(auth.ScopeChannels, s.handleDeleteChannel))
+		apiMux.HandleFunc("GET /v1/channels/{channel}/messages", s.requireScope(auth.ScopeChannels, s.handleChannelMessages))
+		apiMux.HandleFunc("POST /v1/channels/{channel}/messages", s.requireScope(auth.ScopeChat, s.handleSendMessage))
+		apiMux.HandleFunc("POST /v1/channels/{channel}/presence", s.requireScope(auth.ScopeChat, s.handleChannelPresence))
+		apiMux.HandleFunc("GET /v1/channels/{channel}/users", s.requireScope(auth.ScopeChannels, s.handleChannelUsers))
+		apiMux.HandleFunc("GET /v1/channels/{channel}/config", s.requireScope(auth.ScopeChannels, s.handleGetChannelConfig))
+		apiMux.HandleFunc("PUT /v1/channels/{channel}/config", s.requireScope(auth.ScopeAdmin, s.handlePutChannelConfig))
 	}
+
+	// Topology — topology scope.
 	if s.topoMgr != nil {
-		apiMux.HandleFunc("POST /v1/channels", s.handleProvisionChannel)
-		apiMux.HandleFunc("DELETE /v1/topology/channels/{channel}", s.handleDropChannel)
-		apiMux.HandleFunc("GET /v1/topology", s.handleGetTopology)
+		apiMux.HandleFunc("POST /v1/channels", s.requireScope(auth.ScopeTopology, s.handleProvisionChannel))
+		apiMux.HandleFunc("DELETE /v1/topology/channels/{channel}", s.requireScope(auth.ScopeTopology, s.handleDropChannel))
+		apiMux.HandleFunc("GET /v1/topology", s.requireScope(auth.ScopeTopology, s.handleGetTopology))
 	}
+
+	// Config — config scope.
 	if s.cfgStore != nil {
-		apiMux.HandleFunc("GET /v1/config", s.handleGetConfig)
-		apiMux.HandleFunc("PUT /v1/config", s.handlePutConfig)
-		apiMux.HandleFunc("GET /v1/config/history", s.handleGetConfigHistory)
-		apiMux.HandleFunc("GET /v1/config/history/{filename}", s.handleGetConfigHistoryEntry)
+		apiMux.HandleFunc("GET /v1/config", s.requireScope(auth.ScopeConfig, s.handleGetConfig))
+		apiMux.HandleFunc("PUT /v1/config", s.requireScope(auth.ScopeConfig, s.handlePutConfig))
+		apiMux.HandleFunc("GET /v1/config/history", s.requireScope(auth.ScopeConfig, s.handleGetConfigHistory))
+		apiMux.HandleFunc("GET /v1/config/history/{filename}", s.requireScope(auth.ScopeConfig, s.handleGetConfigHistoryEntry))
 	}
 
+	// Admin — admin scope.
 	if s.admins != nil {
-		apiMux.HandleFunc("GET /v1/admins", s.handleAdminList)
-		apiMux.HandleFunc("POST /v1/admins", s.handleAdminAdd)
-		apiMux.HandleFunc("DELETE /v1/admins/{username}", s.handleAdminRemove)
-		apiMux.HandleFunc("PUT /v1/admins/{username}/password", s.handleAdminSetPassword)
+		apiMux.HandleFunc("GET /v1/admins", s.requireScope(auth.ScopeAdmin, s.handleAdminList))
+		apiMux.HandleFunc("POST /v1/admins", s.requireScope(auth.ScopeAdmin, s.handleAdminAdd))
+		apiMux.HandleFunc("DELETE /v1/admins/{username}", s.requireScope(auth.ScopeAdmin, s.handleAdminRemove))
+		apiMux.HandleFunc("PUT /v1/admins/{username}/password", s.requireScope(auth.ScopeAdmin, s.handleAdminSetPassword))
 	}
 
-	// LLM / AI gateway endpoints.
-	apiMux.HandleFunc("GET /v1/llm/backends", s.handleLLMBackends)
-	apiMux.HandleFunc("POST /v1/llm/backends", s.handleLLMBackendCreate)
-	apiMux.HandleFunc("PUT /v1/llm/backends/{name}", s.handleLLMBackendUpdate)
-	apiMux.HandleFunc("DELETE /v1/llm/backends/{name}", s.handleLLMBackendDelete)
-	apiMux.HandleFunc("GET /v1/llm/backends/{name}/models", s.handleLLMModels)
-	apiMux.HandleFunc("POST /v1/llm/discover", s.handleLLMDiscover)
-	apiMux.HandleFunc("GET /v1/llm/known", s.handleLLMKnown)
-	apiMux.HandleFunc("POST /v1/llm/complete", s.handleLLMComplete)
+	// API key management — admin scope.
+	apiMux.HandleFunc("GET /v1/api-keys", s.requireScope(auth.ScopeAdmin, s.handleListAPIKeys))
+	apiMux.HandleFunc("POST /v1/api-keys", s.requireScope(auth.ScopeAdmin, s.handleCreateAPIKey))
+	apiMux.HandleFunc("DELETE /v1/api-keys/{id}", s.requireScope(auth.ScopeAdmin, s.handleRevokeAPIKey))
+
+	// LLM / AI gateway — bots scope.
+	apiMux.HandleFunc("GET /v1/llm/backends", s.requireScope(auth.ScopeBots, s.handleLLMBackends))
+	apiMux.HandleFunc("POST /v1/llm/backends", s.requireScope(auth.ScopeBots, s.handleLLMBackendCreate))
+	apiMux.HandleFunc("PUT /v1/llm/backends/{name}", s.requireScope(auth.ScopeBots, s.handleLLMBackendUpdate))
+	apiMux.HandleFunc("DELETE /v1/llm/backends/{name}", s.requireScope(auth.ScopeBots, s.handleLLMBackendDelete))
+	apiMux.HandleFunc("GET /v1/llm/backends/{name}/models", s.requireScope(auth.ScopeBots, s.handleLLMModels))
+	apiMux.HandleFunc("POST /v1/llm/discover", s.requireScope(auth.ScopeBots, s.handleLLMDiscover))
+	apiMux.HandleFunc("GET /v1/llm/known", s.requireScope(auth.ScopeBots, s.handleLLMKnown))
+	apiMux.HandleFunc("POST /v1/llm/complete", s.requireScope(auth.ScopeBots, s.handleLLMComplete))
 
 	outer := http.NewServeMux()
 	outer.HandleFunc("POST /login", s.handleLogin)
