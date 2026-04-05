@@ -104,8 +104,9 @@ type Bot struct {
 
 	msgTotal atomic.Int64
 
-	joinCh chan string
-	client *girc.Client
+	joinCh     chan string
+	client     *girc.Client
+	onUserJoin func(channel, nick string) // optional callback when a non-bridge user joins
 
 	// RELAYMSG support detected from ISUPPORT.
 	relaySep string // separator (e.g. "/"), empty if unsupported
@@ -153,6 +154,18 @@ func (b *Bot) SetWebUserTTL(ttl time.Duration) {
 	b.mu.Lock()
 	b.webUserTTL = ttl
 	b.mu.Unlock()
+}
+
+// SetOnUserJoin registers a callback invoked when a non-bridge user joins a channel.
+func (b *Bot) SetOnUserJoin(fn func(channel, nick string)) {
+	b.onUserJoin = fn
+}
+
+// Notice sends an IRC NOTICE to the given target (nick or channel).
+func (b *Bot) Notice(target, text string) {
+	if b.client != nil {
+		b.client.Cmd.Notice(target, text)
+	}
 }
 
 // Name returns the bot's IRC nick.
@@ -206,21 +219,29 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	c.Handlers.AddBg(girc.JOIN, func(_ *girc.Client, e girc.Event) {
-		if len(e.Params) < 1 || e.Source == nil || e.Source.Name != b.nick {
+		if len(e.Params) < 1 || e.Source == nil {
 			return
 		}
 		channel := e.Params[0]
-		b.mu.Lock()
-		if !b.joined[channel] {
-			b.joined[channel] = true
-			if b.buffers[channel] == nil {
-				b.buffers[channel] = newRingBuf(b.bufSize)
-				b.subs[channel] = make(map[uint64]chan Message)
+		nick := e.Source.Name
+
+		if nick == b.nick {
+			// Bridge itself joined — initialize buffers.
+			b.mu.Lock()
+			if !b.joined[channel] {
+				b.joined[channel] = true
+				if b.buffers[channel] == nil {
+					b.buffers[channel] = newRingBuf(b.bufSize)
+					b.subs[channel] = make(map[uint64]chan Message)
+				}
 			}
-		}
-		b.mu.Unlock()
-		if b.log != nil {
-			b.log.Info("bridge joined channel", "channel", channel)
+			b.mu.Unlock()
+			if b.log != nil {
+				b.log.Info("bridge joined channel", "channel", channel)
+			}
+		} else if b.onUserJoin != nil {
+			// Another user joined — fire callback for on-join instructions.
+			go b.onUserJoin(channel, nick)
 		}
 	})
 
