@@ -14,6 +14,7 @@ type registerRequest struct {
 	Channels    []string                  `json:"channels"`
 	OpsChannels []string                  `json:"ops_channels,omitempty"`
 	Permissions []string                  `json:"permissions"`
+	Skills      []string                  `json:"skills,omitempty"`
 	RateLimit   *registry.RateLimitConfig `json:"rate_limit,omitempty"`
 	Rules       *registry.EngagementRules `json:"engagement,omitempty"`
 }
@@ -59,6 +60,13 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set skills if provided.
+	if len(req.Skills) > 0 {
+		if agent, err := s.registry.Get(req.Nick); err == nil {
+			agent.Skills = req.Skills
+			_ = s.registry.Update(agent)
+		}
+	}
 	s.registry.Touch(req.Nick)
 	s.setAgentModes(req.Nick, req.Type, cfg)
 	writeJSON(w, http.StatusCreated, registerResponse{
@@ -152,6 +160,35 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleBulkDeleteAgents handles POST /v1/agents/bulk-delete.
+func (s *Server) handleBulkDeleteAgents(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Nicks []string `json:"nicks"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Nicks) == 0 {
+		writeError(w, http.StatusBadRequest, "nicks list is required")
+		return
+	}
+
+	var deleted, failed int
+	for _, nick := range req.Nicks {
+		if agent, err := s.registry.Get(nick); err == nil {
+			s.removeAgentModes(nick, agent.Channels)
+		}
+		if err := s.registry.Delete(nick); err != nil {
+			s.log.Warn("bulk delete: failed", "nick", nick, "err", err)
+			failed++
+		} else {
+			deleted++
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"deleted": deleted, "failed": failed})
+}
+
 func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
 	var req struct {
@@ -176,6 +213,19 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	agents := s.registry.List()
+	// Filter by skill if ?skill= query param is present.
+	if skill := r.URL.Query().Get("skill"); skill != "" {
+		filtered := make([]*registry.Agent, 0)
+		for _, a := range agents {
+			for _, s := range a.Skills {
+				if strings.EqualFold(s, skill) {
+					filtered = append(filtered, a)
+					break
+				}
+			}
+		}
+		agents = filtered
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"agents": agents})
 }
 
@@ -187,6 +237,37 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
+}
+
+// handleAgentBlocker handles POST /v1/agents/{nick}/blocker.
+// Agents or relays call this to escalate that an agent is stuck.
+func (s *Server) handleAgentBlocker(w http.ResponseWriter, r *http.Request) {
+	nick := r.PathValue("nick")
+	var req struct {
+		Channel string `json:"channel,omitempty"`
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Message == "" {
+		writeError(w, http.StatusBadRequest, "message is required")
+		return
+	}
+
+	alert := "[blocker] " + nick
+	if req.Channel != "" {
+		alert += " in " + req.Channel
+	}
+	alert += ": " + req.Message
+
+	// Post to #ops if bridge is available.
+	if s.bridge != nil {
+		_ = s.bridge.Send(r.Context(), "#ops", alert, "")
+	}
+	s.log.Warn("agent blocker", "nick", nick, "channel", req.Channel, "message", req.Message)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // agentModeLevel maps an agent type to the ChanServ access level it should

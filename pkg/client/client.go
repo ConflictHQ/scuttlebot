@@ -188,6 +188,23 @@ func (c *Client) connect(ctx context.Context) error {
 		if err != nil {
 			return // non-JSON PRIVMSG (human chat) — silently ignored
 		}
+
+		// Populate IRCv3 transport metadata.
+		env.Channel = channel
+		env.ServerTime = e.Timestamp
+		if acct, ok := e.Tags.Get("account"); ok {
+			env.Account = acct
+		}
+		if msgID, ok := e.Tags.Get("msgid"); ok {
+			env.MsgID = msgID
+		}
+		if len(e.Tags) > 0 {
+			env.Tags = make(map[string]string, len(e.Tags))
+			for k, v := range e.Tags {
+				env.Tags[k] = v
+			}
+		}
+
 		c.dispatch(ctx, env)
 	})
 
