@@ -273,6 +273,13 @@ func (a *agent) run(ctx context.Context) error {
 			return
 		}
 
+		// RELAYMSG: server delivers as "nick/bridge" — strip the relay suffix.
+		if sep, ok := cl.GetServerOption("RELAYMSG"); ok && sep != "" {
+			if idx := strings.Index(senderNick, sep); idx != -1 {
+				senderNick = senderNick[:idx]
+			}
+		}
+		// Fallback: parse legacy [nick] prefix from bridge bot.
 		if strings.HasPrefix(text, "[") {
 			if end := strings.Index(text, "] "); end != -1 {
 				senderNick = text[1:end]
