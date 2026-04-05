@@ -207,39 +207,32 @@ func (m *Manager) Invite(channel string, nicks []string) {
 func (m *Manager) provision(ch ChannelConfig) error {
 	// Register with ChanServ (idempotent — fails silently if already registered).
 	m.chanserv("REGISTER %s", ch.Name)
-	// Give ChanServ time to process the registration before issuing follow-up
-	// commands. Retry the sleep up to 3 times so transient load doesn't cause
-	// TOPIC/ACCESS commands to fire before registration completes.
-	for range 3 {
-		time.Sleep(200 * time.Millisecond)
-		if m.client.IsConnected() {
-			break
-		}
-	}
+	time.Sleep(200 * time.Millisecond) // one short wait for ChanServ to process
 
 	if ch.Topic != "" {
 		m.chanserv("TOPIC %s %s", ch.Name, ch.Topic)
-	}
-
-	// Set persistent auto-modes. Use ChanServ AMODE when possible,
-	// and SAMODE (oper) as immediate fallback.
-	for _, nick := range ch.Ops {
-		m.chanserv("AMODE %s +o %s", ch.Name, nick)
-		if m.operPass != "" {
-			m.client.Cmd.SendRawf("SAMODE %s +o %s", ch.Name, nick)
-		}
-	}
-	for _, nick := range ch.Voice {
-		m.chanserv("AMODE %s +v %s", ch.Name, nick)
-		if m.operPass != "" {
-			m.client.Cmd.SendRawf("SAMODE %s +v %s", ch.Name, nick)
-		}
 	}
 
 	// Apply channel modes (e.g. +m for moderated).
 	for _, mode := range ch.Modes {
 		m.client.Cmd.Mode(ch.Name, mode)
 	}
+
+	// Fire mode grants asynchronously — don't block provisioning.
+	go func(name string, ops, voice []string) {
+		for _, nick := range ops {
+			m.chanserv("AMODE %s +o %s", name, nick)
+			if m.operPass != "" && m.client != nil {
+				m.client.Cmd.SendRawf("SAMODE %s +o %s", name, nick)
+			}
+		}
+		for _, nick := range voice {
+			m.chanserv("AMODE %s +v %s", name, nick)
+			if m.operPass != "" && m.client != nil {
+				m.client.Cmd.SendRawf("SAMODE %s +v %s", name, nick)
+			}
+		}
+	}(ch.Name, ch.Ops, ch.Voice)
 
 	if len(ch.Autojoin) > 0 {
 		m.Invite(ch.Name, ch.Autojoin)
