@@ -221,12 +221,17 @@ func (b *Bot) Start(ctx context.Context) error {
 			nick = acct
 		}
 
-		b.dispatch(Message{
+		msg := Message{
 			At:      e.Timestamp,
 			Channel: channel,
 			Nick:    nick,
 			Text:    e.Last(),
-		})
+		}
+		// Read meta-type from IRCv3 client tags if present.
+		if metaType, ok := e.Tags.Get("+scuttlebot/meta-type"); ok && metaType != "" {
+			msg.Meta = &Meta{Type: metaType}
+		}
+		b.dispatch(msg)
 	})
 
 	b.client = c
@@ -340,6 +345,9 @@ func (b *Bot) Send(ctx context.Context, channel, text, senderNick string) error 
 // SendWithMeta sends a message to channel with optional structured metadata.
 // IRC receives only the plain text; SSE subscribers receive the full message
 // including meta for rich rendering in the web UI.
+//
+// When meta is present, key fields are attached as IRCv3 client-only tags
+// (+scuttlebot/meta-type) so any IRCv3 client can read them.
 func (b *Bot) SendWithMeta(ctx context.Context, channel, text, senderNick string, meta *Meta) error {
 	if b.client == nil {
 		return fmt.Errorf("bridge: not connected")
@@ -348,7 +356,12 @@ func (b *Bot) SendWithMeta(ctx context.Context, channel, text, senderNick string
 	if senderNick != "" {
 		ircText = "[" + senderNick + "] " + text
 	}
-	b.client.Cmd.Message(channel, ircText)
+	// Attach meta-type as a client-only tag if metadata is present.
+	if meta != nil && meta.Type != "" {
+		b.client.Cmd.SendRawf("@+scuttlebot/meta-type=%s PRIVMSG %s :%s", meta.Type, channel, ircText)
+	} else {
+		b.client.Cmd.Message(channel, ircText)
+	}
 
 	if senderNick != "" {
 		b.TouchUser(channel, senderNick)

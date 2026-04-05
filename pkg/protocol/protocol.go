@@ -35,6 +35,13 @@ type Envelope struct {
 	To      []string        `json:"to,omitempty"`
 	TS      int64           `json:"ts"`
 	Payload json.RawMessage `json:"payload,omitempty"`
+
+	// IRCv3 transport metadata — populated at receive time, not serialized.
+	Channel    string            `json:"-"` // channel the message arrived on
+	Account    string            `json:"-"` // account-tag: sender's NickServ account
+	MsgID      string            `json:"-"` // msgid tag: server-assigned message ID
+	ServerTime time.Time         `json:"-"` // server-time tag: server-provided timestamp
+	Tags       map[string]string `json:"-"` // all IRCv3 message tags
 }
 
 // New creates a new Envelope with a generated ID and current timestamp.
