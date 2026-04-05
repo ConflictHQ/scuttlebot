@@ -15,7 +15,9 @@ server:
   forward-confirm-hostnames: false
   check-ident: false
   relaymsg:
-    enabled: false
+    enabled: true
+    separators: /
+    available-to-chanops: false
   ip-cloaking:
     enabled: false
   max-sendq: "1M"

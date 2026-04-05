@@ -95,11 +95,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the first API token — the shared server token.
-	var token string
-	for t := range s.tokens {
-		token = t
-		break
+	// Create a session API key for this admin login.
+	sessionName := "session:" + req.Username
+	token, _, err := s.apiKeys.Create(sessionName, []auth.Scope{auth.ScopeAdmin}, time.Now().Add(24*time.Hour))
+	if err != nil {
+		s.log.Error("login: create session key", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{

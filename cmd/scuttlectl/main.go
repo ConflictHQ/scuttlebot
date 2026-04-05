@@ -111,6 +111,24 @@ func main() {
 			fmt.Fprintf(os.Stderr, "unknown subcommand: admin %s\n", args[1])
 			os.Exit(1)
 		}
+	case "api-key", "api-keys":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl api-key <list|create|revoke>\n")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "list":
+			cmdAPIKeyList(api, *jsonFlag)
+		case "create":
+			requireArgs(args, 3, "scuttlectl api-key create --name <name> --scopes <scope1,scope2>")
+			cmdAPIKeyCreate(api, args[2:], *jsonFlag)
+		case "revoke":
+			requireArgs(args, 3, "scuttlectl api-key revoke <id>")
+			cmdAPIKeyRevoke(api, args[2])
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand: api-key %s\n", args[1])
+			os.Exit(1)
+		}
 	case "channels", "channel":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: scuttlectl channels <list|users <channel>>\n")
@@ -494,6 +512,84 @@ func cmdAgentRotate(api *apiclient.Client, nick string, asJSON bool) {
 	fmt.Println("\nStore this password — it will not be shown again.")
 }
 
+func cmdAPIKeyList(api *apiclient.Client, asJSON bool) {
+	raw, err := api.ListAPIKeys()
+	die(err)
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+
+	var keys []struct {
+		ID        string   `json:"id"`
+		Name      string   `json:"name"`
+		Scopes    []string `json:"scopes"`
+		CreatedAt string   `json:"created_at"`
+		LastUsed  *string  `json:"last_used"`
+		ExpiresAt *string  `json:"expires_at"`
+		Active    bool     `json:"active"`
+	}
+	must(json.Unmarshal(raw, &keys))
+
+	if len(keys) == 0 {
+		fmt.Println("no API keys")
+		return
+	}
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tNAME\tSCOPES\tACTIVE\tLAST USED")
+	for _, k := range keys {
+		lastUsed := "-"
+		if k.LastUsed != nil {
+			lastUsed = *k.LastUsed
+		}
+		status := "yes"
+		if !k.Active {
+			status = "revoked"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, strings.Join(k.Scopes, ","), status, lastUsed)
+	}
+	tw.Flush()
+}
+
+func cmdAPIKeyCreate(api *apiclient.Client, args []string, asJSON bool) {
+	fs := flag.NewFlagSet("api-key create", flag.ExitOnError)
+	nameFlag := fs.String("name", "", "key name (required)")
+	scopesFlag := fs.String("scopes", "", "comma-separated scopes (required)")
+	expiresFlag := fs.String("expires", "", "expiry duration (e.g. 720h for 30 days)")
+	_ = fs.Parse(args)
+
+	if *nameFlag == "" || *scopesFlag == "" {
+		fmt.Fprintln(os.Stderr, "usage: scuttlectl api-key create --name <name> --scopes <scope1,scope2> [--expires 720h]")
+		os.Exit(1)
+	}
+
+	scopes := strings.Split(*scopesFlag, ",")
+	raw, err := api.CreateAPIKey(*nameFlag, scopes, *expiresFlag)
+	die(err)
+
+	if asJSON {
+		printJSON(raw)
+		return
+	}
+
+	var key struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Token string `json:"token"`
+	}
+	must(json.Unmarshal(raw, &key))
+
+	fmt.Printf("API key created: %s\n\n", key.Name)
+	fmt.Printf("  Token: %s\n\n", key.Token)
+	fmt.Println("Store this token — it will not be shown again.")
+}
+
+func cmdAPIKeyRevoke(api *apiclient.Client, id string) {
+	die(api.RevokeAPIKey(id))
+	fmt.Printf("API key revoked: %s\n", id)
+}
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `scuttlectl %s — scuttlebot management CLI
 
@@ -528,6 +624,9 @@ Commands:
   admin add <username>          add admin (prompts for password)
   admin remove <username>       remove admin
   admin passwd <username>       change admin password (prompts)
+  api-key list                  list API keys
+  api-key create --name <name> --scopes <s1,s2> [--expires 720h]
+  api-key revoke <id>           revoke an API key
 `, version)
 }
 
