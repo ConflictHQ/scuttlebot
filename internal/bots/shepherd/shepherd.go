@@ -189,6 +189,16 @@ func (b *Bot) Start(ctx context.Context) error {
 		for _, ch := range b.cfg.Channels {
 			cl.Cmd.Join(ch)
 		}
+		// Request voice on all channels after a short delay (let JOINs complete).
+		go func() {
+			time.Sleep(3 * time.Second)
+			for _, ch := range b.cfg.Channels {
+				cl.Cmd.Message("ChanServ", "VOICE "+ch)
+			}
+			if b.cfg.ReportChannel != "" {
+				cl.Cmd.Message("ChanServ", "VOICE "+b.cfg.ReportChannel)
+			}
+		}()
 		if b.cfg.ReportChannel != "" {
 			cl.Cmd.Join(b.cfg.ReportChannel)
 		}
