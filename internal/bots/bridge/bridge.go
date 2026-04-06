@@ -108,6 +108,10 @@ type Bot struct {
 	client     *girc.Client
 	onUserJoin func(channel, nick string) // optional callback when a non-bridge user joins
 
+	// namesUsers is our own authoritative user list populated from RPL_NAMREPLY.
+	// channel → nick → mode prefix ("@", "+", or "")
+	namesUsers map[string]map[string]string
+
 	// RELAYMSG support detected from ISUPPORT.
 	relaySep string // separator (e.g. "/"), empty if unsupported
 }
@@ -142,6 +146,7 @@ func New(ircAddr, nick, password string, channels []string, bufSize int, webUser
 		subs:         make(map[string]map[uint64]chan Message),
 		joined:       make(map[string]bool),
 		joinCh:       make(chan string, 32),
+		namesUsers:   make(map[string]map[string]string),
 	}
 }
 
@@ -244,6 +249,35 @@ func (b *Bot) Start(ctx context.Context) error {
 			// Another user joined — fire callback for on-join instructions.
 			go b.onUserJoin(channel, nick)
 		}
+	})
+
+	// Parse RPL_NAMREPLY ourselves for a reliable user list.
+	c.Handlers.AddBg(girc.RPL_NAMREPLY, func(_ *girc.Client, e girc.Event) {
+		// Format: :server 353 bridge = #channel :@op +voice regular
+		if len(e.Params) < 4 {
+			return
+		}
+		channel := e.Params[2]
+		names := strings.Fields(e.Last())
+		b.mu.Lock()
+		if b.namesUsers[channel] == nil {
+			b.namesUsers[channel] = make(map[string]string)
+		}
+		for _, name := range names {
+			prefix := ""
+			nick := name
+			if strings.HasPrefix(name, "@") {
+				prefix = "@"
+				nick = name[1:]
+			} else if strings.HasPrefix(name, "+") {
+				prefix = "+"
+				nick = name[1:]
+			}
+			if nick != b.nick {
+				b.namesUsers[channel][nick] = prefix
+			}
+		}
+		b.mu.Unlock()
 	})
 
 	c.Handlers.AddBg(girc.PRIVMSG, func(_ *girc.Client, e girc.Event) {
@@ -483,6 +517,12 @@ func (b *Bot) namesRefreshLoop(ctx context.Context) {
 				channels = append(channels, ch)
 			}
 			b.mu.RUnlock()
+			// Clear stale data before refresh.
+			b.mu.Lock()
+			for _, ch := range channels {
+				b.namesUsers[ch] = make(map[string]string)
+			}
+			b.mu.Unlock()
 			for _, ch := range channels {
 				b.RefreshNames(ch)
 			}
@@ -490,26 +530,21 @@ func (b *Bot) namesRefreshLoop(ctx context.Context) {
 	}
 }
 
-// Users returns the current nick list for a channel — IRC connections plus
-// web UI users who have posted recently within the configured TTL.
+// Users returns the current nick list for a channel — from our NAMES cache
+// plus web UI users who have posted recently within the configured TTL.
 func (b *Bot) Users(channel string) []string {
 	seen := make(map[string]bool)
 	var nicks []string
 
-	// IRC-connected nicks from girc's state — exclude the bridge bot itself.
-	if b.client != nil {
-		if ch := b.client.LookupChannel(channel); ch != nil {
-			for _, u := range ch.Users(b.client) {
-				if u.Nick == b.nick {
-					continue // skip the bridge bot
-				}
-				if !seen[u.Nick] {
-					seen[u.Nick] = true
-					nicks = append(nicks, u.Nick)
-				}
-			}
+	// IRC-connected nicks from our NAMES cache.
+	b.mu.RLock()
+	for nick := range b.namesUsers[channel] {
+		if !seen[nick] {
+			seen[nick] = true
+			nicks = append(nicks, nick)
 		}
 	}
+	b.mu.RUnlock()
 
 	// Web UI senders active within the configured TTL. Also prune expired nicks
 	// so the bridge doesn't retain dead web-user entries forever.
@@ -542,40 +577,22 @@ func (b *Bot) UsersWithModes(channel string) []UserInfo {
 	seen := make(map[string]bool)
 	var users []UserInfo
 
-	if b.client != nil {
-		if ch := b.client.LookupChannel(channel); ch != nil {
-			for _, u := range ch.Users(b.client) {
-				if u.Nick == b.nick {
-					continue
-				}
-				if seen[u.Nick] {
-					continue
-				}
-				seen[u.Nick] = true
-				var modes []string
-				if u.Perms != nil {
-					if perms, ok := u.Perms.Lookup(channel); ok {
-						if perms.Owner {
-							modes = append(modes, "q")
-						}
-						if perms.Admin {
-							modes = append(modes, "a")
-						}
-						if perms.Op {
-							modes = append(modes, "o")
-						}
-						if perms.HalfOp {
-							modes = append(modes, "h")
-						}
-						if perms.Voice {
-							modes = append(modes, "v")
-						}
-					}
-				}
-				users = append(users, UserInfo{Nick: u.Nick, Modes: modes})
-			}
+	// Use our NAMES cache for reliable user+mode data.
+	b.mu.RLock()
+	for nick, prefix := range b.namesUsers[channel] {
+		if seen[nick] {
+			continue
 		}
+		seen[nick] = true
+		var modes []string
+		if prefix == "@" {
+			modes = append(modes, "o")
+		} else if prefix == "+" {
+			modes = append(modes, "v")
+		}
+		users = append(users, UserInfo{Nick: nick, Modes: modes})
 	}
+	b.mu.RUnlock()
 
 	now := time.Now()
 	b.mu.Lock()

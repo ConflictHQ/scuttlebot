@@ -144,7 +144,8 @@ select option { background:#161b22; }
 .chat-msgs { flex:1; overflow-y:auto; padding:4px 8px; display:flex; flex-direction:column; gap:0; }
 .msg-row { font-size:13px; line-height:1.4; padding:1px 0; }
 .msg-time { color:#8b949e; font-size:11px; margin-right:6px; }
-.chat-msgs.hide-timestamps .msg-time { display:none; }
+.chat-msgs.hide-timestamps .msg-time { visibility:hidden; width:0; min-width:0; margin:0; overflow:hidden; }
+.chat-msgs.columnar.hide-timestamps .msg-time { visibility:hidden; min-width:36px; margin:0; }
 .msg-nick { font-weight:600; margin-right:6px; }
 .msg-grouped .msg-nick { display:none; }
 .msg-grouped .msg-time { display:none; }
@@ -2313,14 +2314,14 @@ function toggleTimestamps() {
   const hidden = el.classList.toggle('hide-timestamps');
   localStorage.setItem('sb_hide_timestamps', hidden ? '1' : '0');
   const btn = document.getElementById('chat-ts-toggle');
-  btn.style.color = hidden ? '#8b949e' : '';
+  btn.style.opacity = hidden ? '0.3' : '1';
   btn.title = hidden ? 'timestamps hidden — click to show' : 'timestamps shown — click to hide';
 }
 (function() {
   const hidden = localStorage.getItem('sb_hide_timestamps') === '1';
   if (hidden) document.getElementById('chat-msgs').classList.add('hide-timestamps');
   const btn = document.getElementById('chat-ts-toggle');
-  if (hidden) { btn.style.color = '#8b949e'; btn.title = 'timestamps hidden — click to show'; }
+  if (hidden) { btn.style.opacity = '0.3'; btn.title = 'timestamps hidden — click to show'; }
   else { btn.title = 'timestamps shown — click to hide'; }
 })();
 
