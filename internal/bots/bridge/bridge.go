@@ -273,7 +273,11 @@ func (b *Bot) Start(ctx context.Context) error {
 				prefix = "+"
 				nick = name[1:]
 			}
-			if nick != b.nick {
+			// Strip !user@host from userhost-in-names (IRCv3).
+			if idx := strings.Index(nick, "!"); idx != -1 {
+				nick = nick[:idx]
+			}
+			if nick != "" && nick != b.nick {
 				b.namesUsers[channel][nick] = prefix
 			}
 		}
