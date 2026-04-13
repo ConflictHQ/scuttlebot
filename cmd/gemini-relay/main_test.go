@@ -102,6 +102,88 @@ func TestInjectMessagesIdleSkipsCtrlCAndSubmits(t *testing.T) {
 	}
 }
 
+func TestSplitMirrorText(t *testing.T) {
+	t.Run("basic lines", func(t *testing.T) {
+		got := splitMirrorText("line one\nline two\nline three")
+		if len(got) != 3 {
+			t.Fatalf("expected 3 lines, got %d: %v", len(got), got)
+		}
+		if got[0] != "line one" || got[1] != "line two" || got[2] != "line three" {
+			t.Errorf("unexpected lines: %v", got)
+		}
+	})
+
+	t.Run("blank lines filtered", func(t *testing.T) {
+		got := splitMirrorText("hello\n\n\nworld\n")
+		if len(got) != 2 {
+			t.Fatalf("expected 2 lines, got %d: %v", len(got), got)
+		}
+	})
+
+	t.Run("crlf normalised", func(t *testing.T) {
+		got := splitMirrorText("alpha\r\nbeta\rgamma")
+		if len(got) != 3 {
+			t.Fatalf("expected 3 lines, got %d: %v", len(got), got)
+		}
+	})
+
+	t.Run("long line wrapped", func(t *testing.T) {
+		long := "word " // 5 chars
+		for len(long) < defaultMirrorLineMax+50 {
+			long += "word "
+		}
+		got := splitMirrorText(long)
+		if len(got) < 2 {
+			t.Fatalf("expected wrapped output, got %d lines", len(got))
+		}
+		for i, line := range got {
+			if len(line) > defaultMirrorLineMax {
+				t.Errorf("line %d exceeds max: len=%d", i, len(line))
+			}
+		}
+	})
+
+	t.Run("empty string", func(t *testing.T) {
+		got := splitMirrorText("")
+		if len(got) != 0 {
+			t.Fatalf("expected 0 lines, got %d", len(got))
+		}
+	})
+}
+
+func TestLoadConfigMirrorReasoningDefault(t *testing.T) {
+	t.Setenv("SCUTTLEBOT_CONFIG_FILE", filepath.Join(t.TempDir(), "scuttlebot-relay.env"))
+	t.Setenv("SCUTTLEBOT_URL", "http://test:8080")
+	t.Setenv("SCUTTLEBOT_TOKEN", "test-token")
+	t.Setenv("SCUTTLEBOT_SESSION_ID", "abc")
+	t.Setenv("SCUTTLEBOT_NICK", "")
+
+	cfg, err := loadConfig([]string{"--cd", "../.."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.MirrorReasoning {
+		t.Error("MirrorReasoning should default to true")
+	}
+}
+
+func TestLoadConfigMirrorReasoningDisabled(t *testing.T) {
+	t.Setenv("SCUTTLEBOT_CONFIG_FILE", filepath.Join(t.TempDir(), "scuttlebot-relay.env"))
+	t.Setenv("SCUTTLEBOT_URL", "http://test:8080")
+	t.Setenv("SCUTTLEBOT_TOKEN", "test-token")
+	t.Setenv("SCUTTLEBOT_SESSION_ID", "abc")
+	t.Setenv("SCUTTLEBOT_NICK", "")
+	t.Setenv("SCUTTLEBOT_MIRROR_REASONING", "false")
+
+	cfg, err := loadConfig([]string{"--cd", "../.."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MirrorReasoning {
+		t.Error("MirrorReasoning should be false when SCUTTLEBOT_MIRROR_REASONING=false")
+	}
+}
+
 func TestInjectMessagesBusySendsCtrlCBeforeSubmit(t *testing.T) {
 	t.Helper()
 

@@ -144,8 +144,8 @@ select option { background:#161b22; }
 .chat-msgs { flex:1; overflow-y:auto; padding:4px 8px; display:flex; flex-direction:column; gap:0; }
 .msg-row { font-size:13px; line-height:1.4; padding:1px 0; }
 .msg-time { color:#8b949e; font-size:11px; margin-right:6px; }
-.chat-msgs.hide-timestamps .msg-time { visibility:hidden; width:0; min-width:0; margin:0; overflow:hidden; }
-.chat-msgs.columnar.hide-timestamps .msg-time { visibility:hidden; min-width:36px; margin:0; }
+.chat-msgs.hide-timestamps .msg-time { display:none; }
+.chat-msgs.columnar.hide-timestamps .msg-time { display:inline; visibility:hidden; min-width:36px; margin:0; }
 .msg-nick { font-weight:600; margin-right:6px; }
 .msg-grouped .msg-nick { display:none; }
 .msg-grouped .msg-time { display:none; }
@@ -575,7 +575,7 @@ canvas { display:block; width:100% !important; }
         <option value="">— pick a user —</option>
       </select>
       <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="toggle compact/columnar" style="font-size:11px;padding:2px 6px">☰</button>
-      <button class="sm" id="chat-ts-toggle" onclick="toggleTimestamps()" title="toggle timestamps" style="font-size:11px;padding:2px 6px">🕐</button>
+      <button class="sm" id="chat-ts-toggle" onclick="toggleTimestamps()" title="toggle timestamps" style="font-size:11px;padding:2px 6px">timestamps</button>
       <button class="sm" id="chat-rich-toggle" onclick="toggleRichMode()" title="toggle rich/text mode" style="font-size:11px;padding:2px 6px">✨</button>
       <button class="sm" onclick="promptHighlightWords()" title="configure highlight keywords" style="font-size:11px;padding:2px 6px">✦</button>
       <span class="stream-badge" id="chat-stream-status" style="margin-left:8px"></span>
@@ -2136,7 +2136,14 @@ async function selectChannel(ch) {
   const badge = document.getElementById('chat-stream-status');
   es.onopen    = () => { badge.textContent='● live'; badge.style.color='#3fb950'; };
   es.onmessage = ev => { try { appendMsg(JSON.parse(ev.data)); area.scrollTop=area.scrollHeight; } catch(_){} };
-  es.onerror   = () => { badge.textContent='○ reconnecting…'; badge.style.color='#8b949e'; };
+  es.onerror   = () => {
+    if (es.readyState === EventSource.CLOSED) {
+      badge.textContent='● session expired'; badge.style.color='#f85149';
+      showLoginScreen();
+    } else {
+      badge.textContent='○ reconnecting\u2026'; badge.style.color='#8b949e';
+    }
+  };
 
   loadNicklist(ch);
   if (_nicklistTimer) clearInterval(_nicklistTimer);
@@ -2242,7 +2249,7 @@ function appendMsg(msg, isHistory) {
     if (html) {
       const show = isRichMode();
       metaToggle = `<span class="msg-meta-toggle" style="${show ? '' : 'display:none'}" onclick="this.parentElement.nextElementSibling.classList.toggle('open');event.stopPropagation()">✨</span>`;
-      metaBlock = `<div class="msg-meta">${html}</div>`;
+      metaBlock = `<div class="msg-meta${show ? ' open' : ''}">${html}</div>`;
     }
   }
 
@@ -2330,20 +2337,22 @@ if (localStorage.getItem('sb_chat_columnar') === '1') {
 }
 
 // --- timestamp toggle ---
+function updateTsToggle(hidden) {
+  const btn = document.getElementById('chat-ts-toggle');
+  btn.textContent = hidden ? 'timestamps' : 'timestamps \u2713';
+  btn.style.color = hidden ? '#8b949e' : '';
+  btn.title = hidden ? 'timestamps hidden \u2014 click to show' : 'timestamps shown \u2014 click to hide';
+}
 function toggleTimestamps() {
   const el = document.getElementById('chat-msgs');
   const hidden = el.classList.toggle('hide-timestamps');
   localStorage.setItem('sb_hide_timestamps', hidden ? '1' : '0');
-  const btn = document.getElementById('chat-ts-toggle');
-  btn.style.opacity = hidden ? '0.3' : '1';
-  btn.title = hidden ? 'timestamps hidden — click to show' : 'timestamps shown — click to hide';
+  updateTsToggle(hidden);
 }
 (function() {
   const hidden = localStorage.getItem('sb_hide_timestamps') === '1';
   if (hidden) document.getElementById('chat-msgs').classList.add('hide-timestamps');
-  const btn = document.getElementById('chat-ts-toggle');
-  if (hidden) { btn.style.opacity = '0.3'; btn.title = 'timestamps hidden — click to show'; }
-  else { btn.title = 'timestamps shown — click to hide'; }
+  updateTsToggle(hidden);
 })();
 
 // --- rich mode toggle ---
