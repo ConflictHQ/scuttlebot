@@ -31,8 +31,8 @@ type Fetcher struct {
 	client *girc.Client
 
 	mu       sync.Mutex
-	batches  map[string]*batch          // batchRef → accumulator
-	waiters  map[string]chan []Message   // channel → result (one waiter per channel)
+	batches  map[string]*batch         // batchRef → accumulator
+	waiters  map[string]chan []Message // channel → result (one waiter per channel)
 	handlers bool
 }
 

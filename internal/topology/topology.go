@@ -50,13 +50,13 @@ type channelRecord struct {
 
 // Manager provisions and maintains IRC channel topology.
 type Manager struct {
-	ircAddr    string
-	nick       string
-	password   string
-	operPass   string // oper password for SAMODE access
-	log        *slog.Logger
-	policy     *Policy
-	client     *girc.Client
+	ircAddr  string
+	nick     string
+	password string
+	operPass string // oper password for SAMODE access
+	log      *slog.Logger
+	policy   *Policy
+	client   *girc.Client
 
 	mu       sync.Mutex
 	channels map[string]channelRecord // channel name → record
@@ -102,7 +102,7 @@ func (m *Manager) Connect(ctx context.Context) error {
 	c.Handlers.AddBg(girc.CONNECTED, func(client *girc.Client, e girc.Event) {
 		// OPER up for SAMODE access.
 		if m.operPass != "" {
-			client.Cmd.SendRawf("OPER scuttlebot %s", m.operPass)
+			_ = client.Cmd.SendRawf("OPER scuttlebot %s", m.operPass)
 		}
 		close(connected)
 	})
