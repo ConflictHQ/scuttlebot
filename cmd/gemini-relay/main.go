@@ -500,7 +500,6 @@ func handleRelayCommand(ctx context.Context, relay sessionrelay.Connector, cfg c
 	}
 }
 
-
 func (s *relayState) observeOutput(data []byte, now time.Time) {
 	if s == nil {
 		return
