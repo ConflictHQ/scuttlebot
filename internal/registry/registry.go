@@ -393,6 +393,17 @@ func (r *Registry) Get(nick string) (*Agent, error) {
 	return r.get(nick)
 }
 
+// SignedPayload returns a fresh signed payload for the current state of nick.
+func (r *Registry) SignedPayload(nick string) (*SignedPayload, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	agent, err := r.get(nick)
+	if err != nil {
+		return nil, err
+	}
+	return r.signPayload(agent)
+}
+
 // Touch updates the last-seen timestamp for an agent. Persists to disk
 // at most once per minute to avoid thrashing on frequent heartbeats.
 func (r *Registry) Touch(nick string) {
