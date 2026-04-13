@@ -71,6 +71,7 @@ type config struct {
 	Channels           []string
 	ProjectChannel     string
 	TeamChannel        string
+	ChannelResolutions string // "chan:level,chan:level" override
 	ChannelStateFile   string
 	SessionID          string
 	Nick               string
@@ -113,6 +114,7 @@ func run(cfg config) error {
 	defer func() { _ = sessionrelay.RemoveChannelStateFile(cfg.ChannelStateFile) }()
 
 	var relay sessionrelay.Connector
+	var filtered *sessionrelay.FilteredConnector
 	relayActive := false
 	var onlineAt time.Time
 	if relayRequested {
@@ -149,14 +151,15 @@ func run(cfg config) error {
 					cfg.Channels = mergeChannels(cfg.Channels, []string{sessionChannel})
 				}
 
+				filtered = buildFilteredConnector(relay, cfg)
 				if err := sessionrelay.WriteChannelStateFile(cfg.ChannelStateFile, relay.ControlChannel(), relay.Channels()); err != nil {
 					fmt.Fprintf(os.Stderr, "gemini-relay: channel state disabled: %v\n", err)
 				}
 				onlineAt = time.Now()
-				_ = relay.Post(context.Background(), fmt.Sprintf(
+				_ = filtered.PostAtLevel(context.Background(), sessionrelay.LevelLifecycle, fmt.Sprintf(
 					"online in %s; mention %s to interrupt before the next action",
 					filepath.Base(cfg.TargetCWD), cfg.Nick,
-				))
+				), nil)
 			}
 			connectCancel()
 		}
@@ -183,7 +186,7 @@ func run(cfg config) error {
 		"SCUTTLEBOT_NICK="+cfg.Nick,
 	)
 	if relayActive {
-		go presenceLoopPtr(ctx, &relay, cfg.HeartbeatInterval)
+		go presenceLoopFiltered(ctx, &relay, filtered, cfg.HeartbeatInterval)
 	}
 
 	if !isInteractiveTTY() {
@@ -194,12 +197,12 @@ func run(cfg config) error {
 		if err != nil {
 			exitCode := exitStatus(err)
 			if relayActive {
-				_ = relay.Post(context.Background(), fmt.Sprintf("offline (exit %d)", exitCode))
+				_ = filtered.PostAtLevel(context.Background(), sessionrelay.LevelLifecycle, fmt.Sprintf("offline (exit %d)", exitCode), nil)
 			}
 			return err
 		}
 		if relayActive {
-			_ = relay.Post(context.Background(), "offline (exit 0)")
+			_ = filtered.PostAtLevel(context.Background(), sessionrelay.LevelLifecycle, "offline (exit 0)", nil)
 		}
 		return nil
 	}
@@ -249,9 +252,9 @@ func run(cfg config) error {
 	}()
 	if relayActive {
 		// Start Gemini session file tailing for structured metadata.
-		go geminiSessionMirrorLoop(ctx, relay, cfg, ptyMirror)
+		go geminiSessionMirrorLoop(ctx, relay, filtered, cfg, ptyMirror)
 		go relayInputLoop(ctx, relay, cfg, state, ptmx, onlineAt)
-		go handleReconnectSignal(ctx, &relay, cfg, state, ptmx, startedAt)
+		go handleReconnectSignal(ctx, &relay, &filtered, cfg, state, ptmx, startedAt)
 	}
 
 	err = cmd.Wait()
@@ -259,7 +262,7 @@ func run(cfg config) error {
 
 	exitCode := exitStatus(err)
 	if relayActive {
-		_ = relay.Post(context.Background(), fmt.Sprintf("offline (exit %d)", exitCode))
+		_ = filtered.PostAtLevel(context.Background(), sessionrelay.LevelLifecycle, fmt.Sprintf("offline (exit %d)", exitCode), nil)
 	}
 	return err
 }
@@ -310,7 +313,7 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 	}
 }
 
-func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector, cfg config, state *relayState, ptmx *os.File, startedAt time.Time) {
+func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector, filteredPtr **sessionrelay.FilteredConnector, cfg config, state *relayState, ptmx *os.File, startedAt time.Time) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGUSR1)
 	defer signal.Stop(sigCh)
@@ -365,11 +368,13 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 			cancel()
 
 			*relayPtr = conn
+			newFiltered := buildFilteredConnector(conn, cfg)
+			*filteredPtr = newFiltered
 			now := time.Now()
-			_ = conn.Post(context.Background(), fmt.Sprintf(
+			_ = newFiltered.PostAtLevel(context.Background(), sessionrelay.LevelLifecycle, fmt.Sprintf(
 				"reconnected in %s; mention %s to interrupt",
 				filepath.Base(cfg.TargetCWD), cfg.Nick,
-			))
+			), nil)
 			fmt.Fprintf(os.Stderr, "gemini-relay: reconnected, restarting input loop\n")
 
 			// Restart input loop with the new connector.
@@ -379,7 +384,7 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 	}
 }
 
-func presenceLoopPtr(ctx context.Context, relayPtr *sessionrelay.Connector, interval time.Duration) {
+func presenceLoopFiltered(ctx context.Context, relayPtr *sessionrelay.Connector, filtered *sessionrelay.FilteredConnector, interval time.Duration) {
 	if interval <= 0 {
 		return
 	}
@@ -392,6 +397,9 @@ func presenceLoopPtr(ctx context.Context, relayPtr *sessionrelay.Connector, inte
 		case <-ticker.C:
 			if r := *relayPtr; r != nil {
 				_ = r.Touch(ctx)
+			}
+			if filtered != nil {
+				_ = filtered.PostAtLevel(ctx, sessionrelay.LevelHeartbeat, "heartbeat", nil)
 			}
 		}
 	}
@@ -536,7 +544,7 @@ func (s *relayState) shouldInterrupt(now time.Time) bool {
 
 // geminiSessionMirrorLoop discovers and polls a Gemini CLI session file
 // for structured tool call metadata, emitting it via PostWithMeta.
-func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, ptyDedup *relaymirror.PTYMirror) {
+func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, filtered *sessionrelay.FilteredConnector, cfg config, ptyDedup *relaymirror.PTYMirror) {
 	// Discover the Gemini session file directory.
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -587,7 +595,11 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 								if ptyDedup != nil {
 									ptyDedup.MarkSeen(text)
 								}
-								_ = relay.Post(ctx, text)
+								if filtered != nil {
+									_ = filtered.PostAtLevel(ctx, sessionrelay.LevelReasoning, text, nil)
+								} else {
+									_ = relay.Post(ctx, text)
+								}
 							}
 						}
 						if t.Description != "" {
@@ -596,7 +608,11 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 								if ptyDedup != nil {
 									ptyDedup.MarkSeen(text)
 								}
-								_ = relay.Post(ctx, text)
+								if filtered != nil {
+									_ = filtered.PostAtLevel(ctx, sessionrelay.LevelReasoning, text, nil)
+								} else {
+									_ = relay.Post(ctx, text)
+								}
 							}
 						}
 					}
@@ -608,7 +624,11 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 						if ptyDedup != nil {
 							ptyDedup.MarkSeen(line)
 						}
-						_ = relay.Post(ctx, line)
+						if filtered != nil {
+							_ = filtered.PostAtLevel(ctx, sessionrelay.LevelContent, line, nil)
+						} else {
+							_ = relay.Post(ctx, line)
+						}
 					}
 				}
 
@@ -626,7 +646,11 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 					if ptyDedup != nil {
 						ptyDedup.MarkSeen(text)
 					}
-					_ = relay.PostWithMeta(ctx, text, meta)
+					if filtered != nil {
+						_ = filtered.PostAtLevel(ctx, sessionrelay.LevelAction, text, meta)
+					} else {
+						_ = relay.PostWithMeta(ctx, text, meta)
+					}
 				}
 			}
 		}
@@ -763,6 +787,8 @@ func loadConfig(args []string) (config, error) {
 	cfg.Nick = sanitize(nick)
 	cfg.ChannelStateFile = getenvOr(fileConfig, "SCUTTLEBOT_CHANNEL_STATE_FILE", defaultChannelStateFile(cfg.Nick))
 
+	cfg.ChannelResolutions = getenvOr(fileConfig, "SCUTTLEBOT_CHANNEL_RESOLUTION", "")
+
 	if cfg.Channel == "" {
 		cfg.Channel = defaultChannel
 		cfg.Channels = []string{defaultChannel}
@@ -775,6 +801,36 @@ func loadConfig(args []string) (config, error) {
 
 func defaultChannelStateFile(nick string) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf(".scuttlebot-channels-%s.env", sanitize(nick)))
+}
+
+// buildFilteredConnector constructs a FilteredConnector that assigns default
+// resolutions by channel naming convention and applies explicit overrides.
+func buildFilteredConnector(relay sessionrelay.Connector, cfg config) *sessionrelay.FilteredConnector {
+	resMap := make(map[string]sessionrelay.Resolution)
+	for _, ch := range relay.Channels() {
+		slug := strings.TrimPrefix(ch, "#")
+		switch {
+		case strings.HasPrefix(slug, "session-"):
+			resMap[ch] = sessionrelay.ResDebug
+		case strings.HasPrefix(slug, "project-"):
+			resMap[ch] = sessionrelay.ResActions
+		case strings.HasPrefix(slug, "team-"):
+			resMap[ch] = sessionrelay.ResFull
+		default:
+			resMap[ch] = sessionrelay.ResFull
+		}
+	}
+	if cfg.ChannelResolutions != "" {
+		overrides, err := sessionrelay.ParseChannelResolutions(cfg.ChannelResolutions)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gemini-relay: channel resolution config: %v\n", err)
+		} else {
+			for ch, res := range overrides {
+				resMap[ch] = res
+			}
+		}
+	}
+	return sessionrelay.NewFilteredConnector(relay, resMap, sessionrelay.ResFull)
 }
 
 func sameChannel(a, b string) bool {
