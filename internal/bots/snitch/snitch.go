@@ -260,14 +260,14 @@ func (b *Bot) JoinChannel(channel string) {
 // MonitorAdd adds nicks to the MONITOR list at runtime.
 func (b *Bot) MonitorAdd(nicks ...string) {
 	if b.client != nil && len(nicks) > 0 {
-		b.client.Cmd.SendRawf("MONITOR + %s", strings.Join(nicks, ","))
+		_ = b.client.Cmd.SendRawf("MONITOR + %s", strings.Join(nicks, ","))
 	}
 }
 
 // MonitorRemove removes nicks from the MONITOR list at runtime.
 func (b *Bot) MonitorRemove(nicks ...string) {
 	if b.client != nil && len(nicks) > 0 {
-		b.client.Cmd.SendRawf("MONITOR - %s", strings.Join(nicks, ","))
+		_ = b.client.Cmd.SendRawf("MONITOR - %s", strings.Join(nicks, ","))
 	}
 }
 
