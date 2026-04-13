@@ -87,7 +87,15 @@ func SnapshotDir(dir string) map[string]bool {
 type GeminiMessage struct {
 	Type      string           `json:"type"` // "user", "gemini"
 	Content   string           `json:"content,omitempty"`
+	Thoughts  []GeminiThought  `json:"thoughts,omitempty"`
 	ToolCalls []GeminiToolCall `json:"toolCalls,omitempty"`
+}
+
+// GeminiThought is a thinking/reasoning block in a Gemini session message.
+type GeminiThought struct {
+	Subject     string `json:"subject"`
+	Description string `json:"description"`
+	Timestamp   string `json:"timestamp,omitempty"`
 }
 
 // GeminiToolCall is a tool call in a Gemini session.
