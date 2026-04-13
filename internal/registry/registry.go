@@ -7,7 +7,6 @@ package registry
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"github.com/conflicthq/scuttlebot/internal/store"
+	"github.com/conflicthq/scuttlebot/pkg/passgen"
 )
 
 // AgentType describes an agent's role and authority level.
@@ -520,9 +520,5 @@ func VerifyPayload(sp *SignedPayload, signingKey []byte) error {
 }
 
 func generatePassphrase() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+	return passgen.Generate(&passgen.Options{Length: 64, Charset: passgen.Hex})
 }

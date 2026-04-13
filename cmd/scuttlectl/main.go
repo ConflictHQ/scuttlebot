@@ -111,6 +111,19 @@ func main() {
 			fmt.Fprintf(os.Stderr, "unknown subcommand: admin %s\n", args[1])
 			os.Exit(1)
 		}
+	case "user", "users":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: scuttlectl user <subcommand>\n")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "passwd":
+			requireArgs(args, 3, "scuttlectl user passwd <nick> [--length N] [--charset alpha|alphanum|hex|ascii] [--password value]")
+			cmdUserPasswd(api, args[2:])
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand: user %s\n", args[1])
+			os.Exit(1)
+		}
 	case "api-key", "api-keys":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: scuttlectl api-key <list|create|revoke>\n")
@@ -355,6 +368,47 @@ func cmdAdminPasswd(api *apiclient.Client, username string) {
 	pass := promptPassword()
 	die(api.SetAdminPassword(username, pass))
 	fmt.Printf("Password updated for: %s\n", username)
+}
+
+func cmdUserPasswd(api *apiclient.Client, args []string) {
+	nick := args[0]
+	fs := flag.NewFlagSet("user passwd", flag.ExitOnError)
+	lengthFlag := fs.Int("length", 0, "password length (default: server decides, usually 24)")
+	charsetFlag := fs.String("charset", "", "character set: alpha, alphanum, hex, ascii (default: alphanum)")
+	passwordFlag := fs.String("password", "", "set an explicit password instead of generating")
+	_ = fs.Parse(args[1:])
+
+	body := make(map[string]any)
+	if *passwordFlag != "" {
+		body["password"] = *passwordFlag
+	}
+	if *lengthFlag > 0 {
+		body["length"] = *lengthFlag
+	}
+	if *charsetFlag != "" {
+		body["charset"] = *charsetFlag
+	}
+
+	raw, err := api.SetUserPassword(nick, body)
+	die(err)
+
+	var result struct {
+		Nick        string `json:"nick"`
+		Password    string `json:"password"`
+		AdminSynced bool   `json:"admin_synced"`
+	}
+	must(json.Unmarshal(raw, &result))
+
+	fmt.Printf("Password updated for: %s\n\n", result.Nick)
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "CREDENTIAL\tVALUE")
+	fmt.Fprintf(tw, "nick\t%s\n", result.Nick)
+	fmt.Fprintf(tw, "password\t%s\n", result.Password)
+	tw.Flush()
+	if result.AdminSynced {
+		fmt.Println("\nAdmin account password also updated (web UI login).")
+	}
+	fmt.Println("\nStore this password — it will not be shown again.")
 }
 
 func promptPassword() string {
@@ -624,6 +678,10 @@ Commands:
   admin add <username>          add admin (prompts for password)
   admin remove <username>       remove admin
   admin passwd <username>       change admin password (prompts)
+  user passwd <nick>            reset IRC user password
+    [--length 24]               password length
+    [--charset alphanum]        alpha | alphanum | hex | ascii
+    [--password value]          set explicit password
   api-key list                  list API keys
   api-key create --name <name> --scopes <s1,s2> [--expires 720h]
   api-key revoke <id>           revoke an API key

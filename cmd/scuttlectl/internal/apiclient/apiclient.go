@@ -197,6 +197,11 @@ func (c *Client) SetAdminPassword(username, password string) error {
 	return err
 }
 
+// SetUserPassword sends PUT /v1/users/{nick}/password.
+func (c *Client) SetUserPassword(nick string, body map[string]any) (json.RawMessage, error) {
+	return c.put("/v1/users/"+nick+"/password", body)
+}
+
 func (c *Client) get(path string) (json.RawMessage, error) {
 	return c.do("GET", path, nil)
 }

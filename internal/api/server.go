@@ -14,6 +14,11 @@ import (
 	"github.com/conflicthq/scuttlebot/internal/registry"
 )
 
+// ircPasswdSetter can change an IRC (NickServ) account's password.
+type ircPasswdSetter interface {
+	ChangePassword(name, passphrase string) error
+}
+
 // Server is the scuttlebot HTTP API server.
 type Server struct {
 	registry  *registry.Registry
@@ -25,6 +30,7 @@ type Server struct {
 	llmCfg    *config.LLMConfig // nil if no LLM backends configured
 	topoMgr   topologyManager   // nil if topology not configured
 	cfgStore  *ConfigStore      // nil if config write-back not configured
+	ircPasswd ircPasswdSetter   // nil if not configured
 	loginRL   *loginRateLimiter
 	tlsDomain string // empty if no TLS
 }
@@ -34,7 +40,8 @@ type Server struct {
 // Pass nil for llmCfg to disable AI/LLM management endpoints.
 // Pass nil for topo to disable topology provisioning endpoints.
 // Pass nil for cfgStore to disable config read/write endpoints.
-func New(reg *registry.Registry, apiKeys *auth.APIKeyStore, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, topo topologyManager, cfgStore *ConfigStore, tlsDomain string, log *slog.Logger) *Server {
+// Pass nil for ircPasswd to disable IRC user password management.
+func New(reg *registry.Registry, apiKeys *auth.APIKeyStore, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, topo topologyManager, cfgStore *ConfigStore, ircPasswd ircPasswdSetter, tlsDomain string, log *slog.Logger) *Server {
 	return &Server{
 		registry:  reg,
 		apiKeys:   apiKeys,
@@ -45,6 +52,7 @@ func New(reg *registry.Registry, apiKeys *auth.APIKeyStore, b chatBridge, ps *Po
 		llmCfg:    llmCfg,
 		topoMgr:   topo,
 		cfgStore:  cfgStore,
+		ircPasswd: ircPasswd,
 		loginRL:   newLoginRateLimiter(),
 		tlsDomain: tlsDomain,
 	}
@@ -128,6 +136,11 @@ func (s *Server) Handler() http.Handler {
 	apiMux.HandleFunc("GET /v1/api-keys", s.requireScope(auth.ScopeAdmin, s.handleListAPIKeys))
 	apiMux.HandleFunc("POST /v1/api-keys", s.requireScope(auth.ScopeAdmin, s.handleCreateAPIKey))
 	apiMux.HandleFunc("DELETE /v1/api-keys/{id}", s.requireScope(auth.ScopeAdmin, s.handleRevokeAPIKey))
+
+	// IRC user management — admin scope.
+	if s.ircPasswd != nil {
+		apiMux.HandleFunc("PUT /v1/users/{nick}/password", s.requireScope(auth.ScopeAdmin, s.handleUserSetPassword))
+	}
 
 	// LLM / AI gateway — bots scope.
 	apiMux.HandleFunc("GET /v1/llm/backends", s.requireScope(auth.ScopeBots, s.handleLLMBackends))

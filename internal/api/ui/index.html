@@ -471,6 +471,7 @@ canvas { display:block; width:100% !important; }
     <button class="sm" onclick="openAdoptDrawer()">adopt existing user</button>
     <button class="sm primary" onclick="openRegisterUserDrawer()">+ register user</button>
   </div>
+  <div id="user-password-result" style="display:none;padding:0 12px"></div>
   <div style="flex:1;overflow-y:auto">
     <div id="users-container"></div>
   </div>
@@ -1617,6 +1618,7 @@ function renderUsersTable() {
       <td>${chs||'<span style="color:#8b949e">—</span>'}</td>
       <td style="white-space:nowrap">${fmtTime(a.created_at)}</td>
       <td><div class="actions">${!a.revoked?`
+        <button class="sm" onclick="resetUserPassword('${esc(a.nick)}')">reset password</button>
         <button class="sm" onclick="rotateAgent('${esc(a.nick)}')">rotate</button>
         <button class="sm danger" onclick="revokeAgent('${esc(a.nick)}')">revoke</button>`:``}
         <button class="sm danger" onclick="deleteAgent('${esc(a.nick)}')">delete</button></div></td>
@@ -1764,6 +1766,25 @@ async function rotateAgent(nick) {
     openDrawer();
   }
   catch(e) { alert('Rotate failed: '+e.message); }
+}
+
+async function resetUserPassword(nick) {
+  if (!confirm(`Reset password for ${nick}? This will generate a new password for both IRC and web UI login.`)) return;
+  try {
+    const result = await api('PUT', `/v1/users/${encodeURIComponent(nick)}/password`, {});
+    const el = document.getElementById('user-password-result');
+    el.style.display = 'block';
+    const synced = result.admin_synced ? '<div style="margin-top:6px;font-size:11px;color:#58a6ff">Admin (web UI) password also updated.</div>' : '';
+    el.innerHTML = renderAlert('success',
+      `<div><strong>Password reset: ${esc(nick)}</strong>
+      <div class="cred-box">
+        <div class="cred-row"><span class="cred-key">nick</span><span class="cred-val">${esc(result.nick)}</span><button class="sm" onclick="copyText('${esc(result.nick)}',this)">copy</button></div>
+        <div class="cred-row"><span class="cred-key">password</span><span class="cred-val">${esc(result.password)}</span><button class="sm" onclick="copyText('${esc(result.password)}',this)">copy</button></div>
+      </div>${synced}
+      <div style="margin-top:8px;font-size:11px;color:#7ee787">Save the password — shown once only.</div>
+      <button class="sm" onclick="this.closest('.alert').parentElement.style.display='none'" style="margin-top:8px">dismiss</button></div>`
+    );
+  } catch(e) { alert('Reset failed: ' + e.message); }
 }
 
 // --- users drawers ---
