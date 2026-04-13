@@ -41,6 +41,7 @@ type APIKey struct {
 	Name      string    `json:"name"`
 	Hash      string    `json:"hash"` // SHA-256 of the plaintext token
 	Scopes    []Scope   `json:"scopes"`
+	Team      string    `json:"team,omitempty"` // empty = unrestricted; non-empty = scoped to this team
 	CreatedAt time.Time `json:"created_at"`
 	LastUsed  time.Time `json:"last_used,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitempty"` // zero = never
@@ -78,9 +79,9 @@ func NewAPIKeyStore(path string) (*APIKeyStore, error) {
 	return s, nil
 }
 
-// Create generates a new API key with the given name and scopes.
+// Create generates a new API key with the given name, scopes, and optional team scope.
 // Returns the plaintext token (shown only once) and the stored key record.
-func (s *APIKeyStore) Create(name string, scopes []Scope, expiresAt time.Time) (plaintext string, key APIKey, err error) {
+func (s *APIKeyStore) Create(name string, scopes []Scope, expiresAt time.Time, team string) (plaintext string, key APIKey, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -94,6 +95,7 @@ func (s *APIKeyStore) Create(name string, scopes []Scope, expiresAt time.Time) (
 		Name:      name,
 		Hash:      hashToken(token),
 		Scopes:    scopes,
+		Team:      team,
 		CreatedAt: time.Now().UTC(),
 		ExpiresAt: expiresAt,
 		Active:    true,
@@ -109,6 +111,7 @@ func (s *APIKeyStore) Create(name string, scopes []Scope, expiresAt time.Time) (
 
 // Insert adds a pre-built API key with a known plaintext token.
 // Used for migrating the startup token into the store.
+// Inserted keys have no team scope (unrestricted).
 func (s *APIKeyStore) Insert(name, plaintext string, scopes []Scope) (APIKey, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -212,6 +215,32 @@ func TestStore(token string) *APIKeyStore {
 		CreatedAt: time.Now().UTC(),
 		Active:    true,
 	}}}
+	return s
+}
+
+// TestStoreWithTeam creates an in-memory APIKeyStore with two keys: an
+// admin-scope key for adminToken (unrestricted) and a team-scoped key for
+// teamToken with the given scopes and team. Intended for tests only.
+func TestStoreWithTeam(adminToken, teamToken string, scopes []Scope, team string) *APIKeyStore {
+	s := &APIKeyStore{path: "", data: []APIKey{
+		{
+			ID:        "admin-key",
+			Name:      "admin",
+			Hash:      hashToken(adminToken),
+			Scopes:    []Scope{ScopeAdmin},
+			CreatedAt: time.Now().UTC(),
+			Active:    true,
+		},
+		{
+			ID:        "team-key",
+			Name:      "team-" + team,
+			Hash:      hashToken(teamToken),
+			Scopes:    scopes,
+			Team:      team,
+			CreatedAt: time.Now().UTC(),
+			Active:    true,
+		},
+	}}
 	return s
 }
 

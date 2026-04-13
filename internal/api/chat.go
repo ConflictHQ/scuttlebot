@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/conflicthq/scuttlebot/internal/auth"
@@ -41,7 +42,37 @@ func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"channels": s.bridge.Channels()})
+	channels := s.bridge.Channels()
+	var shared []string
+	if s.cfgStore != nil {
+		shared = s.cfgStore.Get().Topology.SharedChannels
+	}
+	channels = filterChannelsByTeam(channels, teamFromRequest(r), shared)
+	writeJSON(w, http.StatusOK, map[string]any{"channels": channels})
+}
+
+// filterChannelsByTeam filters channels when an API key is team-scoped.
+// When keyTeam is empty (unrestricted), all channels are returned.
+// When team-scoped, only channels matching the team prefix (#team-{team}-*)
+// or channels with no team prefix at all (e.g. #general, #fleet) are shown.
+func filterChannelsByTeam(channels []string, keyTeam string, shared []string) []string {
+	if keyTeam == "" {
+		return channels
+	}
+
+	sharedSet := make(map[string]bool, len(shared))
+	for _, s := range shared {
+		sharedSet[s] = true
+	}
+
+	ownPrefix := "#team-" + keyTeam + "-"
+	filtered := make([]string, 0, len(channels))
+	for _, ch := range channels {
+		if strings.HasPrefix(ch, ownPrefix) || !strings.HasPrefix(ch, "#team-") || sharedSet[ch] {
+			filtered = append(filtered, ch)
+		}
+	}
+	return filtered
 }
 
 func (s *Server) handleChannelMessages(w http.ResponseWriter, r *http.Request) {

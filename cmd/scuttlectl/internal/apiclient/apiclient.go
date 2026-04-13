@@ -39,10 +39,13 @@ func (c *Client) GetAgent(nick string) (json.RawMessage, error) {
 }
 
 // RegisterAgent sends POST /v1/agents/register and returns raw JSON.
-func (c *Client) RegisterAgent(nick, agentType string, channels []string) (json.RawMessage, error) {
+func (c *Client) RegisterAgent(nick, agentType, team string, channels []string) (json.RawMessage, error) {
 	body := map[string]any{"nick": nick}
 	if agentType != "" {
 		body["type"] = agentType
+	}
+	if team != "" {
+		body["team"] = team
 	}
 	if len(channels) > 0 {
 		body["channels"] = channels
@@ -146,10 +149,13 @@ func (c *Client) ListAPIKeys() (json.RawMessage, error) {
 }
 
 // CreateAPIKey sends POST /v1/api-keys.
-func (c *Client) CreateAPIKey(name string, scopes []string, expiresIn string) (json.RawMessage, error) {
+func (c *Client) CreateAPIKey(name string, scopes []string, expiresIn, team string) (json.RawMessage, error) {
 	body := map[string]any{"name": name, "scopes": scopes}
 	if expiresIn != "" {
 		body["expires_in"] = expiresIn
+	}
+	if team != "" {
+		body["team"] = team
 	}
 	return c.post("/v1/api-keys", body)
 }

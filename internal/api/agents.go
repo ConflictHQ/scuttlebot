@@ -11,6 +11,7 @@ import (
 type registerRequest struct {
 	Nick        string                    `json:"nick"`
 	Type        registry.AgentType        `json:"type"`
+	Team        string                    `json:"team,omitempty"`
 	Channels    []string                  `json:"channels"`
 	OpsChannels []string                  `json:"ops_channels,omitempty"`
 	Permissions []string                  `json:"permissions"`
@@ -60,10 +61,15 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set skills if provided.
-	if len(req.Skills) > 0 {
+	// Set optional fields (team, skills) if provided.
+	if req.Team != "" || len(req.Skills) > 0 {
 		if agent, err := s.registry.Get(req.Nick); err == nil {
-			agent.Skills = req.Skills
+			if req.Team != "" {
+				agent.Team = req.Team
+			}
+			if len(req.Skills) > 0 {
+				agent.Skills = req.Skills
+			}
 			_ = s.registry.Update(agent)
 		}
 	}
@@ -193,19 +199,40 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
 	var req struct {
 		Channels []string `json:"channels"`
+		Team     *string  `json:"team,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := s.registry.UpdateChannels(nick, req.Channels); err != nil {
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
-			writeError(w, http.StatusNotFound, err.Error())
+	if req.Channels != nil {
+		if err := s.registry.UpdateChannels(nick, req.Channels); err != nil {
+			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
+				writeError(w, http.StatusNotFound, err.Error())
+				return
+			}
+			s.log.Error("update agent channels", "nick", nick, "err", err)
+			writeError(w, http.StatusInternalServerError, "update failed")
 			return
 		}
-		s.log.Error("update agent channels", "nick", nick, "err", err)
-		writeError(w, http.StatusInternalServerError, "update failed")
-		return
+	}
+	if req.Team != nil {
+		agent, err := s.registry.Get(nick)
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
+				writeError(w, http.StatusNotFound, err.Error())
+				return
+			}
+			s.log.Error("update agent team", "nick", nick, "err", err)
+			writeError(w, http.StatusInternalServerError, "update failed")
+			return
+		}
+		agent.Team = *req.Team
+		if err := s.registry.Update(agent); err != nil {
+			s.log.Error("update agent team", "nick", nick, "err", err)
+			writeError(w, http.StatusInternalServerError, "update failed")
+			return
+		}
 	}
 	s.registry.Touch(nick)
 	w.WriteHeader(http.StatusNoContent)
@@ -213,6 +240,11 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	agents := s.registry.List()
+
+	// Team filtering: resolve the effective team from the API key scope and
+	// the optional ?team= query param.
+	agents = filterAgentsByTeam(agents, teamFromRequest(r), r.URL.Query().Get("team"))
+
 	// Filter by skill if ?skill= query param is present.
 	if skill := r.URL.Query().Get("skill"); skill != "" {
 		filtered := make([]*registry.Agent, 0)
@@ -227,6 +259,37 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		agents = filtered
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"agents": agents})
+}
+
+// filterAgentsByTeam filters agents by team. keyTeam is the API key's team
+// scope (empty = unrestricted), queryTeam is the ?team= query param.
+//
+// Rules:
+//   - Unrestricted key + no query param: return all agents.
+//   - Unrestricted key + query param: filter to agents matching that team.
+//   - Team-scoped key + no query param: filter to agents matching key's team.
+//   - Team-scoped key + same query param: same as above.
+//   - Team-scoped key + different query param: empty result (cannot escape scope).
+func filterAgentsByTeam(agents []*registry.Agent, keyTeam, queryTeam string) []*registry.Agent {
+	effectiveTeam := keyTeam
+	if queryTeam != "" {
+		if keyTeam != "" && !strings.EqualFold(queryTeam, keyTeam) {
+			// Team-scoped key cannot query a different team.
+			return []*registry.Agent{}
+		}
+		effectiveTeam = queryTeam
+	}
+	if effectiveTeam == "" {
+		return agents
+	}
+
+	filtered := make([]*registry.Agent, 0)
+	for _, a := range agents {
+		if strings.EqualFold(a.Team, effectiveTeam) {
+			filtered = append(filtered, a)
+		}
+	}
+	return filtered
 }
 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {

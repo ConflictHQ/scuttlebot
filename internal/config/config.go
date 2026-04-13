@@ -262,6 +262,9 @@ type TopologyConfig struct {
 	// Types are prefix-based rules applied to dynamically created channels.
 	// The first matching prefix wins.
 	Types []ChannelTypeConfig `yaml:"types" json:"types"`
+
+	// SharedChannels are visible to all teams regardless of team prefix filtering.
+	SharedChannels []string `yaml:"shared_channels" json:"shared_channels,omitempty"`
 }
 
 // StaticChannelConfig describes a channel that is provisioned at startup.

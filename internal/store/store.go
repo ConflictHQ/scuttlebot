@@ -18,6 +18,7 @@ import (
 type AgentRow struct {
 	Nick      string
 	Type      string
+	Team      string
 	Config    []byte // JSON-encoded EngagementConfig
 	CreatedAt time.Time
 	Revoked   bool
@@ -96,6 +97,7 @@ func (s *Store) migrate() error {
 	// Additive migrations — safe to re-run.
 	addColumns := []string{
 		`ALTER TABLE agents ADD COLUMN last_seen TEXT`,
+		`ALTER TABLE agents ADD COLUMN team TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range addColumns {
 		_, _ = s.db.Exec(stmt) // ignore "column already exists"
@@ -114,16 +116,16 @@ func (s *Store) AgentUpsert(r *AgentRow) error {
 		lastSeen = r.LastSeen.UTC().Format(time.RFC3339Nano)
 	}
 	q := fmt.Sprintf(
-		`INSERT INTO agents (nick, type, config, created_at, revoked, last_seen)
-		 VALUES (%s, %s, %s, %s, %s, %s)
+		`INSERT INTO agents (nick, type, team, config, created_at, revoked, last_seen)
+		 VALUES (%s, %s, %s, %s, %s, %s, %s)
 		 ON CONFLICT(nick) DO UPDATE SET
-		   type=EXCLUDED.type, config=EXCLUDED.config,
+		   type=EXCLUDED.type, team=EXCLUDED.team, config=EXCLUDED.config,
 		   created_at=EXCLUDED.created_at, revoked=EXCLUDED.revoked,
 		   last_seen=EXCLUDED.last_seen`,
-		s.ph(1), s.ph(2), s.ph(3), s.ph(4), s.ph(5), s.ph(6),
+		s.ph(1), s.ph(2), s.ph(3), s.ph(4), s.ph(5), s.ph(6), s.ph(7),
 	)
 	_, err := s.db.Exec(q,
-		r.Nick, r.Type, string(r.Config),
+		r.Nick, r.Type, r.Team, string(r.Config),
 		r.CreatedAt.UTC().Format(time.RFC3339), revoked, lastSeen,
 	)
 	return err
@@ -140,7 +142,7 @@ func (s *Store) AgentDelete(nick string) error {
 
 // AgentList returns all agent rows, including revoked ones.
 func (s *Store) AgentList() ([]*AgentRow, error) {
-	rows, err := s.db.Query(`SELECT nick, type, config, created_at, revoked, COALESCE(last_seen,'') FROM agents`)
+	rows, err := s.db.Query(`SELECT nick, type, COALESCE(team,''), config, created_at, revoked, COALESCE(last_seen,'') FROM agents`)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +153,7 @@ func (s *Store) AgentList() ([]*AgentRow, error) {
 		var r AgentRow
 		var cfg, ts, lastSeenStr string
 		var revokedInt int
-		if err := rows.Scan(&r.Nick, &r.Type, &cfg, &ts, &revokedInt, &lastSeenStr); err != nil {
+		if err := rows.Scan(&r.Nick, &r.Type, &r.Team, &cfg, &ts, &revokedInt, &lastSeenStr); err != nil {
 			return nil, err
 		}
 		r.Config = []byte(cfg)

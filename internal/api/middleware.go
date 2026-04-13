@@ -56,6 +56,16 @@ func (s *Server) requireScope(scope auth.Scope, next http.HandlerFunc) http.Hand
 	}
 }
 
+// teamFromRequest returns the team scope of the authenticated API key,
+// or "" if the key is unrestricted (no team) or unauthenticated.
+func teamFromRequest(r *http.Request) string {
+	key := apiKeyFromContext(r.Context())
+	if key == nil {
+		return ""
+	}
+	return key.Team
+}
+
 func bearerToken(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	token, found := strings.CutPrefix(auth, "Bearer ")

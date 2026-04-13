@@ -487,6 +487,9 @@ canvas { display:block; width:100% !important; }
       <option value="offline">offline</option>
       <option value="revoked">revoked</option>
     </select>
+    <select id="agent-team-filter" onchange="agentPage=0;renderAgentTable()" style="padding:5px 8px;font-size:12px;width:100px">
+      <option value="all">all teams</option>
+    </select>
     <div class="spacer"></div>
     <span class="badge" id="agent-count" style="margin-right:4px">0</span>
     <button class="sm" onclick="loadAgents()">↻ refresh</button>
@@ -1583,6 +1586,7 @@ async function loadAgents() {
   try {
     const data = await api('GET', '/v1/agents');
     allAgents = data.agents || [];
+    populateTeamFilter();
     renderUsersTable();
     renderAgentTable();
     populateChatIdentity();
@@ -1653,6 +1657,17 @@ function presenceDot(a) {
   return '<span style="color:#484f58" title="offline">●</span>';
 }
 
+function populateTeamFilter() {
+  const sel = document.getElementById('agent-team-filter');
+  const prev = sel.value;
+  const teams = [...new Set(allAgents.map(a => a.team || '').filter(t => t))].sort();
+  sel.innerHTML = '<option value="all">all teams</option>';
+  for (const t of teams) {
+    sel.innerHTML += `<option value="${esc(t)}">${esc(t)}</option>`;
+  }
+  if (prev !== 'all' && teams.includes(prev)) sel.value = prev;
+}
+
 let agentPage = 0;
 const AGENTS_PER_PAGE = 25;
 
@@ -1667,10 +1682,17 @@ function renderAgentTable() {
   else if (statusFilter === 'offline') filtered = bots.filter(a => !a.online && !a.revoked);
   else if (statusFilter === 'revoked') filtered = bots.filter(a => a.revoked);
 
+  // Team filter.
+  const teamFilter = document.getElementById('agent-team-filter').value;
+  if (teamFilter !== 'all') {
+    filtered = filtered.filter(a => (a.team || '') === teamFilter);
+  }
+
   // Text search.
   const agents = filtered.filter(a => !q ||
     a.nick.toLowerCase().includes(q) ||
     a.type.toLowerCase().includes(q) ||
+    (a.team||'').toLowerCase().includes(q) ||
     (a.config?.channels||[]).some(c => c.toLowerCase().includes(q)) ||
     (a.config?.permissions||[]).some(p => p.toLowerCase().includes(q)));
 
