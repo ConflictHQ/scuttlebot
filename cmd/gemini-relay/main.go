@@ -74,6 +74,7 @@ type config struct {
 	Nick               string
 	HooksEnabled       bool
 	InterruptOnMessage bool
+	MirrorReasoning    bool
 	PollInterval       time.Duration
 	HeartbeatInterval  time.Duration
 	TargetCWD          string
@@ -566,6 +567,41 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 				if msg.Type != "gemini" {
 					continue
 				}
+				// Mirror thinking/reasoning blocks.
+				if cfg.MirrorReasoning {
+					for _, t := range msg.Thoughts {
+						if t.Subject != "" {
+							for _, line := range splitMirrorText(t.Subject) {
+								text := "\xf0\x9f\x92\xad " + line
+								if ptyDedup != nil {
+									ptyDedup.MarkSeen(text)
+								}
+								_ = relay.Post(ctx, text)
+							}
+						}
+						if t.Description != "" {
+							for _, line := range splitMirrorText(t.Description) {
+								text := "\xf0\x9f\x92\xad " + line
+								if ptyDedup != nil {
+									ptyDedup.MarkSeen(text)
+								}
+								_ = relay.Post(ctx, text)
+							}
+						}
+					}
+				}
+
+				// Mirror content text.
+				if msg.Content != "" {
+					for _, line := range splitMirrorText(msg.Content) {
+						if ptyDedup != nil {
+							ptyDedup.MarkSeen(line)
+						}
+						_ = relay.Post(ctx, line)
+					}
+				}
+
+				// Mirror tool calls.
 				for _, tc := range msg.ToolCalls {
 					meta, _ := json.Marshal(map[string]any{
 						"type": "tool_result",
@@ -593,6 +629,33 @@ func slugify(s string) string {
 		return "default"
 	}
 	return s
+}
+
+// splitMirrorText normalises line endings, drops blank lines, and wraps
+// long lines at word boundaries to fit within defaultMirrorLineMax.
+func splitMirrorText(text string) []string {
+	clean := strings.ReplaceAll(text, "\r\n", "\n")
+	clean = strings.ReplaceAll(clean, "\r", "\n")
+	raw := strings.Split(clean, "\n")
+	var out []string
+	for _, line := range raw {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		for len(line) > defaultMirrorLineMax {
+			cut := strings.LastIndex(line[:defaultMirrorLineMax], " ")
+			if cut <= 0 {
+				cut = defaultMirrorLineMax
+			}
+			out = append(out, line[:cut])
+			line = strings.TrimSpace(line[cut:])
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 func filterMessages(messages []message, since time.Time, nick, agentType string) ([]message, time.Time) {
@@ -640,6 +703,7 @@ func loadConfig(args []string) (config, error) {
 		IRCDeleteOnClose:   getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_DELETE_ON_CLOSE", true),
 		HooksEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true),
 		InterruptOnMessage: getenvBoolOr(fileConfig, "SCUTTLEBOT_INTERRUPT_ON_MESSAGE", true),
+		MirrorReasoning:    getenvBoolOr(fileConfig, "SCUTTLEBOT_MIRROR_REASONING", true),
 		PollInterval:       getenvDurationOr(fileConfig, "SCUTTLEBOT_POLL_INTERVAL", defaultPollInterval),
 		HeartbeatInterval:  getenvDurationAllowZeroOr(fileConfig, "SCUTTLEBOT_PRESENCE_HEARTBEAT", defaultHeartbeat),
 		Args:               append([]string(nil), args...),
