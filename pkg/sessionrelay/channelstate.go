@@ -74,6 +74,32 @@ func RemoveChannelStateFile(path string) error {
 	return nil
 }
 
+// ParseChannelResolutions parses "chan1:level,chan2:level" into a map.
+// Channels are normalised with a "#" prefix. Empty input returns nil, nil.
+func ParseChannelResolutions(raw string) (map[string]Resolution, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	out := make(map[string]Resolution)
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		parts := strings.SplitN(pair, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("sessionrelay: invalid channel resolution %q (expected channel:level)", pair)
+		}
+		ch := normalizeChannel(strings.TrimSpace(parts[0]))
+		res, err := ParseResolution(parts[1])
+		if err != nil {
+			return nil, err
+		}
+		out[ch] = res
+	}
+	return out, nil
+}
+
 func ParseBrokerCommand(text string) (BrokerCommand, bool) {
 	fields := strings.Fields(strings.TrimSpace(text))
 	if len(fields) == 0 {
