@@ -34,6 +34,7 @@ const (
 type Agent struct {
 	Nick        string           `json:"nick"`
 	Type        AgentType        `json:"type"`
+	Team        string           `json:"team,omitempty"`
 	Channels    []string         `json:"channels"`    // convenience: same as Config.Channels
 	Permissions []string         `json:"permissions"` // convenience: same as Config.Permissions
 	Config      EngagementConfig `json:"config"`
@@ -56,6 +57,7 @@ type EngagementPayload struct {
 	V        int              `json:"v"`
 	Nick     string           `json:"nick"`
 	Type     AgentType        `json:"type"`
+	Team     string           `json:"team,omitempty"`
 	Config   EngagementConfig `json:"config"`
 	IssuedAt time.Time        `json:"issued_at"`
 }
@@ -125,6 +127,7 @@ func (r *Registry) SetStore(db *store.Store) error {
 		a := &Agent{
 			Nick:        row.Nick,
 			Type:        AgentType(row.Type),
+			Team:        row.Team,
 			Channels:    cfg.Channels,
 			Permissions: cfg.Permissions,
 			Config:      cfg,
@@ -145,6 +148,7 @@ func (r *Registry) saveOne(a *Agent) {
 		_ = r.db.AgentUpsert(&store.AgentRow{
 			Nick:      a.Nick,
 			Type:      string(a.Type),
+			Team:      a.Team,
 			Config:    cfg,
 			CreatedAt: a.CreatedAt,
 			Revoked:   a.Revoked,
@@ -486,6 +490,7 @@ func (r *Registry) signPayload(agent *Agent) (*SignedPayload, error) {
 		V:        1,
 		Nick:     agent.Nick,
 		Type:     agent.Type,
+		Team:     agent.Team,
 		Config:   agent.Config,
 		IssuedAt: time.Now(),
 	}

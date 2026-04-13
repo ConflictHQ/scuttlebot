@@ -12,6 +12,7 @@ type createAPIKeyRequest struct {
 	Name      string   `json:"name"`
 	Scopes    []string `json:"scopes"`
 	ExpiresIn string   `json:"expires_in,omitempty"` // e.g. "720h" for 30 days, empty = never
+	Team      string   `json:"team,omitempty"`       // optional team scope; empty = unrestricted
 }
 
 type createAPIKeyResponse struct {
@@ -19,6 +20,7 @@ type createAPIKeyResponse struct {
 	Name      string       `json:"name"`
 	Token     string       `json:"token"` // plaintext, shown only once
 	Scopes    []auth.Scope `json:"scopes"`
+	Team      string       `json:"team,omitempty"`
 	CreatedAt time.Time    `json:"created_at"`
 	ExpiresAt *time.Time   `json:"expires_at,omitempty"`
 }
@@ -27,6 +29,7 @@ type apiKeyListEntry struct {
 	ID        string       `json:"id"`
 	Name      string       `json:"name"`
 	Scopes    []auth.Scope `json:"scopes"`
+	Team      string       `json:"team,omitempty"`
 	CreatedAt time.Time    `json:"created_at"`
 	LastUsed  *time.Time   `json:"last_used,omitempty"`
 	ExpiresAt *time.Time   `json:"expires_at,omitempty"`
@@ -42,6 +45,7 @@ func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 			ID:        k.ID,
 			Name:      k.Name,
 			Scopes:    k.Scopes,
+			Team:      k.Team,
 			CreatedAt: k.CreatedAt,
 			Active:    k.Active,
 		}
@@ -93,7 +97,7 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		expiresAt = time.Now().Add(dur)
 	}
 
-	token, key, err := s.apiKeys.Create(req.Name, scopes, expiresAt)
+	token, key, err := s.apiKeys.Create(req.Name, scopes, expiresAt, req.Team)
 	if err != nil {
 		s.log.Error("create api key", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to create API key")
@@ -105,6 +109,7 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		Name:      key.Name,
 		Token:     token,
 		Scopes:    key.Scopes,
+		Team:      key.Team,
 		CreatedAt: key.CreatedAt,
 	}
 	if !key.ExpiresAt.IsZero() {

@@ -224,6 +224,7 @@ func cmdAgentList(api *apiclient.Client, asJSON bool) {
 		Agents []struct {
 			Nick     string   `json:"nick"`
 			Type     string   `json:"type"`
+			Team     string   `json:"team"`
 			Channels []string `json:"channels"`
 			Revoked  bool     `json:"revoked"`
 		} `json:"agents"`
@@ -236,13 +237,17 @@ func cmdAgentList(api *apiclient.Client, asJSON bool) {
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NICK\tTYPE\tCHANNELS\tSTATUS")
+	fmt.Fprintln(tw, "NICK\tTYPE\tTEAM\tCHANNELS\tSTATUS")
 	for _, a := range body.Agents {
 		status := "active"
 		if a.Revoked {
 			status = "revoked"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", a.Nick, a.Type, strings.Join(a.Channels, ","), status)
+		team := a.Team
+		if team == "" {
+			team = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", a.Nick, a.Type, team, strings.Join(a.Channels, ","), status)
 	}
 	tw.Flush()
 }
@@ -258,6 +263,7 @@ func cmdAgentGet(api *apiclient.Client, nick string, asJSON bool) {
 	var a struct {
 		Nick     string   `json:"nick"`
 		Type     string   `json:"type"`
+		Team     string   `json:"team"`
 		Channels []string `json:"channels"`
 		Revoked  bool     `json:"revoked"`
 	}
@@ -270,6 +276,9 @@ func cmdAgentGet(api *apiclient.Client, nick string, asJSON bool) {
 	}
 	fmt.Fprintf(tw, "nick\t%s\n", a.Nick)
 	fmt.Fprintf(tw, "type\t%s\n", a.Type)
+	if a.Team != "" {
+		fmt.Fprintf(tw, "team\t%s\n", a.Team)
+	}
 	fmt.Fprintf(tw, "channels\t%s\n", strings.Join(a.Channels, ", "))
 	fmt.Fprintf(tw, "status\t%s\n", status)
 	tw.Flush()
@@ -279,9 +288,10 @@ func cmdAgentRegister(api *apiclient.Client, args []string, asJSON bool) {
 	nick := args[0]
 	var channels []string
 
-	// Parse optional --type and --channels from remaining args.
+	// Parse optional --type, --team, and --channels from remaining args.
 	fs := flag.NewFlagSet("agent register", flag.ExitOnError)
 	typeFlag := fs.String("type", "worker", "agent type (worker, orchestrator, observer)")
+	teamFlag := fs.String("team", "", "team the agent belongs to")
 	channelsFlag := fs.String("channels", "", "comma-separated list of channels to join")
 	_ = fs.Parse(args[1:])
 	agentType := *typeFlag
@@ -293,7 +303,7 @@ func cmdAgentRegister(api *apiclient.Client, args []string, asJSON bool) {
 		}
 	}
 
-	raw, err := api.RegisterAgent(nick, agentType, channels)
+	raw, err := api.RegisterAgent(nick, agentType, *teamFlag, channels)
 	die(err)
 	if asJSON {
 		printJSON(raw)
@@ -611,15 +621,16 @@ func cmdAPIKeyCreate(api *apiclient.Client, args []string, asJSON bool) {
 	nameFlag := fs.String("name", "", "key name (required)")
 	scopesFlag := fs.String("scopes", "", "comma-separated scopes (required)")
 	expiresFlag := fs.String("expires", "", "expiry duration (e.g. 720h for 30 days)")
+	teamFlag := fs.String("team", "", "team scope (empty = unrestricted)")
 	_ = fs.Parse(args)
 
 	if *nameFlag == "" || *scopesFlag == "" {
-		fmt.Fprintln(os.Stderr, "usage: scuttlectl api-key create --name <name> --scopes <scope1,scope2> [--expires 720h]")
+		fmt.Fprintln(os.Stderr, "usage: scuttlectl api-key create --name <name> --scopes <scope1,scope2> [--expires 720h] [--team <team>]")
 		os.Exit(1)
 	}
 
 	scopes := strings.Split(*scopesFlag, ",")
-	raw, err := api.CreateAPIKey(*nameFlag, scopes, *expiresFlag)
+	raw, err := api.CreateAPIKey(*nameFlag, scopes, *expiresFlag, *teamFlag)
 	die(err)
 
 	if asJSON {
@@ -663,6 +674,7 @@ Commands:
   agent get <nick>              get a single agent
   agent register <nick>         register a new agent, print credentials
     [--type worker|orchestrator|observer|operator]
+    [--team team-name]
     [--channels #a,#b,#c]
   agent revoke <nick>           revoke agent credentials
   agent delete <nick>           permanently remove agent from registry
@@ -683,7 +695,7 @@ Commands:
     [--charset alphanum]        alpha | alphanum | hex | ascii
     [--password value]          set explicit password
   api-key list                  list API keys
-  api-key create --name <name> --scopes <s1,s2> [--expires 720h]
+  api-key create --name <name> --scopes <s1,s2> [--expires 720h] [--team <team>]
   api-key revoke <id>           revoke an API key
 `, version)
 }

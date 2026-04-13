@@ -94,7 +94,7 @@ func TestRegisterAgent(t *testing.T) {
 		_, _ = w.Write([]byte(`{"nick":"claude-1","credentials":{"passphrase":"secret"}}`))
 	}))
 
-	raw, err := client.RegisterAgent("claude-1", "worker", []string{"#general"})
+	raw, err := client.RegisterAgent("claude-1", "worker", "", []string{"#general"})
 	if err != nil {
 		t.Fatal(err)
 	}
