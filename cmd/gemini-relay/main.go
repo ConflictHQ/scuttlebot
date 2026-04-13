@@ -69,6 +69,8 @@ type config struct {
 	IRCDeleteOnClose   bool
 	Channel            string
 	Channels           []string
+	ProjectChannel     string
+	TeamChannel        string
 	ChannelStateFile   string
 	SessionID          string
 	Nick               string
@@ -138,6 +140,15 @@ func run(cfg config) error {
 			} else {
 				relay = conn
 				relayActive = true
+
+				// Auto-provision dedicated session channel.
+				sessionChannel := fmt.Sprintf("session-%s", cfg.Nick)
+				if err := relay.JoinChannel(ctx, sessionChannel); err != nil {
+					fmt.Fprintf(os.Stderr, "gemini-relay: session channel provision: %v\n", err)
+				} else {
+					cfg.Channels = mergeChannels(cfg.Channels, []string{sessionChannel})
+				}
+
 				if err := sessionrelay.WriteChannelStateFile(cfg.ChannelStateFile, relay.ControlChannel(), relay.Channels()); err != nil {
 					fmt.Fprintf(os.Stderr, "gemini-relay: channel state disabled: %v\n", err)
 				}
@@ -724,6 +735,16 @@ func loadConfig(args []string) (config, error) {
 	// Merge per-repo config if present.
 	if rc, err := loadRepoConfig(target); err == nil && rc != nil {
 		cfg.Channels = mergeChannels(cfg.Channels, rc.allChannels())
+	}
+
+	// Merge project/team channels if configured.
+	cfg.ProjectChannel = getenvOr(fileConfig, "SCUTTLEBOT_PROJECT_CHANNEL", "")
+	cfg.TeamChannel = getenvOr(fileConfig, "SCUTTLEBOT_TEAM_CHANNEL", "")
+	if cfg.ProjectChannel != "" {
+		cfg.Channels = mergeChannels(cfg.Channels, []string{cfg.ProjectChannel})
+	}
+	if cfg.TeamChannel != "" {
+		cfg.Channels = mergeChannels(cfg.Channels, []string{cfg.TeamChannel})
 	}
 
 	sessionID := getenvOr(fileConfig, "SCUTTLEBOT_SESSION_ID", "")
