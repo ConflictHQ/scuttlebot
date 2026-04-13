@@ -405,7 +405,7 @@ func main() {
 	if topoMgr != nil {
 		topoIface = topoMgr
 	}
-	apiSrv := api.New(reg, apiKeyStore, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, cfg.TLS.Domain, log)
+	apiSrv := api.New(reg, apiKeyStore, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, ergoMgr.API(), cfg.TLS.Domain, log)
 	handler := apiSrv.Handler()
 
 	var httpServer, tlsServer *http.Server
