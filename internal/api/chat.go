@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/conflicthq/scuttlebot/internal/auth"
@@ -31,12 +30,18 @@ type chatBridge interface {
 
 func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	s.bridge.JoinChannel(channel)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	s.bridge.LeaveChannel(channel)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -60,15 +65,9 @@ func filterChannelsByTeam(channels []string, keyTeam string, shared []string) []
 		return channels
 	}
 
-	sharedSet := make(map[string]bool, len(shared))
-	for _, s := range shared {
-		sharedSet[s] = true
-	}
-
-	ownPrefix := "#team-" + keyTeam + "-"
 	filtered := make([]string, 0, len(channels))
 	for _, ch := range channels {
-		if strings.HasPrefix(ch, ownPrefix) || !strings.HasPrefix(ch, "#team-") || sharedSet[ch] {
+		if channelAllowedForTeam(ch, keyTeam, shared) {
 			filtered = append(filtered, ch)
 		}
 	}
@@ -77,6 +76,9 @@ func filterChannelsByTeam(channels []string, keyTeam string, shared []string) []
 
 func (s *Server) handleChannelMessages(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	// Auto-join on first access so the bridge starts tracking this channel.
 	s.bridge.JoinChannel(channel)
 	msgs := s.bridge.Messages(channel)
@@ -101,6 +103,9 @@ func (s *Server) handleChannelMessages(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	var req struct {
 		Text string       `json:"text"`
 		Nick string       `json:"nick"`
@@ -124,6 +129,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChannelPresence(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	var req struct {
 		Nick string `json:"nick"`
 	}
@@ -144,6 +152,9 @@ func (s *Server) handleChannelPresence(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChannelUsers(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	users := s.bridge.UsersWithModes(channel)
 	if users == nil {
 		users = []bridge.UserInfo{}
@@ -154,6 +165,9 @@ func (s *Server) handleChannelUsers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetChannelConfig(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	if s.policies == nil {
 		writeJSON(w, http.StatusOK, ChannelDisplayConfig{})
 		return
@@ -165,6 +179,9 @@ func (s *Server) handleGetChannelConfig(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handlePutChannelConfig(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	if s.policies == nil {
 		writeError(w, http.StatusServiceUnavailable, "policies not configured")
 		return
@@ -197,6 +214,10 @@ func (s *Server) handleChannelStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	channel := "#" + r.PathValue("channel")
+	if !channelAllowedForTeam(channel, key.Team, s.sharedChannels()) {
+		writeError(w, http.StatusNotFound, "channel not found")
+		return
+	}
 	s.bridge.JoinChannel(channel)
 
 	flusher, ok := w.(http.Flusher)

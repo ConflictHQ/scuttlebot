@@ -49,6 +49,10 @@ func (s *Server) handleProvisionChannel(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.requestAllowsChannel(r, req.Name) {
+		writeError(w, http.StatusForbidden, "channel outside team scope")
+		return
+	}
 	if s.topoMgr == nil {
 		writeError(w, http.StatusServiceUnavailable, "topology not configured")
 		return
@@ -132,6 +136,9 @@ func (s *Server) handleDropChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	if s.topoMgr == nil {
 		writeError(w, http.StatusServiceUnavailable, "topology not configured")
 		return
@@ -143,6 +150,9 @@ func (s *Server) handleDropChannel(w http.ResponseWriter, r *http.Request) {
 // handleGetInstructions handles GET /v1/channels/{channel}/instructions.
 func (s *Server) handleGetInstructions(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	if s.policies == nil {
 		writeJSON(w, http.StatusOK, map[string]string{"channel": channel, "instructions": ""})
 		return
@@ -155,6 +165,9 @@ func (s *Server) handleGetInstructions(w http.ResponseWriter, r *http.Request) {
 // handlePutInstructions handles PUT /v1/channels/{channel}/instructions.
 func (s *Server) handlePutInstructions(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	if s.policies == nil {
 		writeError(w, http.StatusServiceUnavailable, "policies not configured")
 		return
@@ -181,6 +194,9 @@ func (s *Server) handlePutInstructions(w http.ResponseWriter, r *http.Request) {
 // handleDeleteInstructions handles DELETE /v1/channels/{channel}/instructions.
 func (s *Server) handleDeleteInstructions(w http.ResponseWriter, r *http.Request) {
 	channel := "#" + r.PathValue("channel")
+	if !s.requireScopedChannel(w, r, channel) {
+		return
+	}
 	if s.policies == nil {
 		writeError(w, http.StatusServiceUnavailable, "policies not configured")
 		return
@@ -212,6 +228,7 @@ func (s *Server) handleGetTopology(w http.ResponseWriter, r *http.Request) {
 	for i, sc := range statics {
 		staticNames[i] = sc.Name
 	}
+	staticNames = filterChannelsByTeam(staticNames, teamFromRequest(r), s.sharedChannels())
 
 	types := policy.Types()
 	typeInfos := make([]channelTypeInfo, len(types))
@@ -229,6 +246,6 @@ func (s *Server) handleGetTopology(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, topologyResponse{
 		StaticChannels: staticNames,
 		Types:          typeInfos,
-		ActiveChannels: s.topoMgr.ListChannels(),
+		ActiveChannels: filterChannelInfosByTeam(s.topoMgr.ListChannels(), teamFromRequest(r), s.sharedChannels()),
 	})
 }

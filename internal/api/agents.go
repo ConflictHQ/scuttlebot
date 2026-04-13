@@ -38,6 +38,15 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if req.Type == "" {
 		req.Type = registry.AgentTypeWorker
 	}
+	team, ok := effectiveRegisterTeam(teamFromRequest(r), req.Team)
+	if !ok {
+		writeError(w, http.StatusForbidden, "team outside scope")
+		return
+	}
+	if !s.requireScopedChannels(w, r, req.Channels) || !s.requireScopedChannels(w, r, req.OpsChannels) {
+		return
+	}
+	req.Team = team
 
 	cfg := registry.EngagementConfig{
 		Channels:    req.Channels,
@@ -50,7 +59,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if req.Rules != nil {
 		cfg.Rules = *req.Rules
 	}
-	creds, payload, err := s.registry.Register(req.Nick, req.Type, cfg)
+	creds, _, err := s.registry.Register(req.Nick, req.Type, cfg)
 	if err != nil {
 		if strings.Contains(err.Error(), "already registered") {
 			writeError(w, http.StatusConflict, err.Error())
@@ -63,18 +72,33 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	// Set optional fields (team, skills) if provided.
 	if req.Team != "" || len(req.Skills) > 0 {
-		if agent, err := s.registry.Get(req.Nick); err == nil {
-			if req.Team != "" {
-				agent.Team = req.Team
-			}
-			if len(req.Skills) > 0 {
-				agent.Skills = req.Skills
-			}
-			_ = s.registry.Update(agent)
+		agent, err := s.registry.Get(req.Nick)
+		if err != nil {
+			s.log.Error("register agent metadata", "nick", req.Nick, "err", err)
+			writeError(w, http.StatusInternalServerError, "registration failed")
+			return
+		}
+		if req.Team != "" {
+			agent.Team = req.Team
+		}
+		if len(req.Skills) > 0 {
+			agent.Skills = req.Skills
+		}
+		if err := s.registry.Update(agent); err != nil {
+			s.log.Error("register agent metadata", "nick", req.Nick, "err", err)
+			writeError(w, http.StatusInternalServerError, "registration failed")
+			return
 		}
 	}
+
+	payload, err := s.registry.SignedPayload(req.Nick)
+	if err != nil {
+		s.log.Error("register payload", "nick", req.Nick, "err", err)
+		writeError(w, http.StatusInternalServerError, "registration failed")
+		return
+	}
 	s.registry.Touch(req.Nick)
-	go s.setAgentModes(req.Nick, req.Type, cfg) // async — don't block response
+	s.setAgentModes(req.Nick, req.Type, cfg)
 	writeJSON(w, http.StatusCreated, registerResponse{
 		Credentials: creds,
 		Payload:     payload,
@@ -96,12 +120,15 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 	if req.Type == "" {
 		req.Type = registry.AgentTypeWorker
 	}
+	if !s.requireScopedChannels(w, r, req.Channels) || !s.requireScopedChannels(w, r, req.OpsChannels) {
+		return
+	}
 	cfg := registry.EngagementConfig{
 		Channels:    req.Channels,
 		OpsChannels: req.OpsChannels,
 		Permissions: req.Permissions,
 	}
-	payload, err := s.registry.Adopt(nick, req.Type, cfg)
+	_, err := s.registry.Adopt(nick, req.Type, cfg)
 	if err != nil {
 		if strings.Contains(err.Error(), "already registered") {
 			writeError(w, http.StatusConflict, err.Error())
@@ -111,12 +138,35 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "adopt failed")
 		return
 	}
+	if team := teamFromRequest(r); team != "" {
+		agent, err := s.registry.Get(nick)
+		if err != nil {
+			s.log.Error("adopt agent metadata", "nick", nick, "err", err)
+			writeError(w, http.StatusInternalServerError, "adopt failed")
+			return
+		}
+		agent.Team = team
+		if err := s.registry.Update(agent); err != nil {
+			s.log.Error("adopt agent metadata", "nick", nick, "err", err)
+			writeError(w, http.StatusInternalServerError, "adopt failed")
+			return
+		}
+	}
+	payload, err := s.registry.SignedPayload(nick)
+	if err != nil {
+		s.log.Error("adopt payload", "nick", nick, "err", err)
+		writeError(w, http.StatusInternalServerError, "adopt failed")
+		return
+	}
 	s.setAgentModes(nick, req.Type, cfg)
 	writeJSON(w, http.StatusOK, map[string]any{"nick": nick, "payload": payload})
 }
 
 func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
+	if _, ok := s.getScopedAgent(w, r, nick); !ok {
+		return
+	}
 	creds, err := s.registry.Rotate(nick)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
@@ -133,9 +183,11 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
 	// Look up agent channels before revoking so we can remove access.
-	if agent, err := s.registry.Get(nick); err == nil {
-		s.removeAgentModes(nick, agent.Channels)
+	agent, ok := s.getScopedAgent(w, r, nick)
+	if !ok {
+		return
 	}
+	s.removeAgentModes(nick, agent.Channels)
 	if err := s.registry.Revoke(nick); err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -151,9 +203,11 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
 	// Look up agent channels before deleting so we can remove access.
-	if agent, err := s.registry.Get(nick); err == nil {
-		s.removeAgentModes(nick, agent.Channels)
+	agent, ok := s.getScopedAgent(w, r, nick)
+	if !ok {
+		return
 	}
+	s.removeAgentModes(nick, agent.Channels)
 	if err := s.registry.Delete(nick); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -182,9 +236,12 @@ func (s *Server) handleBulkDeleteAgents(w http.ResponseWriter, r *http.Request) 
 
 	var deleted, failed int
 	for _, nick := range req.Nicks {
-		if agent, err := s.registry.Get(nick); err == nil {
-			s.removeAgentModes(nick, agent.Channels)
+		agent, err := s.registry.Get(nick)
+		if err != nil || !agentAllowedForTeam(agent, teamFromRequest(r)) {
+			failed++
+			continue
 		}
+		s.removeAgentModes(nick, agent.Channels)
 		if err := s.registry.Delete(nick); err != nil {
 			s.log.Warn("bulk delete: failed", "nick", nick, "err", err)
 			failed++
@@ -197,6 +254,10 @@ func (s *Server) handleBulkDeleteAgents(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
+	agent, ok := s.getScopedAgent(w, r, nick)
+	if !ok {
+		return
+	}
 	var req struct {
 		Channels []string `json:"channels"`
 		Team     *string  `json:"team,omitempty"`
@@ -206,6 +267,9 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Channels != nil {
+		if !s.requireScopedChannels(w, r, req.Channels) {
+			return
+		}
 		if err := s.registry.UpdateChannels(nick, req.Channels); err != nil {
 			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
 				writeError(w, http.StatusNotFound, err.Error())
@@ -217,17 +281,12 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Team != nil {
-		agent, err := s.registry.Get(nick)
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
-				writeError(w, http.StatusNotFound, err.Error())
-				return
-			}
-			s.log.Error("update agent team", "nick", nick, "err", err)
-			writeError(w, http.StatusInternalServerError, "update failed")
+		team, ok := effectiveUpdatedTeam(teamFromRequest(r), req.Team)
+		if !ok {
+			writeError(w, http.StatusForbidden, "team outside scope")
 			return
 		}
-		agent.Team = *req.Team
+		agent.Team = team
 		if err := s.registry.Update(agent); err != nil {
 			s.log.Error("update agent team", "nick", nick, "err", err)
 			writeError(w, http.StatusInternalServerError, "update failed")
@@ -294,9 +353,8 @@ func filterAgentsByTeam(agents []*registry.Agent, keyTeam, queryTeam string) []*
 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
-	agent, err := s.registry.Get(nick)
-	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+	agent, ok := s.getScopedAgent(w, r, nick)
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -306,6 +364,9 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 // Agents or relays call this to escalate that an agent is stuck.
 func (s *Server) handleAgentBlocker(w http.ResponseWriter, r *http.Request) {
 	nick := r.PathValue("nick")
+	if _, ok := s.getScopedAgent(w, r, nick); !ok {
+		return
+	}
 	var req struct {
 		Channel string `json:"channel,omitempty"`
 		Message string `json:"message"`
