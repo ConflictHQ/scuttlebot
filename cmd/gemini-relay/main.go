@@ -237,10 +237,8 @@ func run(cfg config) error {
 		_, _ = io.Copy(ptmx, os.Stdin)
 	}()
 	// Dual-path mirroring: PTY for real-time text + session file for metadata.
-	ptyMirror := relaymirror.NewPTYMirror(defaultMirrorLineMax, 500*time.Millisecond, func(line string) {
-		if relayActive {
-			// no-op: session file mirror handles IRC output
-		}
+	ptyMirror := relaymirror.NewPTYMirror(defaultMirrorLineMax, 500*time.Millisecond, func(_ string) {
+		// no-op: session file mirror handles IRC output
 	})
 	ptyMirror.BusyCallback = func(now time.Time) {
 		state.mu.Lock()
@@ -502,21 +500,6 @@ func handleRelayCommand(ctx context.Context, relay sessionrelay.Connector, cfg c
 	}
 }
 
-func copyPTYOutput(src io.Reader, dst io.Writer, state *relayState) {
-	buf := make([]byte, 4096)
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			state.observeOutput(buf[:n], time.Now())
-			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
-				return
-			}
-		}
-		if err != nil {
-			return
-		}
-	}
-}
 
 func (s *relayState) observeOutput(data []byte, now time.Time) {
 	if s == nil {
@@ -552,9 +535,7 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 		return
 	}
 	chatsDir := filepath.Join(home, ".gemini", "tmp", slugify(cfg.TargetCWD), "chats")
-	if err := os.MkdirAll(chatsDir, 0755); err != nil {
-		// Directory doesn't exist yet — Gemini CLI creates it on first run.
-	}
+	_ = os.MkdirAll(chatsDir, 0755) // May not exist yet — Gemini CLI creates it on first run.
 	existing := relaymirror.SnapshotDir(chatsDir)
 
 	// Wait for a new session file.

@@ -151,7 +151,7 @@ func (b *Bot) Start(ctx context.Context) error {
 			cl.Cmd.Join(b.cfg.AlertChannel)
 		}
 		if len(b.cfg.MonitorNicks) > 0 {
-			cl.Cmd.SendRawf("MONITOR + %s", strings.Join(b.cfg.MonitorNicks, ","))
+			_ = cl.Cmd.SendRawf("MONITOR + %s", strings.Join(b.cfg.MonitorNicks, ","))
 		}
 		if b.log != nil {
 			b.log.Info("snitch connected", "channels", b.cfg.Channels, "monitor", b.cfg.MonitorNicks)

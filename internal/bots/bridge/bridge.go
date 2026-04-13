@@ -445,14 +445,14 @@ func (b *Bot) SendWithMeta(ctx context.Context, channel, text, senderNick string
 	}
 	if senderNick != "" && b.relaySep != "" {
 		// Use RELAYMSG for native attribution.
-		b.client.Cmd.SendRawf("%sRELAYMSG %s %s :%s", tagPrefix, channel, senderNick, text)
+		_ = b.client.Cmd.SendRawf("%sRELAYMSG %s %s :%s", tagPrefix, channel, senderNick, text)
 	} else {
 		ircText := text
 		if senderNick != "" {
 			ircText = "[" + senderNick + "] " + text
 		}
 		if tagPrefix != "" {
-			b.client.Cmd.SendRawf("%sPRIVMSG %s :%s", tagPrefix, channel, ircText)
+			_ = b.client.Cmd.SendRawf("%sPRIVMSG %s :%s", tagPrefix, channel, ircText)
 		} else {
 			b.client.Cmd.Message(channel, ircText)
 		}
@@ -495,7 +495,7 @@ func (b *Bot) TouchUser(channel, nick string) {
 // update its user list from the server's authoritative response.
 func (b *Bot) RefreshNames(channel string) {
 	if b.client != nil {
-		b.client.Cmd.SendRawf("NAMES %s", channel)
+		_ = b.client.Cmd.SendRawf("NAMES %s", channel)
 	}
 }
 
