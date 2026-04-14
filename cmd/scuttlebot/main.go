@@ -405,7 +405,19 @@ func main() {
 	if topoMgr != nil {
 		topoIface = topoMgr
 	}
-	apiSrv := api.New(reg, apiKeyStore, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, ergoMgr.API(), cfg.TLS.Domain, log)
+	noAuthMode := os.Getenv("SCUTTLEBOT_NO_AUTH") == "1"
+	showToken := os.Getenv("SCUTTLEBOT_SHOW_TOKEN") == "1"
+	if noAuthMode && showToken {
+		log.Error("SCUTTLEBOT_NO_AUTH and SCUTTLEBOT_SHOW_TOKEN are mutually exclusive — unset one")
+		os.Exit(1)
+	}
+	if noAuthMode {
+		log.Warn("no-auth mode enabled (SCUTTLEBOT_NO_AUTH=1) — do not expose this server to untrusted networks")
+	}
+	if showToken {
+		log.Warn("show-token mode enabled (SCUTTLEBOT_SHOW_TOKEN=1) — dev token will be visible in the login UI")
+	}
+	apiSrv := api.New(reg, apiKeyStore, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, ergoMgr.API(), cfg.TLS.Domain, noAuthMode, showToken, log)
 	handler := apiSrv.Handler()
 
 	var httpServer, tlsServer *http.Server
