@@ -135,6 +135,7 @@ func (s *Server) Handler() http.Handler {
 	// API key management — admin scope.
 	apiMux.HandleFunc("GET /v1/api-keys", s.requireScope(auth.ScopeAdmin, s.handleListAPIKeys))
 	apiMux.HandleFunc("POST /v1/api-keys", s.requireScope(auth.ScopeAdmin, s.handleCreateAPIKey))
+	apiMux.HandleFunc("PUT /v1/api-keys/{id}/rotate", s.requireScope(auth.ScopeAdmin, s.handleRotateAPIKey))
 	apiMux.HandleFunc("DELETE /v1/api-keys/{id}", s.requireScope(auth.ScopeAdmin, s.handleRevokeAPIKey))
 
 	// IRC user management — admin scope.

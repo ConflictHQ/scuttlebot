@@ -67,6 +67,7 @@ type config struct {
 	IRCPass            string
 	IRCAgentType       string
 	IRCDeleteOnClose   bool
+	IRCTLS             bool
 	Channel            string
 	Channels           []string
 	ProjectChannel     string
@@ -130,6 +131,7 @@ func run(cfg config) error {
 				Pass:          cfg.IRCPass,
 				AgentType:     cfg.IRCAgentType,
 				DeleteOnClose: cfg.IRCDeleteOnClose,
+				TLS:           cfg.IRCTLS,
 			},
 		})
 		if err != nil {
@@ -349,6 +351,7 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 					Pass:          "", // force re-registration
 					AgentType:     cfg.IRCAgentType,
 					DeleteOnClose: cfg.IRCDeleteOnClose,
+					TLS:           cfg.IRCTLS,
 				},
 			})
 			if err != nil {
@@ -716,6 +719,7 @@ func loadConfig(args []string) (config, error) {
 		IRCPass:            getenvOr(fileConfig, "SCUTTLEBOT_IRC_PASS", ""),
 		IRCAgentType:       getenvOr(fileConfig, "SCUTTLEBOT_IRC_AGENT_TYPE", "worker"),
 		IRCDeleteOnClose:   getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_DELETE_ON_CLOSE", true),
+		IRCTLS:             getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_TLS", false),
 		HooksEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true),
 		InterruptOnMessage: getenvBoolOr(fileConfig, "SCUTTLEBOT_INTERRUPT_ON_MESSAGE", true),
 		MirrorReasoning:    getenvBoolOr(fileConfig, "SCUTTLEBOT_MIRROR_REASONING", true),

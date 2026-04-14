@@ -651,6 +651,7 @@ canvas { display:block; width:100% !important; }
     <!-- api keys -->
     <div class="card" id="card-apikeys">
       <div class="card-header" onclick="toggleCard('card-apikeys',event)"><h2>API keys</h2><span class="card-desc">per-consumer tokens with scoped permissions</span><span class="collapse-icon">▾</span></div>
+      <div id="rotate-apikey-result" style="display:none;padding:0 16px"></div>
       <div id="apikeys-list-container"></div>
       <div class="card-body" style="border-top:1px solid #21262d">
         <p style="font-size:12px;color:#8b949e;margin-bottom:12px">Create an API key with a name and scopes. The token is shown only once.</p>
@@ -3007,13 +3008,14 @@ function renderAPIKeys(keys) {
     const status = k.active ? '<span style="color:#3fb950">active</span>' : '<span style="color:#f85149">revoked</span>';
     const scopes = (k.scopes || []).map(s => `<code style="font-size:11px;background:#21262d;padding:1px 5px;border-radius:3px">${esc(s)}</code>`).join(' ');
     const lastUsed = k.last_used ? fmtTime(k.last_used) : '—';
+    const rotateBtn = k.active ? `<button class="sm" onclick="rotateAPIKey('${esc(k.id)}','${esc(k.name)}')">rotate</button>` : '';
     const revokeBtn = k.active ? `<button class="sm danger" onclick="revokeAPIKey('${esc(k.id)}')">revoke</button>` : '';
     return `<tr>
       <td><strong>${esc(k.name)}</strong><br><span style="color:#8b949e;font-size:11px">${esc(k.id)}</span></td>
       <td>${scopes}</td>
       <td style="font-size:12px">${status}</td>
       <td style="color:#8b949e;font-size:12px">${lastUsed}</td>
-      <td><div class="actions">${revokeBtn}</div></td>
+      <td><div class="actions">${rotateBtn}${revokeBtn}</div></td>
     </tr>`;
   }).join('');
   el.innerHTML = `<table><thead><tr><th>name</th><th>scopes</th><th>status</th><th>last used</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -3043,6 +3045,21 @@ async function createAPIKey(e) {
   } catch(e) {
     resultEl.innerHTML = `<span style="color:#f85149">${esc(e.message)}</span>`;
   }
+}
+
+async function rotateAPIKey(id, name) {
+  if (!confirm(`Rotate token for "${name}"?\n\nThe current token will stop working immediately.`)) return;
+  try {
+    const result = await api('PUT', `/v1/api-keys/${encodeURIComponent(id)}/rotate`);
+    const banner = document.getElementById('rotate-apikey-result');
+    banner.innerHTML = `<div style="background:#0d1117;border:1px solid #e3b3414d;border-radius:6px;padding:12px;margin-bottom:12px">
+      <div style="color:#e3b341;font-weight:600;margin-bottom:6px">Token rotated: ${esc(result.name)}</div>
+      <div style="margin-bottom:4px;font-size:12px;color:#8b949e">Copy the new token now — it will not be shown again:</div>
+      <code style="display:block;padding:8px;background:#161b22;border-radius:4px;word-break:break-all;user-select:all">${esc(result.token)}</code>
+    </div>`;
+    banner.style.display = 'block';
+    loadAPIKeys();
+  } catch(e) { alert('Rotate failed: ' + e.message); }
 }
 
 async function revokeAPIKey(id) {

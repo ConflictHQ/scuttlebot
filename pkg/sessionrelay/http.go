@@ -63,10 +63,15 @@ func (c *httpConnector) Connect(ctx context.Context) error {
 }
 
 func (c *httpConnector) registerAgent(ctx context.Context) error {
+	rawChannels := c.Channels()
+	normalized := make([]string, len(rawChannels))
+	for i, ch := range rawChannels {
+		normalized[i] = normalizeChannel(ch)
+	}
 	body, _ := json.Marshal(map[string]any{
 		"nick":     c.nick,
 		"type":     c.agentType,
-		"channels": c.Channels(),
+		"channels": normalized,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/agents/register", bytes.NewReader(body))
 	if err != nil {

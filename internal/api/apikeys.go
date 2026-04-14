@@ -119,6 +119,30 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// handleRotateAPIKey handles PUT /v1/api-keys/{id}/rotate.
+// Generates a new token for the key and returns the plaintext once.
+func (s *Server) handleRotateAPIKey(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	token, key, err := s.apiKeys.Rotate(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	resp := createAPIKeyResponse{
+		ID:        key.ID,
+		Name:      key.Name,
+		Token:     token,
+		Scopes:    key.Scopes,
+		Team:      key.Team,
+		CreatedAt: key.CreatedAt,
+	}
+	if !key.ExpiresAt.IsZero() {
+		t := key.ExpiresAt
+		resp.ExpiresAt = &t
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // handleRevokeAPIKey handles DELETE /v1/api-keys/{id}.
 func (s *Server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
