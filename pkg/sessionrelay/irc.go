@@ -17,6 +17,24 @@ import (
 	"github.com/lrstanley/girc"
 )
 
+// ircDebug enables verbose per-event logging to stderr.
+// Set RELAY_DEBUG=1 in the environment to activate.
+var ircDebug = os.Getenv("RELAY_DEBUG") != ""
+
+func ircDebugf(format string, args ...any) {
+	if ircDebug {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
+}
+
+// ircTruncate returns s truncated to at most n bytes with "…" appended if cut.
+func ircTruncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
 type ircConnector struct {
 	http          *http.Client
 	apiURL        string
@@ -64,7 +82,7 @@ func newIRCConnector(cfg Config) (Connector, error) {
 		deleteOnClose:   cfg.IRC.DeleteOnClose,
 		envelopeMode:    cfg.IRC.EnvelopeMode,
 		tls:             cfg.IRC.TLS,
-		channels:        append([]string(nil), cfg.Channels...),
+		channels:        normalizeChannels(cfg.Channel, cfg.Channels),
 		messages:        make([]Message, 0, defaultBufferSize),
 		errCh:           make(chan error, 1),
 		keepAliveCtx:    kaCtx,
@@ -128,7 +146,9 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		c.mu.Lock()
 		c.connectedAt = time.Now()
 		c.mu.Unlock()
-		for _, channel := range c.Channels() {
+		channels := c.Channels()
+		ircDebugf("sessionrelay: connected as %s, joining %v\n", c.nick, channels)
+		for _, channel := range channels {
 			cl.Cmd.Join(normalizeChannel(channel))
 		}
 	})
@@ -136,7 +156,9 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		if len(e.Params) < 1 || e.Source == nil || e.Source.Name != c.nick {
 			return
 		}
-		if normalizeChannel(e.Params[0]) != c.primary {
+		ch := normalizeChannel(e.Params[0])
+		ircDebugf("sessionrelay: joined %s\n", ch)
+		if ch != c.primary {
 			return
 		}
 		if onJoined != nil {
@@ -149,6 +171,7 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		}
 		target := normalizeChannel(e.Params[0])
 		if !c.hasChannel(target) {
+			ircDebugf("sessionrelay: rx PRIVMSG on unknown channel %s (not in %v)\n", target, c.Channels())
 			return
 		}
 		// Prefer account-tag (IRCv3) over source nick.
@@ -157,19 +180,22 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 			sender = acct
 		}
 		text := strings.TrimSpace(e.Last())
-		// RELAYMSG: server delivers as "bridge/human" — extract the actual sender.
-		// The "/" separator is reserved by Ergo for RELAYMSG and never appears
-		// in ordinary nicks, so checking unconditionally is safe.
+		// Ergo delivers bridge RELAYMSG to non-cap clients as PRIVMSG from
+		// "bridge/human" — extract the actual sender. The "/" separator is
+		// reserved by Ergo for RELAYMSG and never appears in ordinary nicks.
 		if idx := strings.Index(sender, "/"); idx != -1 {
+			ircDebugf("sessionrelay: relaymsg: %s → %s\n", sender, sender[idx+1:])
 			sender = sender[idx+1:]
 		}
 		// Fallback: parse legacy [nick] prefix from bridge bot.
 		if sender == "bridge" && strings.HasPrefix(text, "[") {
 			if end := strings.Index(text, "] "); end != -1 {
+				ircDebugf("sessionrelay: bridge prefix: [%s]\n", text[1:end])
 				sender = text[1:end]
 				text = strings.TrimSpace(text[end+2:])
 			}
 		}
+		fmt.Fprintf(os.Stderr, "sessionrelay: rx chan=%s from=%s: %s\n", target, sender, ircTruncate(text, 100))
 		// Use server-time when available; fall back to local clock.
 		at := e.Timestamp
 		if at.IsZero() {

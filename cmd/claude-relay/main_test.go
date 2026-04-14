@@ -226,13 +226,13 @@ func TestSessionMessagesThinking(t *testing.T) {
 	line := []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","text":"reasoning here"},{"type":"text","text":"final answer"}]}}`)
 
 	// thinking off — only text
-	got := sessionMessages(line, false)
+	got := sessionMessages(line, false, time.Time{})
 	if len(got) != 1 || got[0].Text != "final answer" {
 		t.Fatalf("mirrorReasoning=false: got %#v", got)
 	}
 
 	// thinking on — both, thinking prefixed
-	got = sessionMessages(line, true)
+	got = sessionMessages(line, true, time.Time{})
 	if len(got) != 2 || got[0].Text != "💭 reasoning here" || got[1].Text != "final answer" {
 		t.Fatalf("mirrorReasoning=true: got %#v", got)
 	}

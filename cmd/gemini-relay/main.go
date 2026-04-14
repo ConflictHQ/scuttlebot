@@ -43,6 +43,22 @@ const (
 	bracketedPasteEnd    = "\x1b[201~"
 )
 
+// relayDebug enables verbose per-message logging. Set RELAY_DEBUG=1 to activate.
+var relayDebug = os.Getenv("RELAY_DEBUG") != ""
+
+func debugf(format string, args ...any) {
+	if relayDebug {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
+}
+
+func truncateMsg(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
 var serviceBots = map[string]struct{}{
 	"bridge":    {},
 	"oracle":    {},
@@ -191,22 +207,14 @@ func run(cfg config) error {
 		go presenceLoopFiltered(ctx, &relay, filtered, cfg.HeartbeatInterval)
 	}
 
-	if !isInteractiveTTY() {
+	// Non-interactive pass-through only when relay is disabled. When relayActive,
+	// we always use a PTY so relayInputLoop can inject IRC messages regardless of
+	// whether stdin/stdout are real terminals.
+	if !relayActive && !isInteractiveTTY() {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		if err != nil {
-			exitCode := exitStatus(err)
-			if relayActive {
-				_ = filtered.PostAtLevel(context.Background(), sessionrelay.LevelLifecycle, fmt.Sprintf("offline (exit %d)", exitCode), nil)
-			}
-			return err
-		}
-		if relayActive {
-			_ = filtered.PostAtLevel(context.Background(), sessionrelay.LevelLifecycle, "offline (exit 0)", nil)
-		}
-		return nil
+		return cmd.Run()
 	}
 
 	ptmx, err := pty.Start(cmd)
@@ -217,23 +225,26 @@ func run(cfg config) error {
 
 	state := &relayState{}
 
-	if err := pty.InheritSize(os.Stdin, ptmx); err == nil {
-		resizeCh := make(chan os.Signal, 1)
-		signal.Notify(resizeCh, syscall.SIGWINCH)
-		defer signal.Stop(resizeCh)
-		go func() {
-			for range resizeCh {
-				_ = pty.InheritSize(os.Stdin, ptmx)
-			}
-		}()
-		resizeCh <- syscall.SIGWINCH
-	}
+	// Terminal size and raw mode only apply when stdin is an actual TTY.
+	if isInteractiveTTY() {
+		if err := pty.InheritSize(os.Stdin, ptmx); err == nil {
+			resizeCh := make(chan os.Signal, 1)
+			signal.Notify(resizeCh, syscall.SIGWINCH)
+			defer signal.Stop(resizeCh)
+			go func() {
+				for range resizeCh {
+					_ = pty.InheritSize(os.Stdin, ptmx)
+				}
+			}()
+			resizeCh <- syscall.SIGWINCH
+		}
 
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		return err
+		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
 	}
-	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
 
 	go func() {
 		_, _ = io.Copy(ptmx, os.Stdin)
@@ -302,6 +313,9 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 			}
 			if len(pending) == 0 {
 				continue
+			}
+			for _, m := range pending {
+				fmt.Fprintf(os.Stderr, "gemini-relay: injecting from=%s: %s\n", m.Nick, truncateMsg(m.Text, 100))
 			}
 			if err := injectMessages(ptyFile, cfg, state, relay.ControlChannel(), pending); err != nil {
 				if ctx.Err() == nil {
@@ -687,17 +701,22 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 			newest = msg.At
 		}
 		if msg.Nick == nick {
+			debugf("gemini-relay: filter skip self: %s\n", truncateMsg(msg.Text, 60))
 			continue
 		}
 		if _, ok := serviceBots[msg.Nick]; ok {
+			debugf("gemini-relay: filter skip service-bot %s\n", msg.Nick)
 			continue
 		}
 		if ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes()) {
+			debugf("gemini-relay: filter skip activity-prefix %s\n", msg.Nick)
 			continue
 		}
 		if !ircagent.MentionsNick(msg.Text, nick) && !ircagent.MatchesGroupMention(msg.Text, nick, agentType) {
+			debugf("gemini-relay: filter drop from=%s: no nick mention (nick=%s text=%q)\n", msg.Nick, nick, truncateMsg(msg.Text, 80))
 			continue
 		}
+		fmt.Fprintf(os.Stderr, "gemini-relay: filter pass from=%s: %s\n", msg.Nick, truncateMsg(msg.Text, 100))
 		filtered = append(filtered, msg)
 	}
 	sort.Slice(filtered, func(i, j int) bool {

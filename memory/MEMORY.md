@@ -8,6 +8,9 @@
 - [Soft deletes only](feedback_soft_deletes.md) — Never hard-delete business objects
 - [Auth check first](feedback_auth_check.md) — First line of every resolver/endpoint/action
 
+## Project
+- [Relay transport](project_relay_transport.md) — SCUTTLEBOT_TRANSPORT must be http; Ergo v2.18.0 doesn't deliver RELAYMSG even with cap ACKed
+
 ## Reference
 - [calliope-cli agent](reference_calliope_cli.md) — calliope.md is the shim for https://github.com/calliopeai/calliope-cli
 - [Calliope disambiguation](reference_calliope_disambiguation.md) — calliope-cli (coding agent) vs Calliope AI platform (JupyterHub) are different things
