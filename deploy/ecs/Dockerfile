@@ -48,13 +48,16 @@ COPY deploy/ecs/supervisord.conf /etc/supervisor/conf.d/scuttlebot.conf
 COPY deploy/ecs/entrypoint.sh    /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# jupyter-server-proxy named-path config: /scuttlebot → port 8080
+COPY deploy/ecs/jupyter_server_config.py /etc/jupyter/jupyter_server_config.py
+
 RUN groupadd -g 1000 scuttlebot && \
     useradd -m -u 1000 -g scuttlebot -s /bin/bash scuttlebot
 
 ENV SCUTTLEBOT_DATA_DIR=/home/scuttlebot/.scuttlebot
 ENV SCUTTLEBOT_API_ADDR=:8080
 ENV SCUTTLEBOT_MCP_ADDR=:8081
-ENV JUPYTERHUB_DEFAULT_URL=/proxy/8080/
+ENV JUPYTERHUB_DEFAULT_URL=/scuttlebot
 
 VOLUME ["/home/scuttlebot"]
 
