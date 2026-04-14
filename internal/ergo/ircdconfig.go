@@ -19,7 +19,12 @@ server:
 {{- if .TLSDomain}}
         "{{.TLSAddr}}":
             tls:
+{{- if and .TLSCert .TLSKey}}
+                cert: {{.TLSCert}}
+                key: {{.TLSKey}}
+{{- else}}
                 autocert: true
+{{- end}}
             min-tls-version: 1.2
 {{- end}}
     casemapping: ascii
@@ -125,6 +130,8 @@ type ircdTemplateData struct {
 	IRCAddr             string
 	TLSDomain           string
 	TLSAddr             string
+	TLSCert             string
+	TLSKey              string
 	DataDir             string
 	APIAddr             string
 	APIToken            string
@@ -146,6 +153,8 @@ func GenerateConfig(cfg config.ErgoConfig) ([]byte, error) {
 		IRCAddr:             cfg.IRCAddr,
 		TLSDomain:           cfg.TLSDomain,
 		TLSAddr:             cfg.TLSAddr,
+		TLSCert:             cfg.TLSCert,
+		TLSKey:              cfg.TLSKey,
 		DataDir:             cfg.DataDir,
 		APIAddr:             cfg.APIAddr,
 		APIToken:            cfg.APIToken,
