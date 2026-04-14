@@ -194,15 +194,21 @@ func (b *Bot) Start(ctx context.Context) error {
 		PingTimeout: 30 * time.Second,
 		SSL:         false,
 		AllowFlood:  true, // trusted local connection — no rate limiting
+		// Request draft/relaymsg so web UI messages are attributed natively
+		// (sender appears as "bridge/nick" rather than the bridge itself).
+		SupportedCaps: map[string][]string{
+			"draft/relaymsg": nil,
+		},
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
 		cl.Cmd.Mode(cl.GetNick(), "+B")
-		// Check RELAYMSG support from ISUPPORT (RPL_005).
-		if sep, ok := cl.GetServerOption("RELAYMSG"); ok && sep != "" {
-			b.relaySep = sep
+		// RELAYMSG is an IRCv3 capability (draft/relaymsg), not an ISUPPORT token.
+		// Check whether the server negotiated it during CAP exchange.
+		if cl.HasCapability("draft/relaymsg") {
+			b.relaySep = "/"
 			if b.log != nil {
-				b.log.Info("bridge: RELAYMSG supported", "separator", sep)
+				b.log.Info("bridge: RELAYMSG supported", "separator", b.relaySep)
 			}
 		} else {
 			b.relaySep = ""

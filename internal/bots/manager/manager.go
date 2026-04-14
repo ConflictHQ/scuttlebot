@@ -164,9 +164,26 @@ func (m *Manager) Sync(ctx context.Context, specs []BotSpec) {
 		m.running[spec.Nick] = cancel
 
 		go func(nick string, b bot, ctx context.Context) {
-			m.log.Info("manager: starting bot", "nick", nick)
-			if err := b.Start(ctx); err != nil && ctx.Err() == nil {
-				m.log.Error("manager: bot exited with error", "nick", nick, "err", err)
+			backoff := 5 * time.Second
+			const maxBackoff = 5 * time.Minute
+			for {
+				m.log.Info("manager: starting bot", "nick", nick)
+				if err := b.Start(ctx); ctx.Err() != nil {
+					return // context cancelled — intentional shutdown
+				} else if err != nil {
+					m.log.Error("manager: bot exited with error, restarting", "nick", nick, "err", err, "backoff", backoff)
+				} else {
+					m.log.Info("manager: bot exited cleanly, restarting", "nick", nick, "backoff", backoff)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(backoff):
+				}
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
 			}
 		}(spec.Nick, b, botCtx)
 	}
