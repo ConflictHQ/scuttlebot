@@ -188,6 +188,16 @@ type ErgoConfig struct {
 	// Only used when TLSDomain is set. Default: "0.0.0.0:6697"
 	TLSAddr string `yaml:"tls_addr"`
 
+	// TLSCert is the path to a PEM-encoded TLS certificate file (fullchain).
+	// When set together with TLSKey, Ergo uses these files directly instead
+	// of ACME autocert. Use this when a reverse proxy (e.g. nginx + Certbot)
+	// already manages the certificate and port 80/443 are unavailable to Ergo.
+	TLSCert string `yaml:"tls_cert"`
+
+	// TLSKey is the path to a PEM-encoded TLS private key file.
+	// Only used when TLSCert is also set.
+	TLSKey string `yaml:"tls_key"`
+
 	// History configures persistent message history storage.
 	History HistoryConfig `yaml:"history"`
 }
