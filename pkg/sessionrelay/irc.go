@@ -123,12 +123,6 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		SSL:         c.tls,
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
-		// Request RELAYMSG so HasCapability("draft/relaymsg") works in the
-		// PRIVMSG handler, allowing correct sender extraction from bridge
-		// messages delivered as "bridge/human".
-		SupportedCaps: map[string][]string{
-			"draft/relaymsg": nil,
-		},
 	})
 	client.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
 		c.mu.Lock()
@@ -164,12 +158,10 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		}
 		text := strings.TrimSpace(e.Last())
 		// RELAYMSG: server delivers as "bridge/human" — extract the actual sender.
-		// RELAYMSG is a CAP (not ISUPPORT), separator is always "/".
-		const relaymsgSep = "/"
-		if cl.HasCapability("draft/relaymsg") {
-			if idx := strings.Index(sender, relaymsgSep); idx != -1 {
-				sender = sender[idx+1:]
-			}
+		// The "/" separator is reserved by Ergo for RELAYMSG and never appears
+		// in ordinary nicks, so checking unconditionally is safe.
+		if idx := strings.Index(sender, "/"); idx != -1 {
+			sender = sender[idx+1:]
 		}
 		// Fallback: parse legacy [nick] prefix from bridge bot.
 		if sender == "bridge" && strings.HasPrefix(text, "[") {
