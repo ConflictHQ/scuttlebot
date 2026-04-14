@@ -98,7 +98,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.registry.Touch(req.Nick)
-	s.setAgentModes(req.Nick, req.Type, cfg)
+	go s.setAgentModes(req.Nick, req.Type, cfg)
 	writeJSON(w, http.StatusCreated, registerResponse{
 		Credentials: creds,
 		Payload:     payload,
@@ -158,7 +158,7 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "adopt failed")
 		return
 	}
-	s.setAgentModes(nick, req.Type, cfg)
+	go s.setAgentModes(nick, req.Type, cfg)
 	writeJSON(w, http.StatusOK, map[string]any{"nick": nick, "payload": payload})
 }
 
@@ -187,7 +187,7 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.removeAgentModes(nick, agent.Channels)
+	go s.removeAgentModes(nick, agent.Channels)
 	if err := s.registry.Revoke(nick); err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "revoked") {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -207,7 +207,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.removeAgentModes(nick, agent.Channels)
+	go s.removeAgentModes(nick, agent.Channels)
 	if err := s.registry.Delete(nick); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -241,7 +241,7 @@ func (s *Server) handleBulkDeleteAgents(w http.ResponseWriter, r *http.Request) 
 			failed++
 			continue
 		}
-		s.removeAgentModes(nick, agent.Channels)
+		go s.removeAgentModes(nick, agent.Channels)
 		if err := s.registry.Delete(nick); err != nil {
 			s.log.Warn("bulk delete: failed", "nick", nick, "err", err)
 			failed++

@@ -182,6 +182,27 @@ func (s *APIKeyStore) List() []APIKey {
 	return out
 }
 
+// Rotate generates a new token for an existing key by ID.
+// The old token is immediately invalidated. Returns the new plaintext token.
+func (s *APIKeyStore) Rotate(id string) (plaintext string, key APIKey, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data {
+		if s.data[i].ID == id {
+			token, err := genToken()
+			if err != nil {
+				return "", APIKey{}, fmt.Errorf("apikeys: generate token: %w", err)
+			}
+			s.data[i].Hash = hashToken(token)
+			if err := s.save(); err != nil {
+				return "", APIKey{}, fmt.Errorf("apikeys: save after rotate: %w", err)
+			}
+			return token, s.data[i], nil
+		}
+	}
+	return "", APIKey{}, fmt.Errorf("apikeys: key %q not found", id)
+}
+
 // Revoke deactivates a key by ID.
 func (s *APIKeyStore) Revoke(id string) error {
 	s.mu.Lock()

@@ -28,6 +28,7 @@ type ircConnector struct {
 	pass          string
 	deleteOnClose bool
 	envelopeMode  bool
+	tls           bool
 
 	mu       sync.RWMutex
 	channels []string
@@ -54,6 +55,7 @@ func newIRCConnector(cfg Config) (Connector, error) {
 		pass:          cfg.IRC.Pass,
 		deleteOnClose: cfg.IRC.DeleteOnClose,
 		envelopeMode:  cfg.IRC.EnvelopeMode,
+		tls:           cfg.IRC.TLS,
 		channels:      append([]string(nil), cfg.Channels...),
 		messages:      make([]Message, 0, defaultBufferSize),
 		errCh:         make(chan error, 1),
@@ -108,6 +110,7 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		User:        c.nick,
 		Name:        c.nick + " (session relay)",
 		SASL:        &girc.SASLPlain{User: c.nick, Pass: c.pass},
+		SSL:         c.tls,
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
 	})
@@ -116,7 +119,7 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		c.connectedAt = time.Now()
 		c.mu.Unlock()
 		for _, channel := range c.Channels() {
-			cl.Cmd.Join(channel)
+			cl.Cmd.Join(normalizeChannel(channel))
 		}
 	})
 	client.Handlers.AddBg(girc.JOIN, func(_ *girc.Client, e girc.Event) {
@@ -510,10 +513,14 @@ func (c *ircConnector) ensureCredentials(ctx context.Context) error {
 }
 
 func (c *ircConnector) registerOrRotate(ctx context.Context) (bool, string, error) {
+	normalizedChannels := make([]string, 0, len(c.channels))
+	for _, ch := range c.Channels() {
+		normalizedChannels = append(normalizedChannels, normalizeChannel(ch))
+	}
 	body, _ := json.Marshal(map[string]any{
 		"nick":     c.nick,
 		"type":     c.agentType,
-		"channels": c.Channels(),
+		"channels": normalizedChannels,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL+"/v1/agents/register", bytes.NewReader(body))
 	if err != nil {
