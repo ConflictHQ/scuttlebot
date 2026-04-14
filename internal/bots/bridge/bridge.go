@@ -193,12 +193,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
 		SSL:         false,
-		AllowFlood:  true, // trusted local connection — no rate limiting
-		// Request draft/relaymsg so web UI messages are attributed natively
-		// (sender appears as "bridge/nick" rather than the bridge itself).
-		SupportedCaps: map[string][]string{
-			"draft/relaymsg": nil,
-		},
+		AllowFlood: true, // trusted local connection — no rate limiting
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {

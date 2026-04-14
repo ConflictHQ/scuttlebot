@@ -44,6 +44,22 @@ const (
 	defaultMirrorLineMax = 360
 )
 
+// relayDebug enables verbose per-message logging. Set RELAY_DEBUG=1 to activate.
+var relayDebug = os.Getenv("RELAY_DEBUG") != ""
+
+func debugf(format string, args ...any) {
+	if relayDebug {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
+}
+
+func truncateMsg(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
 var serviceBots = map[string]struct{}{
 	"bridge":    {},
 	"oracle":    {},
@@ -243,22 +259,14 @@ func run(cfg config) error {
 		go presenceLoopFiltered(ctx, &relay, filtered, cfg.HeartbeatInterval)
 	}
 
-	if !isInteractiveTTY() {
+	// Non-interactive pass-through only when relay is disabled. When relayActive,
+	// we always use a PTY so relayInputLoop can inject IRC messages regardless of
+	// whether stdin/stdout are real terminals.
+	if !relayActive && !isInteractiveTTY() {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		if err != nil {
-			exitCode := exitStatus(err)
-			if relayActive {
-				_ = filtered.PostAtLevel(context.Background(), sessionrelay.LevelLifecycle, fmt.Sprintf("offline (exit %d)", exitCode), nil)
-			}
-			return err
-		}
-		if relayActive {
-			_ = filtered.PostAtLevel(context.Background(), sessionrelay.LevelLifecycle, "offline (exit 0)", nil)
-		}
-		return nil
+		return cmd.Run()
 	}
 
 	ptmx, err := pty.Start(cmd)
@@ -269,23 +277,26 @@ func run(cfg config) error {
 
 	state := &relayState{}
 
-	if err := pty.InheritSize(os.Stdin, ptmx); err == nil {
-		resizeCh := make(chan os.Signal, 1)
-		signal.Notify(resizeCh, syscall.SIGWINCH)
-		defer signal.Stop(resizeCh)
-		go func() {
-			for range resizeCh {
-				_ = pty.InheritSize(os.Stdin, ptmx)
-			}
-		}()
-		resizeCh <- syscall.SIGWINCH
-	}
+	// Terminal size and raw mode only apply when stdin is an actual TTY.
+	if isInteractiveTTY() {
+		if err := pty.InheritSize(os.Stdin, ptmx); err == nil {
+			resizeCh := make(chan os.Signal, 1)
+			signal.Notify(resizeCh, syscall.SIGWINCH)
+			defer signal.Stop(resizeCh)
+			go func() {
+				for range resizeCh {
+					_ = pty.InheritSize(os.Stdin, ptmx)
+				}
+			}()
+			resizeCh <- syscall.SIGWINCH
+		}
 
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		return err
+		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
 	}
-	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
 
 	go func() {
 		_, _ = io.Copy(ptmx, os.Stdin)
@@ -329,15 +340,11 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, filter
 		}
 		sessionPath, err := discoverSessionPath(ctx, cfg, startedAt)
 		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "claude-relay: session discovery failed: %v (retrying in 10s)\n", err)
-			time.Sleep(10 * time.Second)
-			continue
+			// Context cancelled — Claude Code exited while we were waiting.
+			return
 		}
 		fmt.Fprintf(os.Stderr, "claude-relay: session file discovered: %s\n", sessionPath)
-		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, func(ml mirrorLine) {
+		if err := tailSessionFile(ctx, sessionPath, cfg.MirrorReasoning, startedAt, func(ml mirrorLine) {
 			for _, line := range splitMirrorText(ml.Text) {
 				if line == "" {
 					continue
@@ -369,18 +376,21 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, filter
 	}
 }
 
-func discoverSessionPath(ctx context.Context, cfg config, _ time.Time) (string, error) {
+// discoverSessionPath blocks until a session file is found (or ctx is cancelled).
+//
+// Claude Code creates the .jsonl lazily — only after the first user interaction —
+// so there is no meaningful deadline to impose. We scan every 250ms:
+//   - Primary:  look for the exact UUID we passed via --session-id
+//   - Fallback: look for any .jsonl whose mtime is after startedAt
+//     (handles Claude Code versions that ignore --session-id)
+func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (string, error) {
 	root, err := claudeSessionsRoot(cfg.TargetCWD)
 	if err != nil {
 		return "", err
 	}
 
-	// We passed --session-id to Claude Code, so the file name is deterministic.
 	target := filepath.Join(root, cfg.ClaudeSessionID+".jsonl")
-	fmt.Fprintf(os.Stderr, "claude-relay: waiting for session file %s\n", target)
-
-	ctx, cancel := context.WithTimeout(ctx, defaultDiscoverWait)
-	defer cancel()
+	fmt.Fprintf(os.Stderr, "claude-relay: waiting for session file (send a message to Claude to begin)...\n")
 
 	ticker := time.NewTicker(defaultScanInterval)
 	defer ticker.Stop()
@@ -390,12 +400,68 @@ func discoverSessionPath(ctx context.Context, cfg config, _ time.Time) (string, 
 			fmt.Fprintf(os.Stderr, "claude-relay: found session file %s\n", target)
 			return target, nil
 		}
+		// Fallback: Claude Code may ignore --session-id and create the file
+		// under a self-chosen UUID once the session starts.
+		if p := newestSessionFile(root, startedAt); p != "" {
+			fmt.Fprintf(os.Stderr, "claude-relay: session file (by mtime) %s\n", p)
+			return p, nil
+		}
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("session file %s not found after %v", target, defaultDiscoverWait)
+			return "", ctx.Err()
 		case <-ticker.C:
 		}
 	}
+}
+
+// dumpSessionDir logs all .jsonl files in dir with their mtimes, flagging any
+// that post-date minTime. Used to diagnose session file discovery failures.
+func dumpSessionDir(dir string, minTime time.Time) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-relay: session dir unreadable: %v\n", dir)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "claude-relay: session dir %s (startedAt=%s):\n", dir, minTime.Format(time.RFC3339))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		mark := " "
+		if info.ModTime().After(minTime) {
+			mark = ">"
+		}
+		fmt.Fprintf(os.Stderr, "  %s %s  %s\n", mark, info.ModTime().Format("15:04:05"), e.Name())
+	}
+}
+
+// newestSessionFile returns the most recently modified .jsonl file in dir
+// whose modification time is after minTime. Returns "" if none found.
+func newestSessionFile(dir string, minTime time.Time) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	var best string
+	var bestMod time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if mod := info.ModTime(); mod.After(minTime) && mod.After(bestMod) {
+			best = filepath.Join(dir, e.Name())
+			bestMod = mod
+		}
+	}
+	return best
 }
 
 // extractResumeID finds --resume or -r in args and returns the session UUID
@@ -424,22 +490,21 @@ func claudeSessionsRoot(cwd string) (string, error) {
 	return filepath.Join(home, ".claude", "projects", "-"+sanitized), nil
 }
 
-func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emit func(mirrorLine)) error {
+func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, since time.Time, emit func(mirrorLine)) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	if _, err := file.Seek(0, io.SeekEnd); err != nil {
-		return err
-	}
-
+	// Read from the beginning and filter by timestamp so we don't miss
+	// the first response when Claude Code creates the session file lazily
+	// (after the first message is processed, not at startup).
 	reader := bufio.NewReader(file)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			for _, ml := range sessionMessages(line, mirrorReasoning) {
+			for _, ml := range sessionMessages(line, mirrorReasoning, since) {
 				if ml.Text != "" {
 					emit(ml)
 				}
@@ -467,13 +532,20 @@ func tailSessionFile(ctx context.Context, path string, mirrorReasoning bool, emi
 // sessionMessages parses a Claude Code JSONL line and returns mirror lines
 // with optional structured metadata for rich rendering in the web UI.
 // If mirrorReasoning is true, thinking blocks are included prefixed with "💭 ".
-func sessionMessages(line []byte, mirrorReasoning bool) []mirrorLine {
+// Only entries whose Timestamp is after since are returned (zero since = no filter).
+func sessionMessages(line []byte, mirrorReasoning bool, since time.Time) []mirrorLine {
 	var entry claudeSessionEntry
 	if err := json.Unmarshal(line, &entry); err != nil {
 		return nil
 	}
 	if entry.Type != "assistant" || entry.Message.Role != "assistant" {
 		return nil
+	}
+	// Skip entries that predate our session start.
+	if !since.IsZero() && entry.Timestamp != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil && !ts.After(since) {
+			return nil
+		}
 	}
 
 	var out []mirrorLine
@@ -687,6 +759,7 @@ func splitMirrorText(text string) []string {
 // --- Relay input (operator → Claude) ---
 
 func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg config, state *relayState, ptyFile *os.File, since time.Time) {
+	fmt.Fprintf(os.Stderr, "claude-relay: relayInputLoop started (nick=%s since=%s)\n", cfg.Nick, since.Format(time.RFC3339))
 	lastSeen := since
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
@@ -721,6 +794,9 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 			}
 			if len(pending) == 0 {
 				continue
+			}
+			for _, m := range pending {
+				fmt.Fprintf(os.Stderr, "claude-relay: injecting from=%s: %s\n", m.Nick, truncateMsg(m.Text, 100))
 			}
 			if err := injectMessages(ptyFile, cfg, state, relay.ControlChannel(), pending); err != nil {
 				if ctx.Err() == nil {
@@ -973,17 +1049,22 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 			newest = msg.At
 		}
 		if msg.Nick == nick {
+			debugf("claude-relay: filter skip self: %s\n", truncateMsg(msg.Text, 60))
 			continue
 		}
 		if _, ok := serviceBots[msg.Nick]; ok {
+			debugf("claude-relay: filter skip service-bot %s\n", msg.Nick)
 			continue
 		}
 		if ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes()) {
+			debugf("claude-relay: filter skip activity-prefix %s\n", msg.Nick)
 			continue
 		}
 		if !ircagent.MentionsNick(msg.Text, nick) && !ircagent.MatchesGroupMention(msg.Text, nick, agentType) {
+			debugf("claude-relay: filter drop from=%s: no nick mention (nick=%s text=%q)\n", msg.Nick, nick, truncateMsg(msg.Text, 80))
 			continue
 		}
+		fmt.Fprintf(os.Stderr, "claude-relay: filter pass from=%s: %s\n", msg.Nick, truncateMsg(msg.Text, 100))
 		filtered = append(filtered, msg)
 	}
 	sort.Slice(filtered, func(i, j int) bool {
