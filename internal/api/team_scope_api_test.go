@@ -70,9 +70,9 @@ func newTeamScopedServer(t *testing.T, bridgeStub *teamScopeBridge) (*httptest.S
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	var srv *api.Server
 	if bridgeStub == nil {
-		srv = api.New(reg, keys, nil, nil, nil, nil, nil, nil, nil, "", log)
+		srv = api.New(reg, keys, nil, nil, nil, nil, nil, nil, nil, "", false, false, log)
 	} else {
-		srv = api.New(reg, keys, bridgeStub, nil, nil, nil, nil, nil, nil, "", log)
+		srv = api.New(reg, keys, bridgeStub, nil, nil, nil, nil, nil, nil, "", false, false, log)
 	}
 	return httptest.NewServer(srv.Handler()), reg
 }

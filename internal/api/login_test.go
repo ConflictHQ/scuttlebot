@@ -30,14 +30,14 @@ func newTestServerWithAdmins(t *testing.T) (*httptest.Server, *auth.AdminStore) 
 		t.Fatalf("Add admin: %v", err)
 	}
 	reg := registry.New(newMock(), []byte("test-signing-key"))
-	srv := api.New(reg, auth.TestStore(testToken), nil, nil, admins, nil, nil, nil, nil, "", testLog)
+	srv := api.New(reg, auth.TestStore(testToken), nil, nil, admins, nil, nil, nil, nil, "", false, false, testLog)
 	return httptest.NewServer(srv.Handler()), admins
 }
 
 func TestLoginNoAdmins(t *testing.T) {
 	// When admins is nil, login returns 404.
 	reg := registry.New(newMock(), []byte("test-signing-key"))
-	srv := api.New(reg, auth.TestStore(testToken), nil, nil, nil, nil, nil, nil, nil, "", testLog)
+	srv := api.New(reg, auth.TestStore(testToken), nil, nil, nil, nil, nil, nil, nil, "", false, false, testLog)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -241,6 +241,67 @@ func TestAdminSetPasswordMissing(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+// --- dev-token endpoint ---
+
+func TestDevTokenDisabledByDefault(t *testing.T) {
+	ts, _ := newTestServerWithAdmins(t)
+	defer ts.Close()
+
+	resp := do(t, ts, "GET", "/dev-token", nil, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 when no dev mode set, got %d", resp.StatusCode)
+	}
+}
+
+func TestDevTokenNoAuthMode(t *testing.T) {
+	reg := registry.New(newMock(), []byte("test-signing-key"))
+	keys := auth.TestStore(testToken)
+	srv := api.New(reg, keys, nil, nil, nil, nil, nil, nil, nil, "", true, false, testLog)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := do(t, ts, "GET", "/dev-token", nil, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["token"] == "" {
+		t.Error("expected token in response")
+	}
+	if body["mode"] != "no_auth" {
+		t.Errorf("expected mode=no_auth, got %q", body["mode"])
+	}
+}
+
+func TestDevTokenShowTokenMode(t *testing.T) {
+	reg := registry.New(newMock(), []byte("test-signing-key"))
+	keys := auth.TestStore(testToken)
+	srv := api.New(reg, keys, nil, nil, nil, nil, nil, nil, nil, "", false, true, testLog)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := do(t, ts, "GET", "/dev-token", nil, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["token"] == "" {
+		t.Error("expected token in response")
+	}
+	if body["mode"] != "show_token" {
+		t.Errorf("expected mode=show_token, got %q", body["mode"])
 	}
 }
 

@@ -21,18 +21,20 @@ type ircPasswdSetter interface {
 
 // Server is the scuttlebot HTTP API server.
 type Server struct {
-	registry  *registry.Registry
-	apiKeys   *auth.APIKeyStore
-	log       *slog.Logger
-	bridge    chatBridge        // nil if bridge is disabled
-	policies  *PolicyStore      // nil if not configured
-	admins    adminStore        // nil if not configured
-	llmCfg    *config.LLMConfig // nil if no LLM backends configured
-	topoMgr   topologyManager   // nil if topology not configured
-	cfgStore  *ConfigStore      // nil if config write-back not configured
-	ircPasswd ircPasswdSetter   // nil if not configured
-	loginRL   *loginRateLimiter
-	tlsDomain string // empty if no TLS
+	registry    *registry.Registry
+	apiKeys     *auth.APIKeyStore
+	log         *slog.Logger
+	bridge      chatBridge        // nil if bridge is disabled
+	policies    *PolicyStore      // nil if not configured
+	admins      adminStore        // nil if not configured
+	llmCfg      *config.LLMConfig // nil if no LLM backends configured
+	topoMgr     topologyManager   // nil if topology not configured
+	cfgStore    *ConfigStore      // nil if config write-back not configured
+	ircPasswd   ircPasswdSetter   // nil if not configured
+	loginRL     *loginRateLimiter
+	tlsDomain   string // empty if no TLS
+	noAuthMode  bool   // SCUTTLEBOT_NO_AUTH: UI auto-logs in without credentials
+	showToken   bool   // SCUTTLEBOT_SHOW_TOKEN: UI shows a dev token in the login modal
 }
 
 // New creates a new API Server. Pass nil for b to disable the chat bridge.
@@ -41,20 +43,24 @@ type Server struct {
 // Pass nil for topo to disable topology provisioning endpoints.
 // Pass nil for cfgStore to disable config read/write endpoints.
 // Pass nil for ircPasswd to disable IRC user password management.
-func New(reg *registry.Registry, apiKeys *auth.APIKeyStore, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, topo topologyManager, cfgStore *ConfigStore, ircPasswd ircPasswdSetter, tlsDomain string, log *slog.Logger) *Server {
+// noAuthMode and showToken are mutually exclusive trusted-environment modes
+// (set via SCUTTLEBOT_NO_AUTH / SCUTTLEBOT_SHOW_TOKEN).
+func New(reg *registry.Registry, apiKeys *auth.APIKeyStore, b chatBridge, ps *PolicyStore, admins adminStore, llmCfg *config.LLMConfig, topo topologyManager, cfgStore *ConfigStore, ircPasswd ircPasswdSetter, tlsDomain string, noAuthMode, showToken bool, log *slog.Logger) *Server {
 	return &Server{
-		registry:  reg,
-		apiKeys:   apiKeys,
-		log:       log,
-		bridge:    b,
-		policies:  ps,
-		admins:    admins,
-		llmCfg:    llmCfg,
-		topoMgr:   topo,
-		cfgStore:  cfgStore,
-		ircPasswd: ircPasswd,
-		loginRL:   newLoginRateLimiter(),
-		tlsDomain: tlsDomain,
+		registry:   reg,
+		apiKeys:    apiKeys,
+		log:        log,
+		bridge:     b,
+		policies:   ps,
+		admins:     admins,
+		llmCfg:     llmCfg,
+		topoMgr:    topo,
+		cfgStore:   cfgStore,
+		ircPasswd:  ircPasswd,
+		loginRL:    newLoginRateLimiter(),
+		tlsDomain:  tlsDomain,
+		noAuthMode: noAuthMode,
+		showToken:  showToken,
 	}
 }
 
@@ -155,6 +161,7 @@ func (s *Server) Handler() http.Handler {
 
 	outer := http.NewServeMux()
 	outer.HandleFunc("POST /login", s.handleLogin)
+	outer.HandleFunc("GET /dev-token", s.handleDevToken)
 	outer.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})

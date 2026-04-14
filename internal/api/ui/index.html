@@ -331,6 +331,12 @@ canvas { display:block; width:100% !important; }
     </div>
     <div class="card">
       <div class="card-body">
+        <!-- dev token banner — visible in SCUTTLEBOT_SHOW_TOKEN mode -->
+        <div id="dev-token-banner" style="display:none;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 14px;margin-bottom:14px">
+          <div style="font-size:11px;color:#8b949e;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">dev token (SCUTTLEBOT_SHOW_TOKEN)</div>
+          <code id="dev-token-value" style="display:block;font-size:11px;word-break:break-all;color:#a5d6ff;background:#0d1117;padding:6px 8px;border-radius:4px;margin-bottom:8px"></code>
+          <button class="sm primary" style="width:100%" onclick="applyDevToken()">apply token &amp; sign in</button>
+        </div>
         <form id="login-form" onsubmit="handleLogin(event)" style="gap:12px">
           <div>
             <label>username</label>
@@ -1354,6 +1360,7 @@ function switchTab(name) {
 }
 
 // --- auth ---
+let _noAuthMode = false; // true when server runs with SCUTTLEBOT_NO_AUTH=1
 function getToken()    { return localStorage.getItem('sb_token') || ''; }
 function getUsername() { return localStorage.getItem('sb_username') || ''; }
 
@@ -1415,13 +1422,51 @@ function saveTokenLogin() {
   loadAll();
 }
 
+function applyDevToken() {
+  const t = document.getElementById('dev-token-value').textContent.trim();
+  if (!t) return;
+  localStorage.setItem('sb_token', t);
+  localStorage.removeItem('sb_username');
+  hideLoginScreen();
+  updateHeaderUser();
+  loadAll();
+}
+
 function logout() {
   localStorage.removeItem('sb_token');
   localStorage.removeItem('sb_username');
   location.reload();
 }
 
-function initAuth() {
+async function initAuth() {
+  // Check for server-side dev auth modes (SCUTTLEBOT_NO_AUTH / SCUTTLEBOT_SHOW_TOKEN).
+  try {
+    const resp = await fetch('/dev-token');
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.mode === 'no_auth') {
+        _noAuthMode = true;
+        localStorage.setItem('sb_token', data.token);
+        localStorage.removeItem('sb_username');
+        hideLoginScreen();
+        updateHeaderUser();
+        loadAll();
+        return;
+      } else if (data.mode === 'show_token') {
+        // Pre-populate the dev token banner in the login modal.
+        const banner = document.getElementById('dev-token-banner');
+        if (banner) {
+          document.getElementById('dev-token-value').textContent = data.token;
+          banner.style.display = 'block';
+        }
+        // If already have a stored token, skip the login screen.
+        if (getToken()) { hideLoginScreen(); updateHeaderUser(); loadAll(); return; }
+        showLoginScreen();
+        return;
+      }
+    }
+  } catch(_) {}
+  // Normal flow.
   if (!getToken()) { showLoginScreen(); return; }
   hideLoginScreen();
   updateHeaderUser();
@@ -1438,6 +1483,11 @@ async function api(method, path, body) {
   if (res.status === 401) {
     localStorage.removeItem('sb_token');
     localStorage.removeItem('sb_username');
+    if (_noAuthMode) {
+      // Re-fetch a dev token and reload — the server session expired.
+      location.reload();
+      throw new Error('Re-authenticating…');
+    }
     showLoginScreen();
     throw new Error('Session expired — please sign in again');
   }

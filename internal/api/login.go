@@ -110,6 +110,27 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleDevToken handles GET /dev-token.
+// Only active when the server is in noAuthMode or showToken mode.
+// Returns {"token": "...", "mode": "no_auth"|"show_token"} — no credentials required.
+func (s *Server) handleDevToken(w http.ResponseWriter, r *http.Request) {
+	if !s.noAuthMode && !s.showToken {
+		writeError(w, http.StatusNotFound, "not available")
+		return
+	}
+	token, _, err := s.apiKeys.Create("dev-session", []auth.Scope{auth.ScopeAdmin}, time.Now().Add(24*time.Hour), "")
+	if err != nil {
+		s.log.Error("dev-token: create session key", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+	mode := "show_token"
+	if s.noAuthMode {
+		mode = "no_auth"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": token, "mode": mode})
+}
+
 // handleAdminList handles GET /v1/admins.
 func (s *Server) handleAdminList(w http.ResponseWriter, r *http.Request) {
 	admins := s.admins.List()
