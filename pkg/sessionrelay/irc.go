@@ -36,6 +36,13 @@ type ircConnector struct {
 	client   *girc.Client
 	errCh    chan error
 
+	// keepAliveCtx/keepAliveCancel govern the keepAlive goroutine lifetime.
+	// They are independent of the dial-timeout context passed to Connect() so
+	// that calling cancel() after the initial join does not kill the reconnect
+	// loop.  keepAliveCancel is called in Close().
+	keepAliveCtx    context.Context
+	keepAliveCancel context.CancelFunc
+
 	registeredByRelay bool
 	connectedAt       time.Time
 }
@@ -44,21 +51,24 @@ func newIRCConnector(cfg Config) (Connector, error) {
 	if cfg.IRC.Addr == "" {
 		return nil, fmt.Errorf("sessionrelay: irc transport requires irc addr")
 	}
+	kaCtx, kaCancel := context.WithCancel(context.Background())
 	return &ircConnector{
-		http:          cfg.HTTPClient,
-		apiURL:        stringsTrimRightSlash(cfg.URL),
-		token:         cfg.Token,
-		primary:       normalizeChannel(cfg.Channel),
-		nick:          cfg.Nick,
-		addr:          cfg.IRC.Addr,
-		agentType:     cfg.IRC.AgentType,
-		pass:          cfg.IRC.Pass,
-		deleteOnClose: cfg.IRC.DeleteOnClose,
-		envelopeMode:  cfg.IRC.EnvelopeMode,
-		tls:           cfg.IRC.TLS,
-		channels:      append([]string(nil), cfg.Channels...),
-		messages:      make([]Message, 0, defaultBufferSize),
-		errCh:         make(chan error, 1),
+		http:            cfg.HTTPClient,
+		apiURL:          stringsTrimRightSlash(cfg.URL),
+		token:           cfg.Token,
+		primary:         normalizeChannel(cfg.Channel),
+		nick:            cfg.Nick,
+		addr:            cfg.IRC.Addr,
+		agentType:       cfg.IRC.AgentType,
+		pass:            cfg.IRC.Pass,
+		deleteOnClose:   cfg.IRC.DeleteOnClose,
+		envelopeMode:    cfg.IRC.EnvelopeMode,
+		tls:             cfg.IRC.TLS,
+		channels:        append([]string(nil), cfg.Channels...),
+		messages:        make([]Message, 0, defaultBufferSize),
+		errCh:           make(chan error, 1),
+		keepAliveCtx:    kaCtx,
+		keepAliveCancel: kaCancel,
 	}, nil
 }
 
@@ -93,7 +103,7 @@ func (c *ircConnector) Connect(ctx context.Context) error {
 		_ = c.cleanupRegistration(context.Background())
 		return fmt.Errorf("sessionrelay: irc connect: %w", err)
 	case <-joined:
-		go c.keepAlive(ctx, host, port)
+		go c.keepAlive(c.keepAliveCtx, host, port)
 		return nil
 	}
 }
@@ -113,6 +123,12 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		SSL:         c.tls,
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
+		// Request RELAYMSG so HasCapability("draft/relaymsg") works in the
+		// PRIVMSG handler, allowing correct sender extraction from bridge
+		// messages delivered as "bridge/human".
+		SupportedCaps: map[string][]string{
+			"draft/relaymsg": nil,
+		},
 	})
 	client.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
 		c.mu.Lock()
@@ -147,10 +163,12 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 			sender = acct
 		}
 		text := strings.TrimSpace(e.Last())
-		// RELAYMSG: server delivers as "nick/bridge" — strip the relay suffix.
-		if sep, ok := cl.GetServerOption("RELAYMSG"); ok && sep != "" {
-			if idx := strings.Index(sender, sep); idx != -1 {
-				sender = sender[:idx]
+		// RELAYMSG: server delivers as "bridge/human" — extract the actual sender.
+		// RELAYMSG is a CAP (not ISUPPORT), separator is always "/".
+		const relaymsgSep = "/"
+		if cl.HasCapability("draft/relaymsg") {
+			if idx := strings.Index(sender, relaymsgSep); idx != -1 {
+				sender = sender[idx+1:]
 			}
 		}
 		// Fallback: parse legacy [nick] prefix from bridge bot.
@@ -476,6 +494,7 @@ func (c *ircConnector) ControlChannel() string {
 }
 
 func (c *ircConnector) Close(ctx context.Context) error {
+	c.keepAliveCancel()
 	c.mu.Lock()
 	if c.client != nil {
 		c.client.Close()
