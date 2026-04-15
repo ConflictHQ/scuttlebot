@@ -489,9 +489,10 @@ func (c *Config) LoadFromBytes(data []byte) error {
 //
 // Supported variables:
 //
+//	SCUTTLEBOT_DATA_DIR          — persistent data root; sets Ergo.DataDir and Datastore.DSN
 //	SCUTTLEBOT_API_ADDR          — scuttlebot HTTP API listen address (e.g. ":8080")
 //	SCUTTLEBOT_DB_DRIVER         — "sqlite" or "postgres"
-//	SCUTTLEBOT_DB_DSN            — datastore connection string
+//	SCUTTLEBOT_DB_DSN            — datastore connection string (overrides SCUTTLEBOT_DATA_DIR)
 //	SCUTTLEBOT_ERGO_EXTERNAL     — "true" to skip subprocess management
 //	SCUTTLEBOT_ERGO_API_ADDR     — ergo HTTP API address (e.g. "http://ergo:8089")
 //	SCUTTLEBOT_ERGO_API_TOKEN    — ergo HTTP API bearer token
@@ -500,11 +501,14 @@ func (c *Config) LoadFromBytes(data []byte) error {
 //	SCUTTLEBOT_ERGO_SERVER_NAME  — IRC server hostname
 func (c *Config) ApplyEnv() {
 	// SCUTTLEBOT_DATA_DIR is the canonical env var for the data root (set by the
-	// JupyterHub service YAML to an EFS-backed path).  Map it to Ergo.DataDir so
-	// the admin store, registry, signing key, and ergo state all persist across
-	// container restarts.
+	// JupyterHub service YAML to an EFS-backed path).  Map it to both Ergo.DataDir
+	// and Datastore.DSN so all state persists in the same location across restarts.
+	// Without this, changing Ergo.DataDir away from the default "./data/ergo" breaks
+	// Datastore.DSN ("./data/scuttlebot.db") because the ./data/ parent is no longer
+	// created — causing SQLITE_CANTOPEN on every startup.
 	if v := envStr("SCUTTLEBOT_DATA_DIR"); v != "" {
 		c.Ergo.DataDir = v
+		c.Datastore.DSN = v + "/scuttlebot.db"
 	}
 	if v := envStr("SCUTTLEBOT_API_ADDR"); v != "" {
 		c.APIAddr = v
