@@ -499,6 +499,13 @@ func (c *Config) LoadFromBytes(data []byte) error {
 //	SCUTTLEBOT_ERGO_NETWORK_NAME — IRC network name
 //	SCUTTLEBOT_ERGO_SERVER_NAME  — IRC server hostname
 func (c *Config) ApplyEnv() {
+	// SCUTTLEBOT_DATA_DIR is the canonical env var for the data root (set by the
+	// JupyterHub service YAML to an EFS-backed path).  Map it to Ergo.DataDir so
+	// the admin store, registry, signing key, and ergo state all persist across
+	// container restarts.
+	if v := envStr("SCUTTLEBOT_DATA_DIR"); v != "" {
+		c.Ergo.DataDir = v
+	}
 	if v := envStr("SCUTTLEBOT_API_ADDR"); v != "" {
 		c.APIAddr = v
 	}

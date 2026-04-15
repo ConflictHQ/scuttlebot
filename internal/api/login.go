@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -112,7 +113,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleDevToken handles GET /dev-token.
 // Only active when the server is in noAuthMode or showToken mode.
-// Returns {"token": "...", "mode": "no_auth"|"show_token"} — no credentials required.
+// Returns {"token": "...", "mode": "no_auth"|"show_token", "username": "..."}.
+// username is populated from SCUTTLEBOT_ADMIN_USER (set to JUPYTERHUB_USER by the
+// JupyterHub service YAML) so the UI can display the real user identity.
 func (s *Server) handleDevToken(w http.ResponseWriter, r *http.Request) {
 	if !s.noAuthMode && !s.showToken {
 		writeError(w, http.StatusNotFound, "not available")
@@ -128,7 +131,11 @@ func (s *Server) handleDevToken(w http.ResponseWriter, r *http.Request) {
 	if s.noAuthMode {
 		mode = "no_auth"
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"token": token, "mode": mode})
+	resp := map[string]string{"token": token, "mode": mode}
+	if u := os.Getenv("SCUTTLEBOT_ADMIN_USER"); u != "" {
+		resp["username"] = u
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleAdminList handles GET /v1/admins.

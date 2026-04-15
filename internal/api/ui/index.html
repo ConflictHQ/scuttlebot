@@ -1452,7 +1452,11 @@ async function initAuth() {
       if (data.mode === 'no_auth') {
         _noAuthMode = true;
         localStorage.setItem('sb_token', data.token);
-        localStorage.removeItem('sb_username');
+        if (data.username) {
+          localStorage.setItem('sb_username', data.username);
+        } else {
+          localStorage.removeItem('sb_username');
+        }
         hideLoginScreen();
         updateHeaderUser();
         loadAll();
