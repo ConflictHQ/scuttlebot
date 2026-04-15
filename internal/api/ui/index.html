@@ -1364,6 +1364,11 @@ let _noAuthMode = false; // true when server runs with SCUTTLEBOT_NO_AUTH=1
 function getToken()    { return localStorage.getItem('sb_token') || ''; }
 function getUsername() { return localStorage.getItem('sb_username') || ''; }
 
+// Resolve API paths relative to current page so JupyterHub proxy prefixes are handled.
+// e.g. when served at /user/alice/sbot/scuttlebot/, fetch('v1/status') hits the right backend.
+const _API_BASE = (() => { const p = window.location.pathname; return p.endsWith('/') ? p : p + '/'; })();
+function _url(path) { return _API_BASE + path.replace(/^\//, ''); }
+
 function showLoginScreen() {
   document.getElementById('login-screen').style.display = 'flex';
   setTimeout(() => document.getElementById('login-username')?.focus(), 80);
@@ -1393,7 +1398,7 @@ async function handleLogin(e) {
   btn.disabled = true; btn.textContent = 'signing in…';
   errEl.style.display = 'none';
   try {
-    const resp = await fetch('/login', {
+    const resp = await fetch(_url('/login'), {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({username, password}),
@@ -1441,7 +1446,7 @@ function logout() {
 async function initAuth() {
   // Check for server-side dev auth modes (SCUTTLEBOT_NO_AUTH / SCUTTLEBOT_SHOW_TOKEN).
   try {
-    const resp = await fetch('/dev-token');
+    const resp = await fetch(_url('/dev-token'));
     if (resp.ok) {
       const data = await resp.json();
       if (data.mode === 'no_auth') {
@@ -1479,7 +1484,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape'){ closeDrawer();
 async function api(method, path, body) {
   const opts = { method, cache: 'no-store', headers: { 'Authorization':'Bearer '+getToken(), 'Content-Type':'application/json' } };
   if (body !== undefined) opts.body = JSON.stringify(body);
-  const res = await fetch(path, opts);
+  const res = await fetch(_url(path), opts);
   if (res.status === 401) {
     localStorage.removeItem('sb_token');
     localStorage.removeItem('sb_username');
