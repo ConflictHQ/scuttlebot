@@ -1364,9 +1364,15 @@ let _noAuthMode = false; // true when server runs with SCUTTLEBOT_NO_AUTH=1
 function getToken()    { return localStorage.getItem('sb_token') || ''; }
 function getUsername() { return localStorage.getItem('sb_username') || ''; }
 
-// Resolve API paths relative to current page so JupyterHub proxy prefixes are handled.
-// e.g. when served at /user/alice/sbot/scuttlebot/, fetch('v1/status') hits the right backend.
-const _API_BASE = (() => { const p = window.location.pathname; return p.endsWith('/') ? p : p + '/'; })();
+// Resolve API paths relative to the proxy root, not the current page.
+// The server redirects GET / → /ui/, so window.location.pathname is
+// {proxy_root}/ui/ — but API routes (/dev-token, /v1/...) are anchored
+// at {proxy_root}/.  Strip the /ui/ suffix so all fetch() calls land in
+// the right place whether running standalone or behind a JupyterHub proxy.
+const _API_BASE = (() => {
+  const p = window.location.pathname.replace(/\/ui\/.*$/, '/');
+  return p.endsWith('/') ? p : p + '/';
+})();
 function _url(path) { return _API_BASE + path.replace(/^\//, ''); }
 
 function showLoginScreen() {
