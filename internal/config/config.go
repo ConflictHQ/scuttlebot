@@ -84,6 +84,11 @@ type LLMBackendConfig struct {
 	// APIKey is the authentication key for cloud backends.
 	APIKey string `yaml:"api_key"`
 
+	// APIKeyEnv names an environment variable whose value is used as the API key.
+	// Takes precedence over APIKey when set. Useful for keeping secrets out of
+	// the config file (e.g. api_key_env: ANTHROPIC_API_KEY).
+	APIKeyEnv string `yaml:"api_key_env"`
+
 	// BaseURL overrides the default base URL for OpenAI-compatible backends.
 	// Required for custom self-hosted endpoints without a known default.
 	BaseURL string `yaml:"base_url"`
@@ -540,4 +545,111 @@ func (c *Config) ApplyEnv() {
 	if v := envStr("SCUTTLEBOT_MCP_ADDR"); v != "" {
 		c.MCPAddr = v
 	}
+
+	// Resolve API keys for LLM backends from environment variables.
+	// If api_key_env is set on a backend, it overrides the static api_key value.
+	// If a backend has no key after that, well-known env vars are checked by
+	// backend type (e.g. ANTHROPIC_API_KEY for anthropic backends).
+	for i := range c.LLM.Backends {
+		b := &c.LLM.Backends[i]
+		if b.APIKeyEnv != "" {
+			if v := os.Getenv(b.APIKeyEnv); v != "" {
+				b.APIKey = v
+			}
+		}
+		if b.APIKey == "" {
+			b.APIKey = llmWellKnownKey(b.Backend)
+		}
+	}
+	// Zero-config: if no backends are defined in YAML but well-known API key
+	// env vars are present, auto-add default backends so oracle and other LLM
+	// consumers work without any explicit configuration.
+	if len(c.LLM.Backends) == 0 {
+		c.LLM.Backends = append(c.LLM.Backends, autoDetectLLMBackends()...)
+	}
+}
+
+// llmWellKnownKey returns the API key from well-known environment variables for
+// the given backend type. Checks both canonical names (e.g. ANTHROPIC_API_KEY)
+// and common short-form alternatives (e.g. ANTHROPIC_KEY).
+func llmWellKnownKey(backend string) string {
+	switch backend {
+	case "anthropic":
+		return firstSetEnv("ANTHROPIC_API_KEY", "ANTHROPIC_KEY")
+	case "openai":
+		return firstSetEnv("OPENAI_API_KEY", "OPENAI_KEY")
+	case "gemini":
+		return firstSetEnv("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_KEY", "GOOGLE_GEMINI_API_KEY")
+	case "openrouter":
+		return firstSetEnv("OPENROUTER_API_KEY", "OPENROUTER_KEY")
+	case "groq":
+		return firstSetEnv("GROQ_API_KEY", "GROQ_KEY")
+	case "mistral":
+		return firstSetEnv("MISTRAL_API_KEY", "MISTRAL_KEY")
+	case "together":
+		return firstSetEnv("TOGETHER_API_KEY", "TOGETHER_KEY")
+	case "xai":
+		return firstSetEnv("XAI_API_KEY", "XAI_KEY")
+	case "deepseek":
+		return firstSetEnv("DEEPSEEK_API_KEY", "DEEPSEEK_KEY")
+	case "fireworks":
+		return firstSetEnv("FIREWORKS_API_KEY", "FIREWORKS_KEY")
+	case "ai21":
+		return firstSetEnv("AI21_API_KEY", "AI21_KEY")
+	case "huggingface":
+		return firstSetEnv("HUGGINGFACE_API_KEY", "HF_TOKEN", "HUGGINGFACE_TOKEN")
+	case "cerebras":
+		return firstSetEnv("CEREBRAS_API_KEY", "CEREBRAS_KEY")
+	}
+	return ""
+}
+
+// autoDetectLLMBackends returns default LLMBackendConfig entries for any
+// well-known API keys found in the environment. The first detected backend
+// is marked as Default.
+func autoDetectLLMBackends() []LLMBackendConfig {
+	type candidate struct {
+		backend string
+		name    string
+	}
+	order := []candidate{
+		{"anthropic", "anthropic"},
+		{"openai", "openai"},
+		{"gemini", "gemini"},
+		{"openrouter", "openrouter"},
+		{"groq", "groq"},
+		{"mistral", "mistral"},
+		{"together", "together"},
+		{"fireworks", "fireworks"},
+		{"xai", "xai"},
+		{"deepseek", "deepseek"},
+		{"ai21", "ai21"},
+		{"huggingface", "huggingface"},
+		{"cerebras", "cerebras"},
+	}
+	var out []LLMBackendConfig
+	for _, c := range order {
+		key := llmWellKnownKey(c.backend)
+		if key == "" {
+			continue
+		}
+		out = append(out, LLMBackendConfig{
+			Name:    c.name,
+			Backend: c.backend,
+			APIKey:  key,
+			Default: len(out) == 0,
+		})
+	}
+	return out
+}
+
+// firstSetEnv returns the value of the first non-empty environment variable
+// among those named, or "" if none are set.
+func firstSetEnv(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }
