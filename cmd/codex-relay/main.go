@@ -380,7 +380,7 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 				continue
 			}
 			for _, m := range pending {
-				fmt.Fprintf(os.Stderr, "codex-relay: injecting from=%s: %s\n", m.Nick, truncateMsg(m.Text, 100))
+				debugf("codex-relay: injecting from=%s: %s\n", m.Nick, truncateMsg(m.Text, 100))
 			}
 			if err := injectMessages(ptyFile, cfg, state, relay.ControlChannel(), pending); err != nil {
 				if ctx.Err() == nil {
@@ -480,9 +480,6 @@ func presenceLoopFiltered(ctx context.Context, relayPtr *sessionrelay.Connector,
 		case <-ticker.C:
 			if r := *relayPtr; r != nil {
 				_ = r.Touch(ctx)
-			}
-			if filtered != nil {
-				_ = filtered.PostAtLevel(ctx, sessionrelay.LevelHeartbeat, "heartbeat", nil)
 			}
 		}
 	}
@@ -644,7 +641,7 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 			debugf("codex-relay: filter drop from=%s: no nick mention (nick=%s text=%q)\n", msg.Nick, nick, truncateMsg(msg.Text, 80))
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "codex-relay: filter pass from=%s: %s\n", msg.Nick, truncateMsg(msg.Text, 100))
+		debugf("codex-relay: filter pass from=%s: %s\n", msg.Nick, truncateMsg(msg.Text, 100))
 		filtered = append(filtered, msg)
 	}
 	sort.Slice(filtered, func(i, j int) bool {
