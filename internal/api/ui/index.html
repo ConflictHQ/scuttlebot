@@ -168,24 +168,26 @@ select option { background:#161b22; }
 .chat-msgs.modern .msg-row.is-bot  { background:#0d1117; border-color:#30363d; border-bottom-left-radius:4px; }
 .chat-msgs.modern .msg-row.is-agent { background:#161b22; border-color:#30363d; border-bottom-left-radius:4px; }
 .chat-msgs.modern .msg-row.hl-system { align-self:center; background:transparent; border:none; opacity:.55; font-style:italic; padding:2px 8px; font-size:11px; max-width:100%; }
+.chat-msgs.modern .msg-row.hl-system .msg-header { display:none; }
 .chat-msgs.modern .msg-row.hl-mention { outline:1px solid #58a6ff; border-color:#58a6ff; }
 .chat-msgs.modern .msg-row.hl-danger  { outline:1px solid #f85149; border-color:#f85149; }
-.chat-msgs.modern .msg-nick { display:block; font-size:11px; margin:0 0 2px 0; opacity:.8; }
-.chat-msgs.modern .msg-row.is-self .msg-nick { text-align:right; }
-.chat-msgs.modern .msg-time { display:block; font-size:10px; opacity:.5; margin:4px 0 0 0; }
-.chat-msgs.modern .msg-row.is-self .msg-time { text-align:right; }
+/* modern header: time and nick share one line above the text */
+.msg-header { display:contents; }
+.chat-msgs.modern .msg-header { display:inline-flex; align-items:baseline; gap:6px; margin-bottom:2px; }
+.chat-msgs.modern .msg-time { font-size:10px; opacity:.5; margin:0; }
+.chat-msgs.modern .msg-nick { font-size:11px; margin:0; opacity:.9; }
+.chat-msgs.modern .msg-row.is-self .msg-header { flex-direction:row-reverse; align-self:flex-end; }
 .chat-msgs.modern .msg-grouped { margin-top:-4px; }
-.chat-msgs.modern .msg-grouped .msg-nick { display:none; }
-.chat-msgs.modern .msg-grouped .msg-time { display:none; }
-.chat-msgs.modern .msg-grouped:hover .msg-time { display:block; }
-.chat-msgs.modern .msg-text { word-break:break-word; }
+.chat-msgs.modern .msg-grouped .msg-header { display:none; }
+.chat-msgs.modern .msg-grouped:hover .msg-header { display:inline-flex; opacity:.6; }
+.chat-msgs.modern .msg-text { display:block; word-break:break-word; }
 .chat-msgs.modern.hide-timestamps .msg-time { display:none !important; }
 /* tool-call chip: visible in modern mode regardless of rich toggle */
-.chat-msgs.modern .msg-meta-toggle { display:inline-flex !important; align-items:center; gap:5px; margin:6px 0 0 0; padding:3px 9px; font-size:11px; color:#8b949e; background:#0d1117; border:1px solid #30363d; border-radius:12px; font-weight:normal; max-width:100%; }
-.chat-msgs.modern .msg-meta-toggle::before { content:"▸"; display:inline-block; transition:transform .1s; font-size:9px; }
+.chat-msgs.modern .msg-meta-toggle { display:inline-flex !important; align-items:center; gap:6px; margin:6px 0 0 0; padding:4px 10px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:#a5d6ff; background:linear-gradient(180deg,#1c2128,#161b22); border:1px solid #30363d; border-radius:999px; font-weight:500; max-width:100%; box-shadow:0 1px 0 rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.03); cursor:pointer; transition:border-color .1s, box-shadow .1s, color .1s; }
+.chat-msgs.modern .msg-meta-toggle::before { content:"▸"; display:inline-block; transition:transform .1s; font-size:9px; color:#8b949e; }
 .chat-msgs.modern .msg-meta-toggle.expanded::before { transform:rotate(90deg); }
-.chat-msgs.modern .msg-meta-toggle .chip-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:360px; }
-.chat-msgs.modern .msg-meta-toggle:hover { color:#e6edf3; border-color:#58a6ff; background:#161b22; }
+.chat-msgs.modern .msg-meta-toggle .chip-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:360px; letter-spacing:.2px; }
+.chat-msgs.modern .msg-meta-toggle:hover { color:#e6edf3; border-color:#58a6ff; box-shadow:0 1px 0 rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.04), 0 0 0 2px #58a6ff22; }
 .chat-msgs.modern .msg-meta { margin:4px 0 0 0; border-radius:8px; }
 /* meta blocks track their owner row in modern mode via wrapper */
 .chat-msgs.modern .msg-meta-wrap { display:flex; max-width:100%; }
@@ -2408,8 +2410,10 @@ function appendMsg(msg, isHistory) {
   }
 
   row.innerHTML =
-    `<span class="msg-time" title="${esc(new Date(msg.at).toLocaleString())}">${esc(timeStr)}</span>` +
-    `<span class="msg-nick" style="color:${color}">${esc(displayNick)}</span>` +
+    `<span class="msg-header">` +
+      `<span class="msg-time" title="${esc(new Date(msg.at).toLocaleString())}">${esc(timeStr)}</span>` +
+      `<span class="msg-nick" style="color:${color}">${esc(displayNick)}</span>` +
+    `</span>` +
     `<span class="msg-text">${highlightText(esc(displayText))}${metaToggle}</span>`;
 
   // Apply row-level highlights.
@@ -2547,21 +2551,21 @@ function toolSummary(meta) {
   if (meta.type === 'tool_result') {
     const tool = (d.tool || '').toLowerCase();
     if (tool === 'bash' || tool === 'exec' || tool === 'execute' || d.command) {
-      return '🔧 ' + (d.command || tool || 'command');
+      return '$ ' + (d.command || tool || 'command');
     }
     if (tool === 'edit' || tool === 'write' || tool === 'apply_patch' || tool === 'notebookedit') {
-      return '✏️ ' + (tool + ' ' + (d.file || d.file_path || d.path || ''));
+      return '✏️ ' + (d.file || d.file_path || d.path || '');
     }
-    if (tool === 'read' || tool === 'glob' || tool === 'grep') {
-      return '🔍 ' + (tool + ' ' + (d.file || d.pattern || d.path || ''));
-    }
+    if (tool === 'read')  return '📖 ' + (d.file || d.path || '');
+    if (tool === 'glob')  return '📁 ' + (d.pattern || d.path || '');
+    if (tool === 'grep')  return '🔍 ' + (d.pattern || d.path || '');
     if (tool === 'websearch' || tool === 'webfetch' || tool === 'web_search' || d.url) {
-      return '🌐 ' + (d.url || tool);
+      return '🌐 ' + (d.url || d.query || tool);
     }
     if (tool === 'thinking' || d.thinking) return '💭 thinking';
-    return '🔧 ' + (tool || 'tool call');
+    return '• ' + (tool || 'tool call');
   }
-  if (meta.type === 'diff')     return '📝 diff ' + (d.file || '');
+  if (meta.type === 'diff')     return '📝 ' + (d.file || '');
   if (meta.type === 'error')    return '⚠ error';
   if (meta.type === 'status')   return '• ' + (d.state || 'status');
   if (meta.type === 'artifact') return '📎 ' + (d.name || d.path || 'artifact');
