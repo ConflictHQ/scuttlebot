@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -655,6 +656,21 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 func loadConfig(args []string) (config, error) {
 	fileConfig := readEnvFile(configFilePath())
 
+	target, err := targetCWD(args)
+	if err != nil {
+		return config{}, err
+	}
+
+	// Load per-repo .scuttlebot.yaml (if any) and overlay its values onto the
+	// user-global env file. Process env still wins over both via getenvOr.
+	var repoCfg *repoConfig
+	if rc, repoErr := loadRepoConfig(target); repoErr == nil && rc != nil {
+		repoCfg = rc
+		for k, v := range rc.envOverrides() {
+			fileConfig[k] = v
+		}
+	}
+
 	cfg := config{
 		CodexBin:           getenvOr(fileConfig, "CODEX_BIN", "codex"),
 		ConfigFile:         getenvOr(fileConfig, "SCUTTLEBOT_CONFIG_FILE", configFilePath()),
@@ -680,15 +696,12 @@ func loadConfig(args []string) (config, error) {
 		cfg.Channel = cfg.Channels[0]
 	}
 
-	target, err := targetCWD(args)
-	if err != nil {
-		return config{}, err
-	}
 	cfg.TargetCWD = target
 
-	// Merge per-repo config if present.
-	if rc, err := loadRepoConfig(target); err == nil && rc != nil {
-		cfg.Channels = mergeChannels(cfg.Channels, rc.allChannels())
+	// Merge per-repo channel list if present (server/auth overrides already
+	// applied via fileConfig above).
+	if repoCfg != nil {
+		cfg.Channels = mergeChannels(cfg.Channels, repoCfg.allChannels())
 	}
 
 	// Merge project/team channels if configured.
@@ -1406,9 +1419,19 @@ func exitStatus(err error) int {
 }
 
 // repoConfig is the per-repo .scuttlebot.yaml format.
+//
+// Precedence is process env > repo yaml > user env file > defaults. That is,
+// anything the yaml sets wins over the user-global env file but never
+// overrides an explicit process env var at run time.
 type repoConfig struct {
-	Channel  string   `yaml:"channel"`
-	Channels []string `yaml:"channels"`
+	URL       string   `yaml:"url"`
+	Token     string   `yaml:"token"`
+	Transport string   `yaml:"transport"`
+	IRCAddr   string   `yaml:"irc_addr"`
+	IRCTLS    *bool    `yaml:"irc_tls"`
+	IRCPass   string   `yaml:"irc_pass"`
+	Channel   string   `yaml:"channel"`
+	Channels  []string `yaml:"channels"`
 }
 
 // allChannels returns the singular channel (if set) prepended to the channels list.
@@ -1417,6 +1440,35 @@ func (rc *repoConfig) allChannels() []string {
 		return rc.Channels
 	}
 	return append([]string{rc.Channel}, rc.Channels...)
+}
+
+// envOverrides returns the env-var key/value pairs the repo yaml wants to
+// impose over the user-global env file. Only keys the yaml actually set are
+// present; missing keys fall through to the env file / defaults unchanged.
+func (rc *repoConfig) envOverrides() map[string]string {
+	if rc == nil {
+		return nil
+	}
+	out := map[string]string{}
+	if rc.URL != "" {
+		out["SCUTTLEBOT_URL"] = rc.URL
+	}
+	if rc.Token != "" {
+		out["SCUTTLEBOT_TOKEN"] = rc.Token
+	}
+	if rc.Transport != "" {
+		out["SCUTTLEBOT_TRANSPORT"] = rc.Transport
+	}
+	if rc.IRCAddr != "" {
+		out["SCUTTLEBOT_IRC_ADDR"] = rc.IRCAddr
+	}
+	if rc.IRCPass != "" {
+		out["SCUTTLEBOT_IRC_PASS"] = rc.IRCPass
+	}
+	if rc.IRCTLS != nil {
+		out["SCUTTLEBOT_IRC_TLS"] = strconv.FormatBool(*rc.IRCTLS)
+	}
+	return out
 }
 
 // loadRepoConfig walks up from dir looking for .scuttlebot.yaml.

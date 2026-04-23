@@ -55,6 +55,95 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func TestRepoConfigOverridesUserEnvFile(t *testing.T) {
+	// User-global env file points at prod; per-repo .scuttlebot.yaml points at
+	// localhost. Per-repo wins for server/auth fields, not just channels.
+	envPath := filepath.Join(t.TempDir(), "scuttlebot-relay.env")
+	if err := os.WriteFile(envPath, []byte(
+		"SCUTTLEBOT_URL=https://prod.example\n"+
+			"SCUTTLEBOT_TOKEN=prod-token\n"+
+			"SCUTTLEBOT_IRC_ADDR=prod.example:6697\n"+
+			"SCUTTLEBOT_IRC_TLS=true\n"+
+			"SCUTTLEBOT_TRANSPORT=irc\n",
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCUTTLEBOT_CONFIG_FILE", envPath)
+	t.Setenv("SCUTTLEBOT_URL", "")
+	t.Setenv("SCUTTLEBOT_TOKEN", "")
+	t.Setenv("SCUTTLEBOT_IRC_ADDR", "")
+	t.Setenv("SCUTTLEBOT_IRC_TLS", "")
+	t.Setenv("SCUTTLEBOT_TRANSPORT", "")
+
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, ".scuttlebot.yaml"), []byte(
+		"url: http://localhost:8080\n"+
+			"token: local-token\n"+
+			"irc_addr: 127.0.0.1:6667\n"+
+			"irc_tls: false\n"+
+			"channel: myproj\n",
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadConfig([]string{"--cd", repoDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.URL != "http://localhost:8080" {
+		t.Errorf("URL: got %q, want localhost override", cfg.URL)
+	}
+	if cfg.Token != "local-token" {
+		t.Errorf("Token: got %q, want local-token", cfg.Token)
+	}
+	if cfg.IRCAddr != "127.0.0.1:6667" {
+		t.Errorf("IRCAddr: got %q, want 127.0.0.1:6667", cfg.IRCAddr)
+	}
+	if cfg.IRCTLS {
+		t.Errorf("IRCTLS: got true, want false from repo yaml")
+	}
+	found := false
+	for _, ch := range cfg.Channels {
+		if ch == "myproj" || ch == "#myproj" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected myproj in channels, got %v", cfg.Channels)
+	}
+}
+
+func TestProcessEnvWinsOverRepoConfig(t *testing.T) {
+	// Process env beats per-repo yaml — user intent at run time is highest.
+	envPath := filepath.Join(t.TempDir(), "scuttlebot-relay.env")
+	if err := os.WriteFile(envPath, []byte(""), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCUTTLEBOT_CONFIG_FILE", envPath)
+	t.Setenv("SCUTTLEBOT_URL", "http://cli-override:9999")
+	t.Setenv("SCUTTLEBOT_TOKEN", "cli-override-token")
+
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, ".scuttlebot.yaml"), []byte(
+		"url: http://from-yaml:8080\n"+
+			"token: yaml-token\n",
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadConfig([]string{"--cd", repoDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.URL != "http://cli-override:9999" {
+		t.Errorf("URL: got %q, want process-env override", cfg.URL)
+	}
+	if cfg.Token != "cli-override-token" {
+		t.Errorf("Token: got %q, want cli-override-token", cfg.Token)
+	}
+}
+
 func TestClaudeSessionIDGenerated(t *testing.T) {
 	t.Setenv("SCUTTLEBOT_CONFIG_FILE", filepath.Join(t.TempDir(), "scuttlebot-relay.env"))
 	t.Setenv("SCUTTLEBOT_URL", "http://test:8080")
