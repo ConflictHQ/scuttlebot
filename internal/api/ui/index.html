@@ -2353,13 +2353,16 @@ function appendMsg(msg, isHistory) {
   const area = document.getElementById('chat-msgs');
 
   // Attribution: RELAYMSG delivers nicks as "user/bridge"; legacy uses "[nick] text".
+  // Any message that came through the bridge was posted by a human via the web UI.
   let displayNick = msg.nick;
   let displayText = msg.text;
+  let fromWeb = false;
   if (msg.nick && msg.nick.endsWith('/bridge')) {
     displayNick = msg.nick.slice(0, -'/bridge'.length);
+    fromWeb = true;
   } else if (msg.nick === 'bridge') {
     const m = msg.text.match(/^\[([^\]]+)\] ([\s\S]*)$/);
-    if (m) { displayNick = m[1]; displayText = m[2]; }
+    if (m) { displayNick = m[1]; displayText = m[2]; fromWeb = true; }
   }
 
   const atMs = new Date(msg.at).getTime();
@@ -2374,12 +2377,15 @@ function appendMsg(msg, isHistory) {
   row.className = 'msg-row' + (grouped ? ' msg-grouped' : '');
 
   // Role classification for modern bubble mode.
-  const selfNick = getChatNick() || localStorage.getItem('sb_username') || '';
+  // "User side" = any human post (web-bridge origin, or a registered operator, or a
+  // nick that isn't a known system bot / runtime agent prefix).
   const nickLower = (displayNick || '').toLowerCase();
-  const isSelf  = !!selfNick && displayNick === selfNick;
   const isBot   = SYSTEM_BOTS.has(nickLower);
   const isAgent = AGENT_PREFIXES.some(p => nickLower.startsWith(p));
-  if (isSelf)       row.classList.add('is-self');
+  const regAgent = (allAgents || []).find(a => a.nick === displayNick);
+  const isOperator = regAgent ? regAgent.type === 'operator' : false;
+  const isHuman = fromWeb || isOperator || (!isBot && !isAgent);
+  if (isHuman)      row.classList.add('is-self');
   else if (isBot)   row.classList.add('is-bot');
   else if (isAgent) row.classList.add('is-agent');
   else              row.classList.add('is-user');
@@ -2424,7 +2430,7 @@ function appendMsg(msg, isHistory) {
   if (metaBlock) {
     const metaEl = document.createElement('div');
     // Wrap in a container that mirrors the row's self/bot/agent alignment in modern mode.
-    const roleCls = isSelf ? ' is-self' : '';
+    const roleCls = isHuman ? ' is-self' : '';
     metaEl.innerHTML = `<div class="msg-meta-wrap${roleCls}">${metaBlock}</div>`;
     area.appendChild(metaEl.firstChild);
   }
