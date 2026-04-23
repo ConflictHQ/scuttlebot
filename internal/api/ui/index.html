@@ -2540,7 +2540,15 @@ function classifyMsg(msg, text) {
     if (meta.type === 'thinking') return 'thinking';
   }
   // Text-only heuristics for relay-mirrored lines without structured meta.
-  if (text && /^\s*(›|>)\s+(bash|edit|read|grep|glob|write|run|exec):/i.test(text)) return 'tool';
+  const t = (text || '').trim();
+  if (!t) return 'chat';
+  // Any "›"-prefixed line is a tool invocation banner from the relay mirror.
+  if (/^[›>]\s+/.test(t)) return 'tool';
+  // Bare PascalCase single-word banners like "TaskCreate", "ToolSearch", "TaskUpdate".
+  if (/^[A-Z][A-Za-z0-9_]+$/.test(t) && t.length <= 30) return 'tool';
+  // Lowercase tool-then-arg patterns: "read /path", "edit foo.go", "bash 'go test'",
+  // "grep pattern", "glob ***.go", "rg --files", "git log --oneline".
+  if (/^(read|write|edit|bash|exec|run|grep|glob|rg|find|sed|awk|git|ls|cat|head|tail|curl|wget|chmod|mv|cp|rm|mkdir|npm|yarn|pnpm|go|python|node)\b\s/i.test(t)) return 'tool';
   return 'chat';
 }
 
