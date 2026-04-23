@@ -939,9 +939,22 @@ func injectMessages(writer io.Writer, cfg config, state *relayState, controlChan
 		time.Sleep(defaultInjectDelay)
 	}
 
-	if _, err := writer.Write([]byte(block.String())); err != nil {
+	// Claude Code's input widget is an Ink/React TUI that treats raw
+	// keystrokes as shortcuts (C, brackets, newlines trigger UI actions
+	// rather than inserting text). Multi-line content must arrive via
+	// bracketed paste so the widget takes it as literal text. Strip the
+	// trailing newline so the submit \r lands on the text, not an empty
+	// line, then submit.
+	payload := strings.TrimRight(block.String(), "\r\n \t")
+	const (
+		pasteStart = "\x1b[200~"
+		pasteEnd   = "\x1b[201~"
+	)
+	if _, err := writer.Write([]byte(pasteStart + payload + pasteEnd)); err != nil {
 		return err
 	}
+	// Give the TUI a moment to finish processing the paste before submit.
+	time.Sleep(50 * time.Millisecond)
 	_, err := writer.Write([]byte{'\r'})
 	return err
 }
