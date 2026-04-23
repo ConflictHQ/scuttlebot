@@ -548,8 +548,20 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 		fmt.Fprintf(os.Stderr, "gemini-relay: session mirror: %v\n", err)
 		return
 	}
-	chatsDir := filepath.Join(home, ".gemini", "tmp", slugify(cfg.TargetCWD), "chats")
-	_ = os.MkdirAll(chatsDir, 0755) // May not exist yet — Gemini CLI creates it on first run.
+	// Gemini CLI stores sessions under ~/.gemini/tmp/<basename(gitRoot)>/chats/
+	// when running inside a git repo, with sha256(gitRoot) as projectHash in
+	// the session JSON. Outside a git repo it falls back to a slug of the cwd.
+	// Try candidates in order of likelihood and pick the first that exists —
+	// or the first one a new session file appears in.
+	candidates := geminiChatsDirCandidates(home, cfg.TargetCWD)
+	chatsDir := candidates[0]
+	for _, c := range candidates {
+		if info, err := os.Stat(c); err == nil && info.IsDir() {
+			chatsDir = c
+			break
+		}
+	}
+	_ = os.MkdirAll(chatsDir, 0755)
 	existing := relaymirror.SnapshotDir(chatsDir)
 
 	// Wait for a new session file.
@@ -557,7 +569,7 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 	sessionPath, err := watcher.Discover(ctx, existing)
 	if err != nil {
 		if ctx.Err() == nil {
-			fmt.Fprintf(os.Stderr, "gemini-relay: session discovery: %v\n", err)
+			fmt.Fprintf(os.Stderr, "gemini-relay: session discovery in %s: %v\n", chatsDir, err)
 		}
 		return
 	}
@@ -659,6 +671,38 @@ func slugify(s string) string {
 		return "default"
 	}
 	return s
+}
+
+// geminiChatsDirCandidates returns candidate ~/.gemini/tmp/<slug>/chats paths
+// in order of likelihood. Gemini CLI ≥0.36 uses basename(gitRoot); older
+// versions and non-git-repo runs use a full-path slug.
+func geminiChatsDirCandidates(home, targetCWD string) []string {
+	base := filepath.Join(home, ".gemini", "tmp")
+	out := []string{}
+	if gr := findGitRoot(targetCWD); gr != "" {
+		out = append(out, filepath.Join(base, filepath.Base(gr), "chats"))
+	}
+	out = append(out,
+		filepath.Join(base, filepath.Base(targetCWD), "chats"),
+		filepath.Join(base, slugify(targetCWD), "chats"),
+	)
+	return out
+}
+
+// findGitRoot walks up from dir looking for a .git directory/file.
+// Returns "" if not inside a git repo.
+func findGitRoot(dir string) string {
+	current := dir
+	for {
+		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
 }
 
 // splitMirrorText normalises line endings, drops blank lines, and wraps
