@@ -195,7 +195,7 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 				text = strings.TrimSpace(text[end+2:])
 			}
 		}
-		fmt.Fprintf(os.Stderr, "sessionrelay: rx chan=%s from=%s: %s\n", target, sender, ircTruncate(text, 100))
+		ircDebugf("sessionrelay: rx chan=%s from=%s: %s\n", target, sender, ircTruncate(text, 100))
 		// Use server-time when available; fall back to local clock.
 		at := e.Timestamp
 		if at.IsZero() {
