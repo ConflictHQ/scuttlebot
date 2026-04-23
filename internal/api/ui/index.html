@@ -147,6 +147,10 @@ select option { background:#161b22; }
 .chat-msgs.hide-timestamps .msg-time { display:none; }
 .chat-msgs.columnar.hide-timestamps .msg-time { display:inline; visibility:hidden; min-width:36px; margin:0; }
 .msg-nick { font-weight:600; margin-right:6px; }
+.msg-nick::before { content:"["; }
+.msg-nick::after  { content:"]:"; }
+.chat-msgs.modern .msg-nick::before,
+.chat-msgs.modern .msg-nick::after { content:""; }
 .msg-grouped .msg-nick { display:none; }
 .msg-grouped .msg-time { display:none; }
 /* columnar layout mode */
@@ -157,6 +161,44 @@ select option { background:#161b22; }
 .chat-msgs.columnar .msg-grouped .msg-nick { display:inline; visibility:hidden; }
 .chat-msgs.columnar .msg-grouped .msg-time { display:inline; color:transparent; }
 .chat-msgs.columnar .msg-grouped:hover .msg-time { color:#8b949e; }
+/* modern bubble layout */
+.chat-msgs.modern { gap:8px; padding:12px 14px; }
+.chat-msgs.modern .msg-row { display:flex; flex-direction:column; max-width:78%; padding:7px 11px; border-radius:14px; background:#161b22; border:1px solid #30363d; align-self:flex-start; font-size:13px; line-height:1.4; }
+.chat-msgs.modern .msg-row.is-self { align-self:flex-end; background:#1f6feb22; border-color:#1f6feb66; border-bottom-right-radius:4px; }
+.chat-msgs.modern .msg-row.is-bot  { background:#0d1117; border-color:#30363d; border-bottom-left-radius:4px; }
+.chat-msgs.modern .msg-row.is-agent { background:#161b22; border-color:#30363d; border-bottom-left-radius:4px; }
+.chat-msgs.modern .msg-row.hl-system { align-self:center; background:transparent; border:none; opacity:.55; font-style:italic; padding:2px 8px; font-size:11px; max-width:100%; }
+.chat-msgs.modern .msg-row.hl-mention { outline:1px solid #58a6ff; border-color:#58a6ff; }
+.chat-msgs.modern .msg-row.hl-danger  { outline:1px solid #f85149; border-color:#f85149; }
+.chat-msgs.modern .msg-nick { display:block; font-size:11px; margin:0 0 2px 0; opacity:.8; }
+.chat-msgs.modern .msg-row.is-self .msg-nick { text-align:right; }
+.chat-msgs.modern .msg-time { display:block; font-size:10px; opacity:.5; margin:4px 0 0 0; }
+.chat-msgs.modern .msg-row.is-self .msg-time { text-align:right; }
+.chat-msgs.modern .msg-grouped { margin-top:-4px; }
+.chat-msgs.modern .msg-grouped .msg-nick { display:none; }
+.chat-msgs.modern .msg-grouped .msg-time { display:none; }
+.chat-msgs.modern .msg-grouped:hover .msg-time { display:block; }
+.chat-msgs.modern .msg-text { word-break:break-word; }
+.chat-msgs.modern.hide-timestamps .msg-time { display:none !important; }
+/* tool-call chip: visible in modern mode regardless of rich toggle */
+.chat-msgs.modern .msg-meta-toggle { display:inline-flex !important; align-items:center; gap:5px; margin:6px 0 0 0; padding:3px 9px; font-size:11px; color:#8b949e; background:#0d1117; border:1px solid #30363d; border-radius:12px; font-weight:normal; max-width:100%; }
+.chat-msgs.modern .msg-meta-toggle::before { content:"▸"; display:inline-block; transition:transform .1s; font-size:9px; }
+.chat-msgs.modern .msg-meta-toggle.expanded::before { transform:rotate(90deg); }
+.chat-msgs.modern .msg-meta-toggle .chip-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:360px; }
+.chat-msgs.modern .msg-meta-toggle:hover { color:#e6edf3; border-color:#58a6ff; background:#161b22; }
+.chat-msgs.modern .msg-meta { margin:4px 0 0 0; border-radius:8px; }
+/* meta blocks track their owner row in modern mode via wrapper */
+.chat-msgs.modern .msg-meta-wrap { display:flex; max-width:100%; }
+.chat-msgs.modern .msg-meta-wrap.is-self { align-self:flex-end; }
+.chat-msgs.modern .msg-meta-wrap.is-self .msg-meta { margin-left:auto; }
+/* kind-based rendering: tool calls and thinking get a distinct, muted treatment */
+.chat-msgs.modern .msg-row.kind-tool { background:#0d1117; border:1px solid #21262d; padding:5px 10px; max-width:92%; }
+.chat-msgs.modern .msg-row.kind-tool .msg-text { font-size:12px; color:#8b949e; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.chat-msgs.modern .msg-row.kind-tool .msg-nick { font-size:10px; opacity:.6; }
+.chat-msgs.modern .msg-row.kind-tool .msg-time { font-size:10px; opacity:.4; }
+.chat-msgs.modern .msg-row.kind-thinking { background:transparent; border:1px dashed #30363d; opacity:.75; font-style:italic; color:#8b949e; max-width:85%; }
+.chat-msgs.modern .msg-row.kind-thinking .msg-nick::after { content:" · thinking"; font-style:normal; opacity:.6; }
+.chat-msgs.modern .msg-row.kind-thinking .msg-text { color:#8b949e; }
 .chat-nicklist { width:148px; min-width:0; flex-shrink:0; border-left:1px solid #30363d; display:flex; flex-direction:column; background:#161b22; overflow-y:auto; overflow-x:hidden; transition:width .15s; }
 .chat-nicklist.collapsed { width:28px; overflow:hidden; }
 .chat-nicklist.collapsed #nicklist-users { display:none; }
@@ -584,6 +626,7 @@ canvas { display:block; width:100% !important; }
         <option value="">— pick a user —</option>
       </select>
       <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="toggle compact/columnar" style="font-size:11px;padding:2px 6px">☰</button>
+      <button class="sm" id="chat-modern-toggle" onclick="toggleModernMode()" title="toggle modern bubble chat" style="font-size:11px;padding:2px 6px">💬</button>
       <button class="sm" id="chat-ts-toggle" onclick="toggleTimestamps()" title="toggle timestamps" style="font-size:11px;padding:2px 6px">timestamps</button>
       <button class="sm" id="chat-rich-toggle" onclick="toggleRichMode()" title="toggle rich/text mode" style="font-size:11px;padding:2px 6px">✨</button>
       <button class="sm" onclick="promptHighlightWords()" title="configure highlight keywords" style="font-size:11px;padding:2px 6px">✦</button>
@@ -2329,21 +2372,38 @@ function appendMsg(msg, isHistory) {
 
   const row = document.createElement('div');
   row.className = 'msg-row' + (grouped ? ' msg-grouped' : '');
-  // Build meta toggle if metadata present and rich mode is on.
+
+  // Role classification for modern bubble mode.
+  const selfNick = getChatNick() || localStorage.getItem('sb_username') || '';
+  const nickLower = (displayNick || '').toLowerCase();
+  const isSelf  = !!selfNick && displayNick === selfNick;
+  const isBot   = SYSTEM_BOTS.has(nickLower);
+  const isAgent = AGENT_PREFIXES.some(p => nickLower.startsWith(p));
+  if (isSelf)       row.classList.add('is-self');
+  else if (isBot)   row.classList.add('is-bot');
+  else if (isAgent) row.classList.add('is-agent');
+  else              row.classList.add('is-user');
+
+  // Message kind: tool calls and thinking render differently from real chat.
+  row.classList.add('kind-' + classifyMsg(msg, displayText));
+
+  // Build meta toggle if metadata present.
+  // In rich mode: toggle visible. In modern mode: toggle always visible with a summary label.
   let metaToggle = '';
   let metaBlock = '';
   if (msg.meta && msg.meta.type) {
     const html = renderMeta(msg.meta);
     if (html) {
-      const show = isRichMode();
-      metaToggle = `<span class="msg-meta-toggle" style="${show ? '' : 'display:none'}" onclick="this.parentElement.nextElementSibling.classList.toggle('open');event.stopPropagation()">✨</span>`;
-      metaBlock = `<div class="msg-meta${show ? ' open' : ''}">${html}</div>`;
+      const rich = isRichMode();
+      const label = toolSummary(msg.meta);
+      metaToggle = `<span class="msg-meta-toggle" style="${rich ? '' : 'display:none'}" onclick="toggleMetaOpen(this, event)"><span class="chip-label">${esc(label)}</span></span>`;
+      metaBlock = `<div class="msg-meta${rich ? ' open' : ''}">${html}</div>`;
     }
   }
 
   row.innerHTML =
     `<span class="msg-time" title="${esc(new Date(msg.at).toLocaleString())}">${esc(timeStr)}</span>` +
-    `<span class="msg-nick" style="color:${color}">[${esc(displayNick)}]:</span>` +
+    `<span class="msg-nick" style="color:${color}">${esc(displayNick)}</span>` +
     `<span class="msg-text">${highlightText(esc(displayText))}${metaToggle}</span>`;
 
   // Apply row-level highlights.
@@ -2363,7 +2423,9 @@ function appendMsg(msg, isHistory) {
   // Append meta block after the row so toggle can find it via nextElementSibling.
   if (metaBlock) {
     const metaEl = document.createElement('div');
-    metaEl.innerHTML = metaBlock;
+    // Wrap in a container that mirrors the row's self/bot/agent alignment in modern mode.
+    const roleCls = isSelf ? ' is-self' : '';
+    metaEl.innerHTML = `<div class="msg-meta-wrap${roleCls}">${metaBlock}</div>`;
     area.appendChild(metaEl.firstChild);
   }
 
@@ -2424,6 +2486,101 @@ if (localStorage.getItem('sb_chat_columnar') === '1') {
   document.getElementById('chat-msgs').classList.add('columnar');
 }
 
+// --- modern bubble mode ---
+function isModernMode() { return localStorage.getItem('sb_chat_modern') === '1'; }
+function applyModernToggleStyle(btn, on) {
+  if (on) {
+    btn.style.background = '#1f6feb';
+    btn.style.borderColor = '#1f6feb';
+    btn.style.color = '#fff';
+    btn.title = 'modern bubble mode ON — click for classic';
+  } else {
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '#8b949e';
+    btn.title = 'classic IRC mode — click for modern bubbles';
+  }
+}
+function toggleModernMode() {
+  const el = document.getElementById('chat-msgs');
+  const on = el.classList.toggle('modern');
+  localStorage.setItem('sb_chat_modern', on ? '1' : '0');
+  const btn = document.getElementById('chat-modern-toggle');
+  if (btn) applyModernToggleStyle(btn, on);
+}
+(function() {
+  const on = isModernMode();
+  const el = document.getElementById('chat-msgs');
+  if (on) el.classList.add('modern');
+  const btn = document.getElementById('chat-modern-toggle');
+  if (btn) applyModernToggleStyle(btn, on);
+})();
+
+// Classify a message for modern-mode rendering: 'chat' | 'tool' | 'thinking'.
+function classifyMsg(msg, text) {
+  const meta = msg && msg.meta;
+  if (meta && meta.type) {
+    if (meta.type === 'tool_result') {
+      const d = meta.data || {};
+      const tool = (d.tool || '').toLowerCase();
+      if (tool === 'thinking' || d.thinking) return 'thinking';
+      return 'tool';
+    }
+    if (meta.type === 'diff' || meta.type === 'artifact' || meta.type === 'image') return 'tool';
+    if (meta.type === 'thinking') return 'thinking';
+  }
+  // Text-only heuristics for relay-mirrored lines without structured meta.
+  if (text && /^\s*(›|>)\s+(bash|edit|read|grep|glob|write|run|exec):/i.test(text)) return 'tool';
+  return 'chat';
+}
+
+// Short label shown inside the collapsible tool-call chip.
+function toolSummary(meta) {
+  if (!meta || !meta.type) return meta ? meta.type : 'details';
+  const d = meta.data || {};
+  if (meta.type === 'tool_result') {
+    const tool = (d.tool || '').toLowerCase();
+    if (tool === 'bash' || tool === 'exec' || tool === 'execute' || d.command) {
+      return '🔧 ' + (d.command || tool || 'command');
+    }
+    if (tool === 'edit' || tool === 'write' || tool === 'apply_patch' || tool === 'notebookedit') {
+      return '✏️ ' + (tool + ' ' + (d.file || d.file_path || d.path || ''));
+    }
+    if (tool === 'read' || tool === 'glob' || tool === 'grep') {
+      return '🔍 ' + (tool + ' ' + (d.file || d.pattern || d.path || ''));
+    }
+    if (tool === 'websearch' || tool === 'webfetch' || tool === 'web_search' || d.url) {
+      return '🌐 ' + (d.url || tool);
+    }
+    if (tool === 'thinking' || d.thinking) return '💭 thinking';
+    return '🔧 ' + (tool || 'tool call');
+  }
+  if (meta.type === 'diff')     return '📝 diff ' + (d.file || '');
+  if (meta.type === 'error')    return '⚠ error';
+  if (meta.type === 'status')   return '• ' + (d.state || 'status');
+  if (meta.type === 'artifact') return '📎 ' + (d.name || d.path || 'artifact');
+  if (meta.type === 'image')    return '🖼 image';
+  if (meta.type === 'thinking') return '💭 thinking';
+  return meta.type;
+}
+
+function toggleMetaOpen(toggleEl, evt) {
+  // Walk to the row, then find the sibling .msg-meta-wrap (or .msg-meta).
+  if (evt && evt.stopPropagation) evt.stopPropagation();
+  const row = toggleEl.closest('.msg-row');
+  if (!row) return;
+  let sib = row.nextElementSibling;
+  // Skip any non-meta elements just in case.
+  while (sib && !sib.classList.contains('msg-meta-wrap') && !sib.classList.contains('msg-meta')) {
+    sib = sib.nextElementSibling;
+  }
+  if (!sib) return;
+  const meta = sib.classList.contains('msg-meta') ? sib : sib.querySelector('.msg-meta');
+  if (!meta) return;
+  const opened = meta.classList.toggle('open');
+  toggleEl.classList.toggle('expanded', opened);
+}
+
 // --- timestamp toggle ---
 function updateTsToggle(hidden) {
   const btn = document.getElementById('chat-ts-toggle');
@@ -2463,9 +2620,13 @@ function toggleRichMode() {
   localStorage.setItem('sb_rich_mode', on ? '1' : '0');
   const btn = document.getElementById('chat-rich-toggle');
   applyRichToggleStyle(btn, on);
-  // Toggle all existing meta blocks visibility.
+  // Toggle all existing meta blocks visibility. In modern mode the CSS keeps
+  // the chip visible regardless; we only adjust the inline display hint here.
   document.querySelectorAll('.msg-meta-toggle').forEach(el => { el.style.display = on ? '' : 'none'; });
-  if (!on) document.querySelectorAll('.msg-meta.open').forEach(el => el.classList.remove('open'));
+  if (!on) {
+    document.querySelectorAll('.msg-meta.open').forEach(el => el.classList.remove('open'));
+    document.querySelectorAll('.msg-meta-toggle.expanded').forEach(el => el.classList.remove('expanded'));
+  }
 }
 // Initialize toggle button state on load.
 (function() {
