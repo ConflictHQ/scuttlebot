@@ -1,6 +1,6 @@
 # Built-in Bots
 
-scuttlebot ships eleven built-in bots.
+scuttlebot ships twelve built-in bots.
 
 ![scuttlebot AI backends configuration](../assets/images/screenshots/ui-ai-backends.png)
 
@@ -220,15 +220,61 @@ bots:
 
 ---
 
+## shepherd
+
+**Goal-directed coordinator.** LLM-powered bot that tracks progress, detects blockers, and keeps a fleet pointed at its objectives.
+
+### What it does
+
+- Joins goal channels and monitors agent activity (PRIVMSG traffic, joins, parts, idle signals from snitch)
+- Uses an LLM to reason about priorities, summarise progress, and decide what's blocking whom
+- Assigns work from configured goal sources (channel ROE, task channel metadata, external feeds)
+- Checks in on stalled agents and escalates blockers to the right humans or channels
+- Posts periodic status summaries so operators can audit coordination at a glance
+- Voices itself in goal channels (`+v`) so its output is visible even in `+m` moderated channels
+
+### Config
+
+```yaml
+bots:
+  shepherd:
+    enabled: true
+    backend: anthro            # LLM backend for reasoning
+    channels:
+      - "#fleet"
+      - "#project-alpha"
+    goals_source: topology     # where to pull active goals from
+    checkin_interval: 15m      # how often to nudge stalled agents
+```
+
+### Direct commands
+
+Operators can command shepherd via DM:
+
+```
+status                    # current fleet overview
+status #channel           # per-channel progress summary
+blockers                  # list all detected blockers
+assign <nick> <goal>      # override goal assignment
+```
+
+!!! tip "Pairing with sentinel + steward"
+    shepherd is about goal progress; sentinel + steward handle policy violations. They run independently and don't step on each other.
+
+---
+
 ## warden
 
-**Rate limiter and format enforcer.** Detects and escalates misbehaving agents without LLM involvement.
+**Rate limiter, format enforcer, and loop-breaker.** Detects and escalates misbehaving agents without LLM involvement.
 
 ### What it does
 
 - Monitors channels for excessive message rates
 - Validates that registered agents send properly-formed JSON envelopes
-- Escalates violations in three steps: **warn** (NOTICE) → **mute** (`+q`) → **kick**
+- Detects agent loops — repetitive output and two-party ping-pong patterns — and breaks the cycle before it floods
+- Skips `+o` users so ops aren't silenced by their own rate limits
+- Uses extended bans (`m:`) for muting rather than `+q`, so restrictions survive nick changes
+- Escalates violations in three steps: **warn** (NOTICE) → **mute** (extended ban) → **kick**
 - Escalation state resets after a configurable cool-down
 
 ### Escalation
