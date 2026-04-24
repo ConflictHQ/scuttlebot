@@ -211,6 +211,21 @@ select option { background:#161b22; }
 .chat-msgs.modern .msg-meta-wrap { display:flex; max-width:100%; }
 .chat-msgs.modern .msg-meta-wrap.is-self { align-self:flex-end; }
 .chat-msgs.modern .msg-meta-wrap.is-self .msg-meta { margin-left:auto; }
+/* per-runtime accent: a thin colored left border distinguishes claude/codex/gemini
+   without touching the nick color or bubble body. Self-side agents (rare) get the
+   accent on the right edge so it still reads. */
+.chat-msgs.modern .msg-row.runtime-claude   { border-left:3px solid #ff8a65; }
+.chat-msgs.modern .msg-row.runtime-codex    { border-left:3px solid #58a6ff; }
+.chat-msgs.modern .msg-row.runtime-gemini   { border-left:3px solid #39d353; }
+.chat-msgs.modern .msg-row.runtime-openclaw { border-left:3px solid #d2a8ff; }
+.chat-msgs.modern .msg-row.is-self.runtime-claude,
+.chat-msgs.modern .msg-row.is-self.runtime-codex,
+.chat-msgs.modern .msg-row.is-self.runtime-gemini,
+.chat-msgs.modern .msg-row.is-self.runtime-openclaw { border-left:1px solid #30363d; }
+.chat-msgs.modern .msg-row.is-self.runtime-claude   { border-right:3px solid #ff8a65; }
+.chat-msgs.modern .msg-row.is-self.runtime-codex    { border-right:3px solid #58a6ff; }
+.chat-msgs.modern .msg-row.is-self.runtime-gemini   { border-right:3px solid #39d353; }
+.chat-msgs.modern .msg-row.is-self.runtime-openclaw { border-right:3px solid #d2a8ff; }
 /* kind-based rendering: tool calls and thinking get a distinct, muted treatment */
 .chat-msgs.modern .msg-row.kind-tool { background:#0d1117; border:1px solid #21262d; padding:5px 10px; max-width:92%; }
 .chat-msgs.modern .msg-row.kind-tool .msg-text { font-size:12px; color:#8b949e; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
@@ -2422,6 +2437,10 @@ function appendMsg(msg, isHistory) {
   else if (isAgent) row.classList.add('is-agent');
   else              row.classList.add('is-user');
 
+  // Per-runtime accent so claude/codex/gemini are distinguishable at a glance.
+  const runtime = AGENT_PREFIXES.find(p => nickLower.startsWith(p));
+  if (runtime) row.classList.add('runtime-' + runtime.replace(/-$/, ''));
+
   // Message kind: tool calls and thinking render differently from real chat.
   const kind = classifyMsg(msg, displayText);
   row.classList.add('kind-' + kind);
@@ -2441,7 +2460,9 @@ function appendMsg(msg, isHistory) {
   }
 
   // Chat rows get markdown rendering; tool rows stay monospace plain; thinking stays italic plain.
-  const escaped = esc(displayText);
+  // Tool rows also get home-dir path shortening so long absolute paths don't dominate the bubble.
+  const renderedText = (kind === 'tool') ? shortenPaths(displayText) : displayText;
+  const escaped = esc(renderedText);
   const bodyHtml = kind === 'chat' ? renderMarkdown(escaped) : escaped;
 
   row.innerHTML =
@@ -2630,6 +2651,18 @@ function renderMarkdown(s) {
     return `<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
   });
   return s;
+}
+
+// shortenPaths collapses /Users/<name>/ and /home/<name>/ prefixes to ~/ so
+// tool-row text with long absolute paths stays readable without hiding the
+// filename. The full path is still visible (the rest of the path is kept
+// verbatim) — this just removes the boring user-home boilerplate at the front.
+function shortenPaths(s) {
+  if (!s) return s;
+  // Multiple occurrences per line are rare but supported.
+  return s
+    .replace(/\/Users\/[A-Za-z0-9_.-]+\//g, '~/')
+    .replace(/\/home\/[A-Za-z0-9_.-]+\//g,  '~/');
 }
 
 // Classify a message for modern-mode rendering: 'chat' | 'tool' | 'thinking'.
