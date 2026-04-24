@@ -1090,6 +1090,11 @@ func codexToolMeta(name, argsJSON string) json.RawMessage {
 		if len(files) > 0 {
 			data["file"] = files[0]
 		}
+		// Ship the raw V4A-style patch text as the diff; UI's renderDiffBlock
+		// colourises +/- lines and shows the *** headers as context rows.
+		if patch := sanitizeSecrets(argsJSON); patch != "" {
+			data["diff"] = patch
+		}
 	}
 	meta := map[string]any{"type": "tool_result", "data": data}
 	b, _ := json.Marshal(meta)

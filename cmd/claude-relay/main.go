@@ -602,7 +602,25 @@ func toolMeta(name string, inputRaw json.RawMessage) json.RawMessage {
 		if cmd := str("command"); cmd != "" {
 			data["command"] = sanitizeSecrets(cmd)
 		}
-	case "Edit", "Write", "Read":
+	case "Edit":
+		if p := str("file_path"); p != "" {
+			data["file"] = p
+		}
+		oldS := sanitizeSecrets(str("old_string"))
+		newS := sanitizeSecrets(str("new_string"))
+		if oldS != "" || newS != "" {
+			data["diff"] = renderEditDiff(data["file"], oldS, newS)
+		}
+	case "Write":
+		if p := str("file_path"); p != "" {
+			data["file"] = p
+		}
+		if content := sanitizeSecrets(str("content")); content != "" {
+			// Show the full write as an all-added diff so the UI renders it in
+			// the existing diff card path with colored lines.
+			data["diff"] = renderEditDiff(data["file"], "", content)
+		}
+	case "Read":
 		if p := str("file_path"); p != "" {
 			data["file"] = p
 		}
@@ -630,6 +648,38 @@ func toolMeta(name string, inputRaw json.RawMessage) json.RawMessage {
 	}
 	b, _ := json.Marshal(meta)
 	return b
+}
+
+// renderEditDiff produces a minimal unified-diff-style string suitable for the
+// UI's renderDiffBlock: old lines prefixed with '-', new lines prefixed with '+',
+// and a '@@' header so the UI colourises correctly. Not a true LCS diff —
+// whole-old-block removed, whole-new-block added — but good enough to read.
+func renderEditDiff(file, oldS, newS string) string {
+	if oldS == "" && newS == "" {
+		return ""
+	}
+	var b strings.Builder
+	header := "@@ edit @@"
+	if file != "" {
+		header = "@@ " + file + " @@"
+	}
+	b.WriteString(header)
+	b.WriteByte('\n')
+	if oldS != "" {
+		for _, l := range strings.Split(oldS, "\n") {
+			b.WriteString("-")
+			b.WriteString(l)
+			b.WriteByte('\n')
+		}
+	}
+	if newS != "" {
+		for _, l := range strings.Split(newS, "\n") {
+			b.WriteString("+")
+			b.WriteString(l)
+			b.WriteByte('\n')
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func summarizeToolUse(name string, inputRaw json.RawMessage) string {
