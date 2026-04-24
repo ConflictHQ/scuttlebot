@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,6 +47,56 @@ const (
 
 // relayDebug enables verbose per-message logging. Set RELAY_DEBUG=1 to activate.
 var relayDebug = os.Getenv("RELAY_DEBUG") != ""
+
+// Secret redaction — mirrors claude-relay / codex-relay.
+var (
+	secretHexPattern   = regexp.MustCompile(`\b[a-f0-9]{32,}\b`)
+	secretKeyPattern   = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]+\b`)
+	bearerPattern      = regexp.MustCompile(`(?i)(bearer\s+)([A-Za-z0-9._:-]+)`)
+	assignTokenPattern = regexp.MustCompile(`(?i)\b([A-Z0-9_]*(TOKEN|KEY|SECRET|PASSPHRASE)[A-Z0-9_]*=)([^ \t"'` + "`" + `]+)`)
+)
+
+func sanitizeSecrets(text string) string {
+	if text == "" {
+		return ""
+	}
+	text = bearerPattern.ReplaceAllString(text, "${1}[redacted]")
+	text = assignTokenPattern.ReplaceAllString(text, "${1}[redacted]")
+	text = secretKeyPattern.ReplaceAllString(text, "[redacted]")
+	text = secretHexPattern.ReplaceAllString(text, "[redacted]")
+	return text
+}
+
+// renderEditDiff produces a minimal unified-diff-style string for the UI's
+// renderDiffBlock (shared with claude-relay). Not a real LCS diff — whole-old
+// removed / whole-new added — but good enough to read.
+func renderEditDiff(file, oldS, newS string) string {
+	if oldS == "" && newS == "" {
+		return ""
+	}
+	var b strings.Builder
+	header := "@@ edit @@"
+	if file != "" {
+		header = "@@ " + file + " @@"
+	}
+	b.WriteString(header)
+	b.WriteByte('\n')
+	if oldS != "" {
+		for _, l := range strings.Split(oldS, "\n") {
+			b.WriteString("-")
+			b.WriteString(l)
+			b.WriteByte('\n')
+		}
+	}
+	if newS != "" {
+		for _, l := range strings.Split(newS, "\n") {
+			b.WriteString("+")
+			b.WriteString(l)
+			b.WriteByte('\n')
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
 
 func debugf(format string, args ...any) {
 	if relayDebug {
@@ -641,13 +692,48 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 
 				// Mirror tool calls.
 				for _, tc := range msg.ToolCalls {
+					data := map[string]any{
+						"tool":   tc.Name,
+						"status": tc.Status,
+						"args":   tc.Args,
+					}
+					// For edit-like tools, also extract file + diff so the UI's
+					// file card + diff renderer fires instead of a bare chip.
+					var args map[string]json.RawMessage
+					_ = json.Unmarshal(tc.Args, &args)
+					getStr := func(k string) string {
+						v, ok := args[k]
+						if !ok {
+							return ""
+						}
+						var s string
+						if err := json.Unmarshal(v, &s); err != nil {
+							return strings.Trim(string(v), `"`)
+						}
+						return s
+					}
+					lowerName := strings.ToLower(tc.Name)
+					if file := getStr("file_path"); file != "" {
+						data["file"] = file
+					} else if file := getStr("absolute_path"); file != "" {
+						data["file"] = file
+					} else if file := getStr("path"); file != "" {
+						data["file"] = file
+					}
+					if strings.Contains(lowerName, "edit") || strings.Contains(lowerName, "write") || strings.Contains(lowerName, "replace") {
+						oldS := sanitizeSecrets(getStr("old_string"))
+						newS := sanitizeSecrets(getStr("new_string"))
+						if newS == "" {
+							newS = sanitizeSecrets(getStr("content"))
+						}
+						if oldS != "" || newS != "" {
+							fileStr, _ := data["file"].(string)
+							data["diff"] = renderEditDiff(fileStr, oldS, newS)
+						}
+					}
 					meta, _ := json.Marshal(map[string]any{
 						"type": "tool_result",
-						"data": map[string]any{
-							"tool":   tc.Name,
-							"status": tc.Status,
-							"args":   tc.Args,
-						},
+						"data": data,
 					})
 					text := fmt.Sprintf("[%s] %s", tc.Name, tc.Status)
 					if ptyDedup != nil {
