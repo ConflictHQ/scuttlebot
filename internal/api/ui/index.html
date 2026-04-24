@@ -177,10 +177,28 @@ select option { background:#161b22; }
 .chat-msgs.modern .msg-time { font-size:10px; opacity:.5; margin:0; }
 .chat-msgs.modern .msg-nick { font-size:11px; margin:0; opacity:.9; }
 .chat-msgs.modern .msg-row.is-self .msg-header { flex-direction:row-reverse; align-self:flex-end; }
-.chat-msgs.modern .msg-grouped { margin-top:-4px; }
+.chat-msgs.modern .msg-grouped { margin-top:-2px; }
 .chat-msgs.modern .msg-grouped .msg-header { display:none; }
 .chat-msgs.modern .msg-grouped:hover .msg-header { display:inline-flex; opacity:.6; }
+/* Visually connect grouped bubbles: square the top corners on the group-joined side
+   so adjacent bubbles from the same agent read as one flowing speech block. */
+.chat-msgs.modern .msg-row.msg-grouped.is-agent,
+.chat-msgs.modern .msg-row.msg-grouped.is-bot,
+.chat-msgs.modern .msg-row.msg-grouped.is-user { border-top-left-radius:6px; }
+.chat-msgs.modern .msg-row.msg-grouped.is-self { border-top-right-radius:6px; }
 .chat-msgs.modern .msg-text { display:block; word-break:break-word; }
+/* markdown rendering inside chat bubbles */
+.msg-text code.md-inline { background:#161b22; padding:1px 5px; border-radius:3px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:#d2a8ff; }
+.msg-text pre.md-code { margin:6px 0; padding:8px 10px; background:#0d1117; border:1px solid #30363d; border-radius:6px; overflow-x:auto; }
+.msg-text pre.md-code code { color:#e6edf3; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; background:transparent; padding:0; }
+.msg-text .md-h1 { font-size:15px; font-weight:700; margin:6px 0 3px 0; color:#58a6ff; }
+.msg-text .md-h2 { font-size:14px; font-weight:700; margin:5px 0 3px 0; color:#58a6ff; }
+.msg-text .md-h3 { font-size:13px; font-weight:600; margin:4px 0 2px 0; color:#79c0ff; }
+.msg-text .md-li { margin:1px 0 1px 4px; padding-left:2px; }
+.msg-text a.md-link { color:#58a6ff; text-decoration:none; }
+.msg-text a.md-link:hover { text-decoration:underline; }
+.msg-text strong { font-weight:600; }
+.msg-text em { font-style:italic; }
 .chat-msgs.modern.hide-timestamps .msg-time { display:none !important; }
 /* tool-call chip: visible in modern mode regardless of rich toggle */
 .chat-msgs.modern .msg-meta-toggle { display:inline-flex !important; align-items:center; gap:6px; margin:6px 0 0 0; padding:4px 10px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:#a5d6ff; background:linear-gradient(180deg,#1c2128,#161b22); border:1px solid #30363d; border-radius:999px; font-weight:500; max-width:100%; box-shadow:0 1px 0 rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.03); cursor:pointer; transition:border-color .1s, box-shadow .1s, color .1s; }
@@ -201,6 +219,11 @@ select option { background:#161b22; }
 .chat-msgs.modern .msg-row.kind-thinking { background:transparent; border:1px dashed #30363d; opacity:.75; font-style:italic; color:#8b949e; max-width:85%; }
 .chat-msgs.modern .msg-row.kind-thinking .msg-nick::after { content:" · thinking"; font-style:normal; opacity:.6; }
 .chat-msgs.modern .msg-row.kind-thinking .msg-text { color:#8b949e; }
+/* view filters: hide tools or thinking globally. Applies in both classic and modern. */
+.chat-msgs.hide-tools    .msg-row.kind-tool,
+.chat-msgs.hide-tools    .msg-row.kind-tool + .msg-meta-wrap,
+.chat-msgs.hide-thinking .msg-row.kind-thinking,
+.chat-msgs.hide-thinking .msg-row.kind-thinking + .msg-meta-wrap { display:none !important; }
 .chat-nicklist { width:148px; min-width:0; flex-shrink:0; border-left:1px solid #30363d; display:flex; flex-direction:column; background:#161b22; overflow-y:auto; overflow-x:hidden; transition:width .15s; }
 .chat-nicklist.collapsed { width:28px; overflow:hidden; }
 .chat-nicklist.collapsed #nicklist-users { display:none; }
@@ -630,6 +653,8 @@ canvas { display:block; width:100% !important; }
       <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="toggle compact/columnar" style="font-size:11px;padding:2px 6px">☰</button>
       <button class="sm" id="chat-modern-toggle" onclick="toggleModernMode()" title="toggle modern bubble chat" style="font-size:11px;padding:2px 6px">💬</button>
       <button class="sm" id="chat-ts-toggle" onclick="toggleTimestamps()" title="toggle timestamps" style="font-size:11px;padding:2px 6px">timestamps</button>
+      <button class="sm" id="chat-tools-toggle" onclick="toggleShowTools()" title="show/hide tool-call rows" style="font-size:11px;padding:2px 6px">🔧</button>
+      <button class="sm" id="chat-thinking-toggle" onclick="toggleShowThinking()" title="show/hide thinking rows" style="font-size:11px;padding:2px 6px">💭</button>
       <button class="sm" id="chat-rich-toggle" onclick="toggleRichMode()" title="toggle rich/text mode" style="font-size:11px;padding:2px 6px">✨</button>
       <button class="sm" onclick="promptHighlightWords()" title="configure highlight keywords" style="font-size:11px;padding:2px 6px">✦</button>
       <span class="stream-badge" id="chat-stream-status" style="margin-left:8px"></span>
@@ -2368,7 +2393,12 @@ function appendMsg(msg, isHistory) {
   }
 
   const atMs = new Date(msg.at).getTime();
-  const grouped = !isHistory && displayNick === _lastMsgNick && (atMs - _lastMsgAt) < GROUP_MS;
+  // Group consecutive messages from the same nick within GROUP_MS — for both
+  // live and history traffic. Live-only grouping produced noisy headers on
+  // every bubble during initial history load; joining them reads as one
+  // continuous speech block from that agent, which matches intent for
+  // multi-line content that got split across IRC lines.
+  const grouped = displayNick === _lastMsgNick && (atMs - _lastMsgAt) < GROUP_MS;
   _lastMsgNick = displayNick;
   _lastMsgAt   = atMs;
 
@@ -2393,7 +2423,8 @@ function appendMsg(msg, isHistory) {
   else              row.classList.add('is-user');
 
   // Message kind: tool calls and thinking render differently from real chat.
-  row.classList.add('kind-' + classifyMsg(msg, displayText));
+  const kind = classifyMsg(msg, displayText);
+  row.classList.add('kind-' + kind);
 
   // Build meta toggle if metadata present.
   // In rich mode: toggle visible. In modern mode: toggle always visible with a summary label.
@@ -2409,12 +2440,16 @@ function appendMsg(msg, isHistory) {
     }
   }
 
+  // Chat rows get markdown rendering; tool rows stay monospace plain; thinking stays italic plain.
+  const escaped = esc(displayText);
+  const bodyHtml = kind === 'chat' ? renderMarkdown(escaped) : escaped;
+
   row.innerHTML =
     `<span class="msg-header">` +
       `<span class="msg-time" title="${esc(new Date(msg.at).toLocaleString())}">${esc(timeStr)}</span>` +
       `<span class="msg-nick" style="color:${color}">${esc(displayNick)}</span>` +
     `</span>` +
-    `<span class="msg-text">${highlightText(esc(displayText))}${metaToggle}</span>`;
+    `<span class="msg-text">${highlightText(bodyHtml)}${metaToggle}</span>`;
 
   // Apply row-level highlights.
   const myNick = localStorage.getItem('sb_username') || '';
@@ -2525,6 +2560,77 @@ function toggleModernMode() {
   const btn = document.getElementById('chat-modern-toggle');
   if (btn) applyModernToggleStyle(btn, on);
 })();
+
+// --- view filters: tool rows / thinking rows ---
+// Default: both shown (matrix mode). Off = hide that kind globally.
+function showToolsOn()    { return localStorage.getItem('sb_show_tools')    !== '0'; }
+function showThinkingOn() { return localStorage.getItem('sb_show_thinking') !== '0'; }
+function applyFilterToggleStyle(btn, on) {
+  if (!btn) return;
+  if (on) {
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+    btn.style.opacity = '1';
+  } else {
+    btn.style.background = '#21262d';
+    btn.style.borderColor = '#30363d';
+    btn.style.color = '#6e7681';
+    btn.style.opacity = '0.55';
+  }
+}
+function applyViewFilters() {
+  const el = document.getElementById('chat-msgs');
+  el.classList.toggle('hide-tools',    !showToolsOn());
+  el.classList.toggle('hide-thinking', !showThinkingOn());
+  applyFilterToggleStyle(document.getElementById('chat-tools-toggle'),    showToolsOn());
+  applyFilterToggleStyle(document.getElementById('chat-thinking-toggle'), showThinkingOn());
+  // Titles reflect action-on-click.
+  const tt = document.getElementById('chat-tools-toggle');
+  if (tt) tt.title = showToolsOn() ? 'hide tool calls' : 'show tool calls';
+  const th = document.getElementById('chat-thinking-toggle');
+  if (th) th.title = showThinkingOn() ? 'hide thinking rows' : 'show thinking rows';
+}
+function toggleShowTools() {
+  localStorage.setItem('sb_show_tools', showToolsOn() ? '0' : '1');
+  applyViewFilters();
+}
+function toggleShowThinking() {
+  localStorage.setItem('sb_show_thinking', showThinkingOn() ? '0' : '1');
+  applyViewFilters();
+}
+applyViewFilters();
+
+// renderMarkdown converts a limited subset of markdown to HTML. Input MUST be
+// already HTML-escaped via esc() — we only transform ASCII punctuation markers
+// that esc() leaves alone, so there is no injection vector.
+function renderMarkdown(s) {
+  if (!s) return s;
+  // Fenced code blocks first so their content isn't mangled by inline rules.
+  s = s.replace(/```([a-zA-Z0-9_-]*)\r?\n?([\s\S]*?)```/g, (_m, _lang, code) =>
+    `<pre class="md-code"><code>${code}</code></pre>`);
+  // Inline code (single backticks).
+  s = s.replace(/`([^`\n]+)`/g, '<code class="md-inline">$1</code>');
+  // Bold — ** or __
+  s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/__([^_\n]+?)__/g,    '<strong>$1</strong>');
+  // Italic — single * or _ (avoid eating adjacent bold markers).
+  s = s.replace(/(^|[^\w*])\*([^\*\n]+?)\*(?=[^\w*]|$)/g, '$1<em>$2</em>');
+  s = s.replace(/(^|[^\w_])_([^_\n]+?)_(?=[^\w_]|$)/g,    '$1<em>$2</em>');
+  // Headings (#, ##, ###) at line start.
+  s = s.replace(/^(#{1,3})\s+(.+)$/gm, (_m, hashes, text) =>
+    `<div class="md-h${hashes.length}">${text}</div>`);
+  // Unordered list items (-, *).
+  s = s.replace(/^[-*]\s+(.+)$/gm, '<div class="md-li">• $1</div>');
+  // Numbered list items.
+  s = s.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="md-li">$1. $2</div>');
+  // Markdown links. Only allow http(s) and mailto; anything else is left literal.
+  s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
+    if (!/^(https?:|mailto:)/i.test(url)) return m;
+    return `<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+  });
+  return s;
+}
 
 // Classify a message for modern-mode rendering: 'chat' | 'tool' | 'thinking'.
 function classifyMsg(msg, text) {
