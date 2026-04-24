@@ -234,6 +234,19 @@ select option { background:#161b22; }
 .chat-msgs.modern .msg-row.kind-thinking { background:transparent; border:1px dashed #30363d; opacity:.75; font-style:italic; color:#8b949e; max-width:85%; }
 .chat-msgs.modern .msg-row.kind-thinking .msg-nick::after { content:" · thinking"; font-style:normal; opacity:.6; }
 .chat-msgs.modern .msg-row.kind-thinking .msg-text { color:#8b949e; }
+/* Tool-run batching: when 2+ consecutive tool rows from the same agent accumulate,
+   the second-and-beyond collapse under the first which gains a "▸ N tool calls"
+   counter. Clicking the head toggles inline display on its tail siblings. */
+.chat-msgs.modern .msg-row.tool-run-tail { display:none; }
+.chat-msgs.modern .msg-row.tool-run-head { cursor:pointer; position:relative; }
+.chat-msgs.modern .msg-row.tool-run-head .tool-run-count {
+  display:inline-flex; align-items:center; gap:4px;
+  margin-left:auto; padding:2px 8px; font-size:10px;
+  color:#8b949e; background:#161b22; border:1px solid #30363d; border-radius:10px;
+}
+.chat-msgs.modern .msg-row.tool-run-head .tool-run-count::before { content:"▸"; font-size:9px; transition:transform .1s; }
+.chat-msgs.modern .msg-row.tool-run-head.expanded .tool-run-count::before { transform:rotate(90deg); }
+.chat-msgs.modern .msg-row.tool-run-head:hover .tool-run-count { color:#e6edf3; border-color:#58a6ff; }
 /* view filters: hide tools or thinking globally. Applies in both classic and modern. */
 .chat-msgs.hide-tools    .msg-row.kind-tool,
 .chat-msgs.hide-tools    .msg-row.kind-tool + .msg-meta-wrap,
@@ -2388,6 +2401,9 @@ function nickColor(nick) {
 
 let _lastMsgNick = null, _lastMsgAt = 0;
 const GROUP_MS = 5 * 60 * 1000;
+// Tool-run batching state: a run is 2+ consecutive kind-tool rows from the
+// same agent; the first gets the head class, subsequent rows become tails.
+let _toolRun = { head: null, nick: null, count: 0 };
 let _chatNewBanner = null;
 let _chatUnread = 0;
 
@@ -2493,6 +2509,48 @@ function appendMsg(msg, isHistory) {
     const roleCls = isHuman ? ' is-self' : '';
     metaEl.innerHTML = `<div class="msg-meta-wrap${roleCls}">${metaBlock}</div>`;
     area.appendChild(metaEl.firstChild);
+  }
+
+  // Tool-run batching: collapse consecutive kind-tool rows from same agent under
+  // a single expandable head. Thinking/chat/system breaks the run.
+  if (kind === 'tool' && displayNick === _toolRun.nick) {
+    _toolRun.count += 1;
+    if (_toolRun.count === 2 && _toolRun.head) {
+      // Promote the first of the run to head with a counter badge.
+      const head = _toolRun.head;
+      head.classList.add('tool-run-head');
+      head.addEventListener('click', () => {
+        const expanded = head.classList.toggle('expanded');
+        let sib = head.nextElementSibling;
+        while (sib) {
+          if (sib.classList.contains('msg-row')) {
+            if (!sib.classList.contains('tool-run-tail')) break;
+            // Override the .tool-run-tail { display:none } CSS default when expanded.
+            sib.style.display = expanded ? 'flex' : 'none';
+          } else if (sib.classList.contains('msg-meta-wrap')) {
+            const prev = sib.previousElementSibling;
+            if (prev && prev.classList.contains('tool-run-tail')) {
+              sib.style.display = expanded ? 'flex' : 'none';
+            }
+          }
+          sib = sib.nextElementSibling;
+        }
+      });
+      const counter = document.createElement('span');
+      counter.className = 'tool-run-count';
+      head._counter = counter;
+      head.appendChild(counter);
+    }
+    if (_toolRun.count >= 2) {
+      row.classList.add('tool-run-tail');
+      const head = _toolRun.head;
+      if (head && head._counter) head._counter.textContent = `${_toolRun.count} tool calls`;
+    }
+  } else if (kind === 'tool') {
+    // Start a new potential run: this is the candidate head.
+    _toolRun = { head: row, nick: displayNick, count: 1 };
+  } else {
+    _toolRun = { head: null, nick: null, count: 0 };
   }
 
   // Unread badge when chat tab not active
