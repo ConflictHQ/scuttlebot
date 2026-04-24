@@ -836,11 +836,17 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 			debugf("gemini-relay: filter skip service-bot %s\n", msg.Nick)
 			continue
 		}
-		if ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes()) {
-			debugf("gemini-relay: filter skip activity-prefix %s\n", msg.Nick)
+		isActivityPost := ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes())
+		isExplicitMention := ircagent.MentionsNick(msg.Text, nick)
+		isGroupMention := ircagent.MatchesGroupMention(msg.Text, nick, agentType)
+		// Agent→agent chatter is ignored by default; let explicit by-nick
+		// mentions through so operator-directed handoffs work. Warden handles
+		// runaway loop detection.
+		if isActivityPost && !isExplicitMention {
+			debugf("gemini-relay: filter skip activity-prefix %s (no explicit mention)\n", msg.Nick)
 			continue
 		}
-		if !ircagent.MentionsNick(msg.Text, nick) && !ircagent.MatchesGroupMention(msg.Text, nick, agentType) {
+		if !isExplicitMention && !isGroupMention {
 			debugf("gemini-relay: filter drop from=%s: no nick mention (nick=%s text=%q)\n", msg.Nick, nick, truncateMsg(msg.Text, 80))
 			continue
 		}
