@@ -1117,11 +1117,19 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 			debugf("claude-relay: filter skip service-bot %s\n", msg.Nick)
 			continue
 		}
-		if ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes()) {
-			debugf("claude-relay: filter skip activity-prefix %s\n", msg.Nick)
+		isActivityPost := ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes())
+		isExplicitMention := ircagent.MentionsNick(msg.Text, nick)
+		isGroupMention := ircagent.MatchesGroupMention(msg.Text, nick, agentType)
+		// Another agent's activity is ignored by default to prevent agent→agent
+		// chatter loops, but let explicit by-nick mentions through: operators
+		// frequently instruct one agent to ask another ("claude: have codex
+		// review X") and the addressed reply should reach the target. Warden's
+		// ping-pong / repetitive-loop circuit breakers catch runaway loops.
+		if isActivityPost && !isExplicitMention {
+			debugf("claude-relay: filter skip activity-prefix %s (no explicit mention)\n", msg.Nick)
 			continue
 		}
-		if !ircagent.MentionsNick(msg.Text, nick) && !ircagent.MatchesGroupMention(msg.Text, nick, agentType) {
+		if !isExplicitMention && !isGroupMention {
 			debugf("claude-relay: filter drop from=%s: no nick mention (nick=%s text=%q)\n", msg.Nick, nick, truncateMsg(msg.Text, 80))
 			continue
 		}
