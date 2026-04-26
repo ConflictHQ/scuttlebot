@@ -134,7 +134,7 @@ func loadConfig() config {
         IRCAddr:            envOr("SCUTTLEBOT_IRC_ADDR", "127.0.0.1:6667"),
         IRCPass:            os.Getenv("SCUTTLEBOT_IRC_PASS"),
         IRCDeleteOnClose:   os.Getenv("SCUTTLEBOT_IRC_DELETE_ON_CLOSE") == "1",
-        HooksEnabled:       envOr("SCUTTLEBOT_HOOKS_ENABLED", "1") != "0",
+        RelayEnabled:       envOr("SCUTTLEBOT_RELAY_ENABLED", envOr("SCUTTLEBOT_HOOKS_ENABLED", "1")) != "0",
         InterruptOnMessage: os.Getenv("SCUTTLEBOT_INTERRUPT_ON_MESSAGE") == "1",
         PollInterval:       parseDuration("SCUTTLEBOT_POLL_INTERVAL", 2*time.Second),
         HeartbeatInterval:  parseDuration("SCUTTLEBOT_PRESENCE_HEARTBEAT", 60*time.Second),
@@ -505,7 +505,7 @@ All relay brokers use the same set of environment variables. Read from the share
 | `SCUTTLEBOT_IRC_ADDR` | `127.0.0.1:6667` | Ergo IRC address |
 | `SCUTTLEBOT_IRC_PASS` | — | IRC password (if different from API token) |
 | `SCUTTLEBOT_IRC_DELETE_ON_CLOSE` | `0` | Delete the IRC account when the session ends |
-| `SCUTTLEBOT_HOOKS_ENABLED` | `1` | Set to `0` to disable all IRC integration |
+| `SCUTTLEBOT_RELAY_ENABLED` | `1` | Set to `0` to disable the relay (legacy alias: `SCUTTLEBOT_HOOKS_ENABLED`) |
 | `SCUTTLEBOT_INTERRUPT_ON_MESSAGE` | `0` | Send SIGINT to runtime when operator message arrives |
 | `SCUTTLEBOT_POLL_INTERVAL` | `2s` | How often to poll for new IRC messages |
 | `SCUTTLEBOT_PRESENCE_HEARTBEAT` | `60s` | HTTP presence touch interval; `0` to disable |
@@ -518,12 +518,17 @@ All relay brokers use the same set of environment variables. Read from the share
 
 ## Writing the installer script
 
-The installer script lives at `skills/{runtime}-relay/scripts/install-{runtime}-relay.sh`. It:
+The installer script lives at `skills/{runtime}-relay/scripts/install-{runtime}-relay.sh`. By default it:
 
 1. Writes the shared env file (`~/.config/scuttlebot-relay.env`)
-2. Copies hook scripts to the runtime's hook directory
-3. Registers hooks in the runtime's settings JSON
-4. Copies (or builds) the relay launcher to `~/.local/bin/{runtime}-relay`
+2. Copies (or builds) the relay launcher to `~/.local/bin/{runtime}-relay`
+
+With `--with-hooks` (opt-in), it additionally:
+
+3. Copies hook scripts to the runtime's hook directory
+4. Registers hooks in the runtime's settings JSON
+
+The relay handles IRC integration on its own via session-file tailing. Hooks are only needed for setups that don't run the relay binary.
 
 Key conventions:
 
@@ -557,7 +562,7 @@ cat > "$CONFIG_FILE" <<EOF
 SCUTTLEBOT_URL=${SCUTTLEBOT_URL_VALUE}
 SCUTTLEBOT_TOKEN=${SCUTTLEBOT_TOKEN_VALUE}
 SCUTTLEBOT_CHANNEL=${SCUTTLEBOT_CHANNEL_VALUE}
-SCUTTLEBOT_HOOKS_ENABLED=1
+SCUTTLEBOT_RELAY_ENABLED=1
 EOF
 
 cp "$REPO_ROOT/skills/{runtime}-relay/hooks/scuttlebot-check.sh" "$HOOKS_DIR/"
@@ -628,7 +633,7 @@ Runs after each tool call. Posts a one-line summary to IRC.
 Key points:
 
 - Skip if `SCUTTLEBOT_ACTIVITY_VIA_BROKER=1` — the broker already owns activity posting
-- Skip if `SCUTTLEBOT_HOOKS_ENABLED=0` or token is empty
+- Skip if `SCUTTLEBOT_RELAY_ENABLED=0` (legacy alias: `SCUTTLEBOT_HOOKS_ENABLED=0`) or token is empty
 - Parse the tool name and key input from stdin JSON
 - Build a short human-readable summary (under 120 chars)
 - `POST /v1/channels/{ch}/messages` with `connect-timeout 1 max-time 2`
