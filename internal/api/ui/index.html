@@ -111,6 +111,8 @@ select option { background:#161b22; }
 
 /* empty */
 .empty { color:#8b949e; font-size:13px; text-align:center; padding:28px; }
+/* Hide the chat placeholder once any message has rendered. */
+.chat-msgs:has(.msg-row) #chat-placeholder { display:none; }
 
 /* drawer */
 .drawer-overlay { display:none; position:fixed; inset:0; background:#0d111760; z-index:50; }
@@ -166,6 +168,13 @@ select option { background:#161b22; }
 .chat-msgs.modern .msg-row { display:flex; flex-direction:column; max-width:78%; padding:7px 11px; border-radius:14px; background:#161b22; border:1px solid #30363d; align-self:flex-start; font-size:13px; line-height:1.4; }
 .chat-msgs.modern .msg-row.is-self { align-self:flex-end; background:#1f6feb22; border-color:#1f6feb66; border-bottom-right-radius:4px; }
 .chat-msgs.modern .msg-row.is-bot  { background:#0d1117; border-color:#30363d; border-bottom-left-radius:4px; }
+/* Service-bot status posts (scribe, herald, oracle, …) read as one-line
+   ambient annotations rather than full chat bubbles. Treat as system text. */
+.chat-msgs.modern .msg-row.is-bot.kind-chat { align-self:center; flex-direction:row; align-items:baseline; gap:8px; max-width:100%; background:transparent; border:none; padding:2px 8px; font-size:11px; color:#8b949e; opacity:.75; }
+.chat-msgs.modern .msg-row.is-bot.kind-chat .msg-header { display:inline-flex; align-items:baseline; gap:6px; margin:0; }
+.chat-msgs.modern .msg-row.is-bot.kind-chat .msg-time { font-size:10px; opacity:.55; }
+.chat-msgs.modern .msg-row.is-bot.kind-chat .msg-nick { font-size:10px; opacity:.85; }
+.chat-msgs.modern .msg-row.is-bot.kind-chat .msg-text { font-size:11px; }
 .chat-msgs.modern .msg-row.is-agent { background:#161b22; border-color:#30363d; border-bottom-left-radius:4px; }
 .chat-msgs.modern .msg-row.hl-system { align-self:center; background:transparent; border:none; opacity:.55; font-style:italic; padding:2px 8px; font-size:11px; max-width:100%; }
 .chat-msgs.modern .msg-row.hl-system .msg-header { display:none; }
@@ -2477,7 +2486,13 @@ function appendMsg(msg, isHistory) {
 
   // Chat rows get markdown rendering; tool rows stay monospace plain; thinking stays italic plain.
   // Tool rows also get home-dir path shortening so long absolute paths don't dominate the bubble.
-  const renderedText = (kind === 'tool') ? shortenPaths(displayText) : displayText;
+  let renderedText = (kind === 'tool') ? shortenPaths(displayText) : displayText;
+  // When a tool chip is rendered, the bracketed `[ToolName] arg` text body
+  // duplicates what the chip already says — drop it so the bubble shows just
+  // the chip and any additional output, not the redundant label.
+  if (kind === 'tool' && metaToggle && /^\[[^\]]+\]\s/.test(renderedText)) {
+    renderedText = '';
+  }
   const escaped = esc(renderedText);
   const bodyHtml = kind === 'chat' ? renderMarkdown(escaped) : escaped;
 
@@ -2739,6 +2754,8 @@ function classifyMsg(msg, text) {
   // Text-only heuristics for relay-mirrored lines without structured meta.
   const t = (text || '').trim();
   if (!t) return 'chat';
+  // Thinking blocks the relay mirrors prefix with the 💭 emoji per agent.
+  if (/^\u{1F4AD}\s/u.test(t) || /^💭\s/.test(t)) return 'thinking';
   // Any "›"-prefixed line is a tool invocation banner from the relay mirror.
   if (/^[›>]\s+/.test(t)) return 'tool';
   // Bare PascalCase single-word banners like "TaskCreate", "ToolSearch", "TaskUpdate".
