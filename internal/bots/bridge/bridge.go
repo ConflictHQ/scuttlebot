@@ -193,7 +193,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
 		SSL:         false,
-		AllowFlood: true, // trusted local connection — no rate limiting
+		AllowFlood:  true, // trusted local connection — no rate limiting
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
