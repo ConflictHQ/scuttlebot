@@ -830,12 +830,50 @@ canvas { display:block; width:100% !important; }
         <button class="sm primary" onclick="event.stopPropagation();savePolicies()">save</button>
       </div>
       <div class="card-body">
-        <p style="font-size:12px;color:#8b949e;margin-bottom:12px">Per-channel instructions delivered to agents on join. Supports <code>{nick}</code> and <code>{channel}</code> template variables.</p>
+        <p style="font-size:12px;color:#8b949e;margin-bottom:12px">Instructions delivered to agents on join. Supports <code>{nick}</code> and <code>{channel}</code> template variables. Per-channel templates override the default.</p>
+        <div style="margin-bottom:14px">
+          <label style="font-size:12px;font-weight:600">default orientation message</label>
+          <div style="font-size:11px;color:#8b949e;margin-bottom:4px">Sent to any agent joining a channel without a specific template. Leave empty to send nothing.</div>
+          <textarea id="onjoin-default" rows="6" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px" placeholder="Welcome, {nick}. You're connected to scuttlebot via IRC on {channel}…"></textarea>
+        </div>
+        <div style="font-size:12px;font-weight:600;margin:8px 0 4px 0">per-channel overrides</div>
         <div id="onjoin-list"></div>
         <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
           <div style="flex:0 0 160px"><label>channel</label><input type="text" id="onjoin-new-channel" placeholder="#channel" style="width:100%"></div>
           <div style="flex:1"><label>message</label><input type="text" id="onjoin-new-message" placeholder="Welcome to {channel}, {nick}!" style="width:100%"></div>
           <button class="sm primary" onclick="addOnJoinMessage()">add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- channel resolutions -->
+    <div class="card" id="card-resolutions">
+      <div class="card-header" onclick="toggleCard('card-resolutions',event)">
+        <h2>channel resolutions</h2><span class="card-desc">route tool calls / thinking / chat to specific channels</span><span class="collapse-icon">▾</span>
+        <div class="spacer"></div>
+        <button class="sm primary" onclick="event.stopPropagation();savePolicies()">save</button>
+      </div>
+      <div class="card-body">
+        <p style="font-size:12px;color:#8b949e;margin-bottom:8px">Each relay-posted message has a verbosity level. A channel only receives messages whose level is &le; its resolution.</p>
+        <ul style="font-size:12px;color:#8b949e;margin:0 0 12px 18px;line-height:1.7">
+          <li><strong>minimal</strong> — heartbeats and lifecycle (online/offline) only</li>
+          <li><strong>actions</strong> — &nbsp;+ tool calls and tool results</li>
+          <li><strong>full</strong> — &nbsp;+ assistant chat content (default for unmatched channels)</li>
+          <li><strong>debug</strong> — &nbsp;+ thinking / reasoning blocks</li>
+        </ul>
+        <p style="font-size:11px;color:#8b949e;margin-bottom:12px">Channels with prefix <code>session-</code> default to <code>debug</code>, <code>project-</code> to <code>actions</code>, <code>team-</code> to <code>full</code>. Add explicit overrides below — useful for routing thoughts to <code>#thoughts</code>, tool calls to <code>#actions</code>, etc.</p>
+        <div id="resolutions-list"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
+          <div style="flex:0 0 160px"><label>channel</label><input type="text" id="resolution-new-channel" placeholder="#channel" style="width:100%"></div>
+          <div style="flex:0 0 140px"><label>resolution</label>
+            <select id="resolution-new-level" style="width:100%">
+              <option value="minimal">minimal</option>
+              <option value="actions">actions</option>
+              <option value="full" selected>full</option>
+              <option value="debug">debug</option>
+            </select>
+          </div>
+          <button class="sm primary" onclick="addChannelResolution()">add</button>
         </div>
       </div>
     </div>
@@ -4017,6 +4055,50 @@ function removeOnJoinMessage(ch) {
   if (currentPolicies.on_join_messages) delete currentPolicies.on_join_messages[ch];
   renderOnJoinMessages(currentPolicies.on_join_messages);
 }
+function renderOnJoinDefault(msg) {
+  const el = document.getElementById('onjoin-default');
+  if (el) el.value = msg || '';
+}
+function syncOnJoinDefault() {
+  const el = document.getElementById('onjoin-default');
+  if (el) currentPolicies.on_join_default = el.value;
+}
+
+function renderChannelResolutions(map) {
+  const el = document.getElementById('resolutions-list');
+  if (!el) return;
+  if (!map || !Object.keys(map).length) { el.innerHTML = '<div style="color:#8b949e;font-size:12px">No channel-resolution overrides configured (defaults apply).</div>'; return; }
+  el.innerHTML = Object.entries(map).sort().map(([ch, level]) => `
+    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #21262d">
+      <code style="font-size:12px;min-width:160px">${esc(ch)}</code>
+      <select style="font-size:12px;padding:3px 6px" onchange="updateChannelResolution('${esc(ch)}',this.value)">
+        <option value="minimal" ${level==='minimal'?'selected':''}>minimal</option>
+        <option value="actions" ${level==='actions'?'selected':''}>actions</option>
+        <option value="full"    ${level==='full'?'selected':''}>full</option>
+        <option value="debug"   ${level==='debug'?'selected':''}>debug</option>
+      </select>
+      <div style="flex:1"></div>
+      <button class="sm danger" onclick="removeChannelResolution('${esc(ch)}')">remove</button>
+    </div>
+  `).join('');
+}
+function addChannelResolution() {
+  const ch = document.getElementById('resolution-new-channel').value.trim();
+  const level = document.getElementById('resolution-new-level').value;
+  if (!ch) return;
+  if (!currentPolicies.channel_resolutions) currentPolicies.channel_resolutions = {};
+  currentPolicies.channel_resolutions[ch] = level;
+  document.getElementById('resolution-new-channel').value = '';
+  renderChannelResolutions(currentPolicies.channel_resolutions);
+}
+function updateChannelResolution(ch, level) {
+  if (!currentPolicies.channel_resolutions) currentPolicies.channel_resolutions = {};
+  currentPolicies.channel_resolutions[ch] = level;
+}
+function removeChannelResolution(ch) {
+  if (currentPolicies.channel_resolutions) delete currentPolicies.channel_resolutions[ch];
+  renderChannelResolutions(currentPolicies.channel_resolutions);
+}
 let _llmBackendNames = []; // cached backend names for oracle dropdown
 
 async function loadSettings() {
@@ -4031,6 +4113,8 @@ async function loadSettings() {
     _botCommands = s.bot_commands || {};
     renderBehaviors(s.policies.behaviors || []);
     renderOnJoinMessages(s.policies.on_join_messages || {});
+    renderOnJoinDefault(s.policies.on_join_default || '');
+    renderChannelResolutions(s.policies.channel_resolutions || {});
     renderAgentPolicy(s.policies.agent_policy || {});
     renderBridgePolicy(s.policies.bridge || {});
     renderLoggingPolicy(s.policies.logging || {});
@@ -4162,6 +4246,8 @@ async function savePolicies() {
   // Saves behaviors only — agent_policy, logging, and bridge are now
   // persisted to scuttlebot.yaml via PUT /v1/config.
   if (!currentPolicies) return;
+  // Pick up unsaved edits from controls that don't push on every keystroke.
+  syncOnJoinDefault();
   const p = JSON.parse(JSON.stringify(currentPolicies)); // deep copy
   const resultEl = document.getElementById('policies-save-result');
   try {

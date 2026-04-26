@@ -93,14 +93,26 @@ type ROETemplate struct {
 
 // Policies is the full mutable settings blob, persisted to policies.json.
 type Policies struct {
-	Behaviors      []BehaviorConfig   `json:"behaviors"`
-	AgentPolicy    AgentPolicy        `json:"agent_policy"`
-	Bridge         BridgePolicy       `json:"bridge"`
-	Logging        LoggingPolicy      `json:"logging"`
-	LLMBackends    []PolicyLLMBackend `json:"llm_backends,omitempty"`
-	ROETemplates   []ROETemplate      `json:"roe_templates,omitempty"`
-	OnJoinMessages map[string]string  `json:"on_join_messages,omitempty"` // channel → message template
+	Behaviors          []BehaviorConfig   `json:"behaviors"`
+	AgentPolicy        AgentPolicy        `json:"agent_policy"`
+	Bridge             BridgePolicy       `json:"bridge"`
+	Logging            LoggingPolicy      `json:"logging"`
+	LLMBackends        []PolicyLLMBackend `json:"llm_backends,omitempty"`
+	ROETemplates       []ROETemplate      `json:"roe_templates,omitempty"`
+	OnJoinMessages     map[string]string  `json:"on_join_messages,omitempty"`    // channel → message template (specific override)
+	OnJoinDefault      string             `json:"on_join_default,omitempty"`     // fallback orientation template if no per-channel match
+	ChannelResolutions map[string]string  `json:"channel_resolutions,omitempty"` // channel → "chat" | "actions" | "full" | "debug" — controls which streams reach this channel
 }
+
+// defaultOnJoinTemplate is sent as a NOTICE to any agent that joins a channel
+// without a specific OnJoinMessages override. Gives the agent enough context to
+// participate without being told elsewhere. Operators can edit or clear this
+// in the admin UI; setting it to an empty string disables the default.
+const defaultOnJoinTemplate = `Welcome, {nick}. You're connected to scuttlebot via IRC on {channel}.
+- To address another agent or operator, prefix the message with their nick (e.g. "claude-foo: …").
+- "@all" reaches everyone in the channel; "@worker", "@orchestrator", "@operator" reach by role.
+- Tool calls, file edits, and thinking blocks may be routed to other channels — your scope here is determined by the channel's resolution policy.
+- Operator interventions reset the agent-to-agent handoff budget; without an operator post you can hand off to other agents up to N times before traffic is dropped.`
 
 // defaultBehaviors lists every built-in bot with conservative defaults (disabled).
 var defaultBehaviors = []BehaviorConfig{
@@ -243,6 +255,7 @@ func NewPolicyStore(path string, defaultBridgeTTLMinutes int) (*PolicyStore, err
 	}
 	ps.data.Behaviors = defaultBehaviors
 	ps.data.Bridge.WebUserTTLMinutes = defaultBridgeTTLMinutes
+	ps.data.OnJoinDefault = defaultOnJoinTemplate
 	if err := ps.load(); err != nil {
 		return nil, err
 	}
@@ -419,6 +432,18 @@ func (ps *PolicyStore) Merge(patch Policies) error {
 	// Merge on-join messages if provided.
 	if patch.OnJoinMessages != nil {
 		ps.data.OnJoinMessages = patch.OnJoinMessages
+	}
+
+	// Merge default on-join template if explicitly provided. Empty string is a
+	// legitimate intent ("disable default") so we look at whether any field was
+	// set on the patch — caller signals overwrite by including the key.
+	if patch.OnJoinDefault != "" || patch.OnJoinMessages != nil || patch.ChannelResolutions != nil {
+		ps.data.OnJoinDefault = patch.OnJoinDefault
+	}
+
+	// Merge channel resolutions if provided.
+	if patch.ChannelResolutions != nil {
+		ps.data.ChannelResolutions = patch.ChannelResolutions
 	}
 
 	ps.normalize(&ps.data)
