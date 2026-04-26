@@ -320,6 +320,7 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 			FloodWindow:       time.Duration(cfgInt(cfg, "flood_window_sec", 5)) * time.Second,
 			JoinPartThreshold: cfgInt(cfg, "join_part_threshold", 5),
 			JoinPartWindow:    time.Duration(cfgInt(cfg, "join_part_window_sec", 30)) * time.Second,
+			MonitorNicks:      splitCSV(cfgStr(cfg, "monitor_nicks", "")), // #169
 			Channels:          channels,
 		}, m.log), nil
 
@@ -327,6 +328,7 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 		return warden.New(m.ircAddr, pass, channels, nil, warden.ChannelConfig{
 			MessagesPerSecond: cfgFloat(cfg, "messages_per_second", 5),
 			Burst:             cfgInt(cfg, "burst", 10),
+			CoolDown:          time.Duration(cfgInt(cfg, "cooldown_sec", 60)) * time.Second, // #171
 		}, m.log), nil
 
 	case "scroll":
@@ -344,8 +346,12 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 		return systembot.New(m.ircAddr, pass, channels, systembot.NewFileStore(systemDir), m.log), nil
 
 	case "herald":
+		// Per-event-type routes are configured as a CSV of "prefix:channel"
+		// pairs in the BehaviorConfig (e.g. "github:#dev,deploy:#ops"). The
+		// DefaultChannel acts as a fallback when no prefix matches. See #170.
 		return herald.New(m.ircAddr, pass, channels, herald.RouteConfig{
 			DefaultChannel: cfgStr(cfg, "default_channel", ""),
+			Routes:         parseRoutes(cfgStr(cfg, "routes", "")),
 		}, cfgFloat(cfg, "rate_limit", 1), cfgInt(cfg, "burst", 5), m.log), nil
 
 	case "oracle":
@@ -503,6 +509,36 @@ func genPassword() (string, error) {
 		return "", fmt.Errorf("manager: generate password: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// parseRoutes parses a herald route map from a CSV of "prefix:channel" pairs.
+// Empty input returns nil. Malformed entries (no colon) are skipped silently.
+// e.g. "github:#dev, deploy:#ops" → {"github": "#dev", "deploy": "#ops"}.
+func parseRoutes(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	out := map[string]string{}
+	for _, item := range strings.Split(s, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		idx := strings.Index(item, ":")
+		if idx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(item[:idx])
+		val := strings.TrimSpace(item[idx+1:])
+		if key == "" || val == "" {
+			continue
+		}
+		out[key] = val
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // splitCSV splits a comma-separated string into a slice, trimming spaces and
