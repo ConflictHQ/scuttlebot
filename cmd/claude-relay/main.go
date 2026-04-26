@@ -1273,7 +1273,42 @@ func loadConfig(args []string) (config, error) {
 	if cfg.Transport == sessionrelay.TransportHTTP && cfg.Token == "" {
 		cfg.RelayEnabled = false
 	}
+	reconcileIRCDefaults(&cfg, fileConfig, "claude-relay")
 	return cfg, nil
+}
+
+// reconcileIRCDefaults makes IRC transport defaults follow SCUTTLEBOT_URL when
+// the user hasn't explicitly overridden them in the process env. Stale env-file
+// values that disagree with the URL host are downgraded to URL-derived defaults
+// with a one-line WARN — fixes the symptom in #161 where prod IRC values
+// silently leaked into a localhost relay run and produced cryptic SASL errors.
+func reconcileIRCDefaults(cfg *config, fileConfig map[string]string, logPrefix string) {
+	dAddr, dTLS, ok := sessionrelay.DeriveIRCDefaults(cfg.URL)
+	if !ok {
+		return
+	}
+	procAddr := os.Getenv("SCUTTLEBOT_IRC_ADDR")
+	procTLS := os.Getenv("SCUTTLEBOT_IRC_TLS")
+	fileAddr := fileConfig["SCUTTLEBOT_IRC_ADDR"]
+	if procAddr != "" {
+		// Process env is explicit user intent; respect it but warn on mismatch.
+		if !sessionrelay.IRCHostMatchesURL(procAddr, cfg.URL) {
+			fmt.Fprintf(os.Stderr, "%s: SCUTTLEBOT_IRC_ADDR=%s in process env disagrees with URL %s\n", logPrefix, procAddr, cfg.URL)
+		}
+	} else if fileAddr == "" {
+		// Nothing set anywhere — use URL-derived defaults.
+		cfg.IRCAddr = dAddr
+		if procTLS == "" {
+			cfg.IRCTLS = dTLS
+		}
+	} else if !sessionrelay.IRCHostMatchesURL(fileAddr, cfg.URL) {
+		// Stale env-file value pointing at a different host — override.
+		fmt.Fprintf(os.Stderr, "%s: SCUTTLEBOT_IRC_ADDR=%s in env file disagrees with URL %s — using URL-derived %s\n", logPrefix, fileAddr, cfg.URL, dAddr)
+		cfg.IRCAddr = dAddr
+		if procTLS == "" {
+			cfg.IRCTLS = dTLS
+		}
+	}
 }
 
 func defaultChannelStateFile(nick string) string {
