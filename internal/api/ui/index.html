@@ -113,6 +113,11 @@ select option { background:#161b22; }
 .empty { color:#8b949e; font-size:13px; text-align:center; padding:28px; }
 /* Hide the chat placeholder once any message has rendered. */
 .chat-msgs:has(.msg-row) #chat-placeholder { display:none; }
+/* Day divider: a horizontal hairline with a centered floating label so
+   long multi-day sessions can be navigated by eye. */
+.msg-day-divider { position:relative; align-self:stretch; text-align:center; margin:14px 0 8px; pointer-events:none; }
+.msg-day-divider::before { content:""; position:absolute; left:0; right:0; top:50%; border-top:1px solid #21262d; }
+.msg-day-divider span { position:relative; display:inline-block; padding:2px 12px; font-size:10px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; color:#6e7681; background:#0d1117; border-radius:10px; }
 
 /* drawer */
 .drawer-overlay { display:none; position:fixed; inset:0; background:#0d111760; z-index:50; }
@@ -687,13 +692,13 @@ canvas { display:block; width:100% !important; }
       <select id="chat-identity" style="width:140px;padding:3px 6px;font-size:12px" onchange="saveChatIdentity()">
         <option value="">— pick a user —</option>
       </select>
-      <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="toggle compact/columnar" style="font-size:11px;padding:2px 6px">☰</button>
-      <button class="sm" id="chat-modern-toggle" onclick="toggleModernMode()" title="toggle modern bubble chat" style="font-size:11px;padding:2px 6px">💬</button>
-      <button class="sm" id="chat-ts-toggle" onclick="toggleTimestamps()" title="toggle timestamps" style="font-size:11px;padding:2px 6px">timestamps</button>
-      <button class="sm" id="chat-tools-toggle" onclick="toggleShowTools()" title="show/hide tool-call rows" style="font-size:11px;padding:2px 6px">🔧</button>
-      <button class="sm" id="chat-thinking-toggle" onclick="toggleShowThinking()" title="show/hide thinking rows" style="font-size:11px;padding:2px 6px">💭</button>
-      <button class="sm" id="chat-rich-toggle" onclick="toggleRichMode()" title="toggle rich/text mode" style="font-size:11px;padding:2px 6px">✨</button>
-      <button class="sm" onclick="promptHighlightWords()" title="configure highlight keywords" style="font-size:11px;padding:2px 6px">✦</button>
+      <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="Layout: switch between compact and columnar (one-line) message rows" aria-label="Toggle compact/columnar layout" style="font-size:11px;padding:2px 6px">☰</button>
+      <button class="sm" id="chat-modern-toggle" onclick="toggleModernMode()" title="Bubble mode: toggle the modern speech-bubble look on or off (uses the classic IRC-style row when off)" aria-label="Toggle modern bubble chat" style="font-size:11px;padding:2px 6px">💬</button>
+      <button class="sm" id="chat-ts-toggle" onclick="toggleTimestamps()" title="Timestamps: show or hide message timestamps" aria-label="Toggle timestamps" style="font-size:11px;padding:2px 6px">timestamps</button>
+      <button class="sm" id="chat-tools-toggle" onclick="toggleShowTools()" title="Tool calls: hide all tool-call rows to focus on chat (off shows everything)" aria-label="Show/hide tool calls" style="font-size:11px;padding:2px 6px">🔧</button>
+      <button class="sm" id="chat-thinking-toggle" onclick="toggleShowThinking()" title="Thinking blocks: hide all 💭 reasoning rows" aria-label="Show/hide thinking rows" style="font-size:11px;padding:2px 6px">💭</button>
+      <button class="sm" id="chat-rich-toggle" onclick="toggleRichMode()" title="Rich mode: when on, expand tool-call detail cards (diffs, command output) inline by default; when off, show only the chip and expand on click" aria-label="Toggle rich/text mode" style="font-size:11px;padding:2px 6px">✨</button>
+      <button class="sm" onclick="promptHighlightWords()" title="Highlight keywords: configure words that highlight rows (mentions of you, danger words, etc.)" aria-label="Configure highlight keywords" style="font-size:11px;padding:2px 6px">✦</button>
       <span class="stream-badge" id="chat-stream-status" style="margin-left:8px"></span>
     </div>
     <div class="chat-msgs" id="chat-msgs">
@@ -2377,7 +2382,13 @@ function nickPrefix(nick) {
 function renderNicklist(users, channelModes) {
   const el = document.getElementById('nicklist-users');
   // users may be [{nick, modes}] or ["nick"] for backwards compat.
-  const normalized = users.map(u => typeof u === 'string' ? {nick: u, modes: []} : u);
+  let normalized = users.map(u => typeof u === 'string' ? {nick: u, modes: []} : u);
+  // Drop ghost duplicates from a relay reconnect race: if both `foo` and
+  // `foo_` are present, the underscore variant is the zombie holding the
+  // server-side nick collision and Ergo will reap it on ping timeout. Hide
+  // it pre-emptively so the operator doesn't see a phantom user.
+  const present = new Set(normalized.map(u => u.nick));
+  normalized = normalized.filter(u => !(u.nick.endsWith('_') && present.has(u.nick.slice(0, -1))));
   // Sort: ops > system bots > agents > users, alpha within each tier.
   const sorted = normalized.slice().sort((a, b) => {
     const ta = nickTier(a.nick), tb = nickTier(b.nick);
@@ -2409,7 +2420,21 @@ function nickColor(nick) {
 }
 
 let _lastMsgNick = null, _lastMsgAt = 0;
+let _lastMsgDay = null;
 const GROUP_MS = 5 * 60 * 1000;
+
+// Format an absolute date as a human-friendly day label for the divider.
+// "today" / "yesterday" for recent days, "Mon Apr 22" for older.
+function formatDayLabel(d) {
+  const today = new Date();
+  const isSame = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (isSame(d, today)) return 'today';
+  const y = new Date(today); y.setDate(today.getDate() - 1);
+  if (isSame(d, y)) return 'yesterday';
+  const opts = { weekday: 'short', month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== today.getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString([], opts);
+}
 // Tool-run batching state: a run is 2+ consecutive kind-tool rows from the
 // same agent; the first gets the head class, subsequent rows become tails.
 let _toolRun = { head: null, nick: null, count: 0 };
@@ -2433,6 +2458,19 @@ function appendMsg(msg, isHistory) {
   }
 
   const atMs = new Date(msg.at).getTime();
+  // Insert a day divider when the message crosses a calendar-day boundary.
+  // Long multi-day sessions otherwise read as one continuous wall.
+  const atDate = new Date(msg.at);
+  const dayKey = atDate.getFullYear() * 10000 + (atDate.getMonth() + 1) * 100 + atDate.getDate();
+  if (dayKey !== _lastMsgDay) {
+    const divider = document.createElement('div');
+    divider.className = 'msg-day-divider';
+    divider.innerHTML = `<span>${esc(formatDayLabel(atDate))}</span>`;
+    document.getElementById('chat-msgs').appendChild(divider);
+    _lastMsgDay = dayKey;
+    // A new day always breaks message grouping.
+    _lastMsgNick = null;
+  }
   // Group consecutive messages from the same nick within GROUP_MS — for both
   // live and history traffic. Live-only grouping produced noisy headers on
   // every bubble during initial history load; joining them reads as one
@@ -2763,34 +2801,98 @@ function classifyMsg(msg, text) {
   // Lowercase tool-then-arg patterns: "read /path", "edit foo.go", "bash 'go test'",
   // "grep pattern", "glob ***.go", "rg --files", "git log --oneline".
   if (/^(read|write|edit|bash|exec|run|grep|glob|rg|find|sed|awk|git|ls|cat|head|tail|curl|wget|chmod|mv|cp|rm|mkdir|npm|yarn|pnpm|go|python|node)\b\s/i.test(t)) return 'tool';
+  // Bracketed tool-invocation banners: "[run_shell_command] success",
+  // "[Edit] file.go", "[Bash] go test". Relays emit these when shipping
+  // tool events without structured meta.
+  if (/^\[[A-Za-z][A-Za-z0-9_]+\]\s/.test(t)) return 'tool';
+  // Bare absolute paths that span the whole line are almost always shell
+  // output (e.g. the result of `pwd`), not chat. Single-line, no spaces,
+  // path-like, < 200 chars.
+  if (/^\/[\w./\-]+$/.test(t) && t.length < 200 && !t.includes(' ')) return 'tool';
   return 'chat';
 }
 
 // Short label shown inside the collapsible tool-call chip.
+// summarizeDiff returns "+N -M" line counts from a unified-diff-ish string,
+// or "" if nothing to show. Helps the chip surface the size of an Edit at a glance.
+function summarizeDiff(diff) {
+  if (!diff) return '';
+  let plus = 0, minus = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue;
+    if (line.startsWith('+')) plus++;
+    else if (line.startsWith('-')) minus++;
+  }
+  if (!plus && !minus) return '';
+  const parts = [];
+  if (plus)  parts.push('+' + plus);
+  if (minus) parts.push('-' + minus);
+  return parts.join(' ');
+}
+
+// statusBadge produces a tiny status indicator (✓ ✗ … ?) from common status
+// strings emitted by the relays. Empty for unknown.
+function statusBadge(status) {
+  const s = String(status || '').toLowerCase();
+  if (!s) return '';
+  if (s === 'completed' || s === 'ok' || s === 'success' || s === 'done')   return '✓';
+  if (s === 'failed' || s === 'error' || s === 'denied' || s === 'rejected') return '✗';
+  if (s === 'running' || s === 'in_progress' || s === 'pending')             return '…';
+  return '';
+}
+
 function toolSummary(meta) {
   if (!meta || !meta.type) return meta ? meta.type : 'details';
   const d = meta.data || {};
+  // Build extras: [status badge] · [size: +N -M / N lines / N bytes / exit code]
+  const extras = [];
+  const sb = statusBadge(d.status);
+  if (sb) extras.push(sb);
   if (meta.type === 'tool_result') {
     const tool = (d.tool || '').toLowerCase();
     if (tool === 'bash' || tool === 'exec' || tool === 'execute' || d.command) {
-      return '$ ' + (d.command || tool || 'command');
+      if (typeof d.exit_code === 'number') extras.push('exit ' + d.exit_code);
+      if (typeof d.duration_ms === 'number') extras.push((d.duration_ms / 1000).toFixed(1) + 's');
+      const ext = extras.length ? '  · ' + extras.join(' · ') : '';
+      return '$ ' + (d.command || tool || 'command') + ext;
     }
     if (tool === 'edit' || tool === 'write' || tool === 'apply_patch' || tool === 'notebookedit') {
-      return '✏️ ' + (d.file || d.file_path || d.path || '');
+      const ds = summarizeDiff(d.diff);
+      if (ds) extras.push(ds);
+      const ext = extras.length ? '  · ' + extras.join(' · ') : '';
+      return '✏️ ' + (d.file || d.file_path || d.path || '') + ext;
     }
-    if (tool === 'read')  return '📖 ' + (d.file || d.path || '');
-    if (tool === 'glob')  return '📁 ' + (d.pattern || d.path || '');
-    if (tool === 'grep')  return '🔍 ' + (d.pattern || d.path || '');
+    if (tool === 'read') {
+      if (typeof d.lines === 'number') extras.push(d.lines + ' lines');
+      else if (typeof d.bytes === 'number') extras.push(d.bytes + ' bytes');
+      const ext = extras.length ? '  · ' + extras.join(' · ') : '';
+      return '📖 ' + (d.file || d.path || '') + ext;
+    }
+    if (tool === 'glob') {
+      if (typeof d.matches === 'number') extras.push(d.matches + ' matches');
+      const ext = extras.length ? '  · ' + extras.join(' · ') : '';
+      return '📁 ' + (d.pattern || d.path || '') + ext;
+    }
+    if (tool === 'grep') {
+      if (typeof d.matches === 'number') extras.push(d.matches + ' hits');
+      const ext = extras.length ? '  · ' + extras.join(' · ') : '';
+      return '🔍 ' + (d.pattern || d.path || '') + ext;
+    }
     if (tool === 'websearch' || tool === 'webfetch' || tool === 'web_search' || d.url) {
-      return '🌐 ' + (d.url || d.query || tool);
+      const ext = extras.length ? '  · ' + extras.join(' · ') : '';
+      return '🌐 ' + (d.url || d.query || tool) + ext;
     }
     if (tool === 'thinking' || d.thinking) return '💭 thinking';
-    return '• ' + (tool || 'tool call');
+    const ext = extras.length ? '  · ' + extras.join(' · ') : '';
+    return '• ' + (tool || 'tool call') + ext;
   }
-  if (meta.type === 'diff')     return '📝 ' + (d.file || '');
-  if (meta.type === 'error')    return '⚠ error';
+  if (meta.type === 'diff') {
+    const ds = summarizeDiff(d.diff);
+    return '📝 ' + (d.file || '') + (ds ? '  · ' + ds : '');
+  }
+  if (meta.type === 'error')    return '⚠ ' + (d.message || 'error');
   if (meta.type === 'status')   return '• ' + (d.state || 'status');
-  if (meta.type === 'artifact') return '📎 ' + (d.name || d.path || 'artifact');
+  if (meta.type === 'artifact') return '📎 ' + (d.name || d.path || 'artifact') + (d.size ? '  · ' + d.size + 'B' : '');
   if (meta.type === 'image')    return '🖼 image';
   if (meta.type === 'thinking') return '💭 thinking';
   return meta.type;
