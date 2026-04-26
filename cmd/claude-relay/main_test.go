@@ -29,6 +29,78 @@ func TestFilterMessages(t *testing.T) {
 	}
 }
 
+// TestHandoffBudgetExhaustion verifies that agent→agent messages drain the
+// channel's budget and additional ones drop until the next operator post.
+func TestHandoffBudgetExhaustion(t *testing.T) {
+	now := time.Now()
+	nick := "claude-target"
+	state := &relayState{}
+	since := now.Add(-time.Minute)
+
+	// Burst of 5 explicit @claude-target mentions from another agent. With a
+	// budget of 2 (and no operator reset), only the first 2 should pass.
+	msgs := make([]message, 0, 5)
+	for i := 0; i < 5; i++ {
+		msgs = append(msgs, message{
+			Nick:    "codex-other",
+			Text:    "claude-target: hop " + string(rune('1'+i)),
+			Channel: "#general",
+			At:      now.Add(time.Duration(i) * time.Millisecond),
+		})
+	}
+
+	filtered, _ := filterMessagesState(msgs, since, nick, "worker", state, 2)
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 hops to pass with budget=2, got %d", len(filtered))
+	}
+}
+
+// TestHandoffBudgetResetsOnOperator verifies that a non-activity-prefix sender
+// (operator / bridge web UI) within the same batch resets the budget so later
+// agent→agent hops can pass.
+func TestHandoffBudgetResetsOnOperator(t *testing.T) {
+	now := time.Now()
+	nick := "claude-target"
+	state := &relayState{}
+	state.handoffBudget = map[string]int{"#general": 0} // pre-exhausted
+	since := now.Add(-time.Minute)
+
+	msgs := []message{
+		// Operator post earlier: should reset the budget for this channel.
+		{Nick: "glen", Text: "claude-target: ping", Channel: "#general", At: now.Add(1 * time.Millisecond)},
+		// Then an agent→agent hop that should now pass.
+		{Nick: "codex-other", Text: "claude-target: follow up", Channel: "#general", At: now.Add(2 * time.Millisecond)},
+	}
+
+	filtered, _ := filterMessagesState(msgs, since, nick, "worker", state, 3)
+	if len(filtered) != 2 {
+		t.Fatalf("expected operator + 1 agent hop to pass after reset, got %d", len(filtered))
+	}
+}
+
+// TestHandoffBudgetIsolatesPerChannel verifies that the budget is per-channel:
+// exhausting #general should not affect #project-foo.
+func TestHandoffBudgetIsolatesPerChannel(t *testing.T) {
+	now := time.Now()
+	nick := "claude-target"
+	state := &relayState{}
+	state.handoffBudget = map[string]int{"#general": 0} // exhausted on #general only
+	since := now.Add(-time.Minute)
+
+	msgs := []message{
+		{Nick: "codex-other", Text: "claude-target: blocked", Channel: "#general", At: now.Add(1 * time.Millisecond)},
+		{Nick: "codex-other", Text: "claude-target: ok", Channel: "#project-foo", At: now.Add(2 * time.Millisecond)},
+	}
+
+	filtered, _ := filterMessagesState(msgs, since, nick, "worker", state, 2)
+	if len(filtered) != 1 {
+		t.Fatalf("expected only the #project-foo hop to pass, got %d", len(filtered))
+	}
+	if filtered[0].Channel != "#project-foo" {
+		t.Errorf("expected #project-foo, got %s", filtered[0].Channel)
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	t.Setenv("SCUTTLEBOT_CONFIG_FILE", filepath.Join(t.TempDir(), "scuttlebot-relay.env"))
 	t.Setenv("SCUTTLEBOT_URL", "http://test:8080")

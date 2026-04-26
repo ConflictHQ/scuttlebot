@@ -102,11 +102,12 @@ type config struct {
 	SessionID          string
 	ClaudeSessionID    string // UUID passed to Claude Code via --session-id
 	Nick               string
-	HooksEnabled       bool
+	RelayEnabled       bool
 	InterruptOnMessage bool
 	MirrorReasoning    bool
 	PollInterval       time.Duration
 	HeartbeatInterval  time.Duration
+	HandoffBudget      int // initial agent→agent hop budget per channel (reset on every operator post)
 	TargetCWD          string
 	Args               []string
 }
@@ -120,8 +121,51 @@ type mirrorLine struct {
 }
 
 type relayState struct {
-	mu       sync.RWMutex
-	lastBusy time.Time
+	mu            sync.RWMutex
+	lastBusy      time.Time
+	handoffBudget map[string]int // channel → remaining agent→agent hops since last operator intervention
+}
+
+// handoffDefault is the initial budget granted to each channel whenever an
+// operator or bridge user posts. Agent→agent messages (explicit mention from
+// another activity-prefix nick) decrement it; when it hits 0 further
+// agent→agent traffic is dropped until the next operator intervention.
+// Override via SCUTTLEBOT_HANDOFF_BUDGET env var at startup.
+const handoffDefault = 4
+
+func (s *relayState) resetHandoff(channel string, budget int) {
+	if channel == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.handoffBudget == nil {
+		s.handoffBudget = map[string]int{}
+	}
+	s.handoffBudget[channel] = budget
+	s.mu.Unlock()
+}
+
+// consumeHandoff returns true if there was budget to consume (and decrements).
+// Returns false when the budget is exhausted and the message should be dropped.
+// Channels never seen before receive `initial` as their starting budget so that
+// agent→agent traffic isn't blocked just because no operator has posted yet.
+func (s *relayState) consumeHandoff(channel string, initial int) bool {
+	if channel == "" {
+		return true // no channel context — don't enforce
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.handoffBudget == nil {
+		s.handoffBudget = map[string]int{}
+	}
+	if _, seen := s.handoffBudget[channel]; !seen {
+		s.handoffBudget[channel] = initial
+	}
+	if s.handoffBudget[channel] <= 0 {
+		return false
+	}
+	s.handoffBudget[channel]--
+	return true
 }
 
 // Claude Code JSONL session entry.
@@ -156,7 +200,7 @@ func main() {
 
 func run(cfg config) error {
 	fmt.Fprintf(os.Stderr, "claude-relay: nick %s\n", cfg.Nick)
-	relayRequested := cfg.HooksEnabled && shouldRelaySession(cfg.Args)
+	relayRequested := cfg.RelayEnabled && shouldRelaySession(cfg.Args)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -242,7 +286,8 @@ func run(cfg config) error {
 		"SCUTTLEBOT_CHANNEL="+cfg.Channel,
 		"SCUTTLEBOT_CHANNELS="+strings.Join(cfg.Channels, ","),
 		"SCUTTLEBOT_CHANNEL_STATE_FILE="+cfg.ChannelStateFile,
-		"SCUTTLEBOT_HOOKS_ENABLED="+boolString(cfg.HooksEnabled),
+		"SCUTTLEBOT_RELAY_ENABLED="+boolString(cfg.RelayEnabled),
+		"SCUTTLEBOT_HOOKS_ENABLED="+boolString(cfg.RelayEnabled), // deprecated alias
 		"SCUTTLEBOT_SESSION_ID="+cfg.SessionID,
 		"SCUTTLEBOT_NICK="+cfg.Nick,
 		"SCUTTLEBOT_ACTIVITY_VIA_BROKER="+boolString(relayActive),
@@ -824,7 +869,7 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 			if err != nil {
 				continue
 			}
-			batch, newest := filterMessages(messages, lastSeen, cfg.Nick, cfg.IRCAgentType)
+			batch, newest := filterMessagesState(messages, lastSeen, cfg.Nick, cfg.IRCAgentType, state, cfg.HandoffBudget)
 			if len(batch) == 0 {
 				continue
 			}
@@ -1100,9 +1145,20 @@ func (s *relayState) shouldInterrupt(now time.Time) bool {
 }
 
 func filterMessages(messages []message, since time.Time, nick, agentType string) ([]message, time.Time) {
+	return filterMessagesState(messages, since, nick, agentType, nil, handoffDefault)
+}
+
+// filterMessagesState is the tested path — the package-level filterMessages is a
+// convenience wrapper that skips budget enforcement (nil state) used only by
+// callers that don't care about agent→agent handoff limits.
+func filterMessagesState(messages []message, since time.Time, nick, agentType string, state *relayState, handoffBudget int) ([]message, time.Time) {
 	filtered := make([]message, 0, len(messages))
 	newest := since
-	for _, msg := range messages {
+	// Process in time order so operator interventions reset the budget before
+	// any later agent→agent messages in the same batch try to consume it.
+	ordered := append([]message(nil), messages...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].At.Before(ordered[j].At) })
+	for _, msg := range ordered {
 		if msg.At.IsZero() || !msg.At.After(since) {
 			continue
 		}
@@ -1113,18 +1169,24 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 			debugf("claude-relay: filter skip self: %s\n", truncateMsg(msg.Text, 60))
 			continue
 		}
-		if _, ok := serviceBots[msg.Nick]; ok {
+		_, isService := serviceBots[msg.Nick]
+		if isService {
 			debugf("claude-relay: filter skip service-bot %s\n", msg.Nick)
 			continue
 		}
 		isActivityPost := ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes())
 		isExplicitMention := ircagent.MentionsNick(msg.Text, nick)
 		isGroupMention := ircagent.MatchesGroupMention(msg.Text, nick, agentType)
+		// Non-activity senders are operators (or the bridge web UI): they
+		// reset the per-channel handoff budget for subsequent agent→agent
+		// messages within this batch.
+		if !isActivityPost && state != nil {
+			state.resetHandoff(msg.Channel, handoffBudget)
+		}
 		// Another agent's activity is ignored by default to prevent agent→agent
-		// chatter loops, but let explicit by-nick mentions through: operators
-		// frequently instruct one agent to ask another ("claude: have codex
-		// review X") and the addressed reply should reach the target. Warden's
-		// ping-pong / repetitive-loop circuit breakers catch runaway loops.
+		// chatter loops, but let explicit by-nick mentions through and enforce
+		// a per-channel handoff budget: each operator message grants N hops,
+		// each accepted agent→agent message consumes one.
 		if isActivityPost && !isExplicitMention {
 			debugf("claude-relay: filter skip activity-prefix %s (no explicit mention)\n", msg.Nick)
 			continue
@@ -1133,12 +1195,13 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 			debugf("claude-relay: filter drop from=%s: no nick mention (nick=%s text=%q)\n", msg.Nick, nick, truncateMsg(msg.Text, 80))
 			continue
 		}
+		if isActivityPost && state != nil && !state.consumeHandoff(msg.Channel, handoffBudget) {
+			debugf("claude-relay: filter drop agent→agent from=%s: handoff budget exhausted on %s\n", msg.Nick, msg.Channel)
+			continue
+		}
 		debugf("claude-relay: filter pass from=%s: %s\n", msg.Nick, truncateMsg(msg.Text, 100))
 		filtered = append(filtered, msg)
 	}
-	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].At.Before(filtered[j].At)
-	})
 	return filtered, newest
 }
 
@@ -1173,11 +1236,12 @@ func loadConfig(args []string) (config, error) {
 		IRCAgentType:       getenvOr(fileConfig, "SCUTTLEBOT_IRC_AGENT_TYPE", "worker"),
 		IRCDeleteOnClose:   getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_DELETE_ON_CLOSE", true),
 		IRCTLS:             getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_TLS", false),
-		HooksEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true),
+		RelayEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_RELAY_ENABLED", getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true)),
 		InterruptOnMessage: getenvBoolOr(fileConfig, "SCUTTLEBOT_INTERRUPT_ON_MESSAGE", true),
 		MirrorReasoning:    getenvBoolOr(fileConfig, "SCUTTLEBOT_MIRROR_REASONING", true),
 		PollInterval:       getenvDurationOr(fileConfig, "SCUTTLEBOT_POLL_INTERVAL", defaultPollInterval),
 		HeartbeatInterval:  getenvDurationAllowZeroOr(fileConfig, "SCUTTLEBOT_PRESENCE_HEARTBEAT", defaultHeartbeat),
+		HandoffBudget:      getenvIntOr(fileConfig, "SCUTTLEBOT_HANDOFF_BUDGET", handoffDefault),
 		Args:               append([]string(nil), args...),
 	}
 
@@ -1226,7 +1290,7 @@ func loadConfig(args []string) (config, error) {
 		cfg.Channels = []string{defaultChannel}
 	}
 	if cfg.Transport == sessionrelay.TransportHTTP && cfg.Token == "" {
-		cfg.HooksEnabled = false
+		cfg.RelayEnabled = false
 	}
 	return cfg, nil
 }
@@ -1312,6 +1376,18 @@ func getenvOr(file map[string]string, key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func getenvIntOr(file map[string]string, key string, fallback int) int {
+	value := getenvOr(file, key, "")
+	if value == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 func getenvBoolOr(file map[string]string, key string, fallback bool) bool {
