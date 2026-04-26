@@ -262,8 +262,14 @@ func main() {
 				return
 			}
 			p := policyStore.Get()
+			// Per-channel override wins; otherwise fall back to the global default
+			// orientation message so every joining agent gets context, even on
+			// dynamically-created channels with no specific template.
 			msg, ok := p.OnJoinMessages[channel]
 			if !ok || msg == "" {
+				msg = p.OnJoinDefault
+			}
+			if msg == "" {
 				return
 			}
 			msg = strings.ReplaceAll(msg, "{nick}", nick)
