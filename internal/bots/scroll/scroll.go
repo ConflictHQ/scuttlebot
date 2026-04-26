@@ -22,7 +22,6 @@ import (
 
 	"github.com/lrstanley/girc"
 
-	"github.com/conflicthq/scuttlebot/internal/bots/cmdparse"
 	"github.com/conflicthq/scuttlebot/internal/bots/scribe"
 	"github.com/conflicthq/scuttlebot/pkg/chathistory"
 	"github.com/conflicthq/scuttlebot/pkg/toon"
@@ -96,27 +95,14 @@ func (b *Bot) Start(ctx context.Context) error {
 		b.log.Info("scroll connected", "channels", b.channels, "chathistory", hasCH)
 	})
 
-	router := cmdparse.NewRouter(botNick)
-	router.Register(cmdparse.Command{
-		Name:        "replay",
-		Usage:       "REPLAY [#channel] [count]",
-		Description: "replay recent channel messages",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
-	})
-	router.Register(cmdparse.Command{
-		Name:        "search",
-		Usage:       "SEARCH [#channel] <term>",
-		Description: "search channel history",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
-	})
+	// Note: don't pre-register `replay` / `search` stubs via cmdparse —
+	// that path returned "not implemented yet" before the real DM parser
+	// at b.handle could reach the user. The real implementation lives in
+	// handle() and parses the full grammar (last=N, since=<unix_ms>,
+	// format=toon|json). See #165.
 
 	c.Handlers.AddBg(girc.PRIVMSG, func(client *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
-			return
-		}
-		// Dispatch commands (DMs and channel messages).
-		if reply := router.Dispatch(e.Source.Name, e.Params[0], e.Last()); reply != nil {
-			client.Cmd.Message(reply.Target, reply.Text)
 			return
 		}
 		target := e.Params[0]
