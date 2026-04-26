@@ -460,31 +460,6 @@ func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (
 	}
 }
 
-// dumpSessionDir logs all .jsonl files in dir with their mtimes, flagging any
-// that post-date minTime. Used to diagnose session file discovery failures.
-func dumpSessionDir(dir string, minTime time.Time) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "claude-relay: session dir unreadable: %v\n", dir)
-		return
-	}
-	fmt.Fprintf(os.Stderr, "claude-relay: session dir %s (startedAt=%s):\n", dir, minTime.Format(time.RFC3339))
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		mark := " "
-		if info.ModTime().After(minTime) {
-			mark = ">"
-		}
-		fmt.Fprintf(os.Stderr, "  %s %s  %s\n", mark, info.ModTime().Format("15:04:05"), e.Name())
-	}
-}
-
 // newestSessionFile returns the most recently modified .jsonl file in dir
 // whose modification time is after minTime. Returns "" if none found.
 func newestSessionFile(dir string, minTime time.Time) string {
