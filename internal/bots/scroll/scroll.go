@@ -36,6 +36,7 @@ const (
 
 // Bot is the scroll history-replay bot.
 type Bot struct {
+	nick      string
 	ircAddr   string
 	password  string
 	channels  []string
@@ -46,9 +47,20 @@ type Bot struct {
 	rateLimit sync.Map             // nick → last request time
 }
 
-// New creates a scroll Bot backed by the given scribe Store.
+// New creates a scroll Bot backed by the given scribe Store using the
+// package default nick.
 func New(ircAddr, password string, channels []string, store scribe.Store, log *slog.Logger) *Bot {
+	return NewWithNick(botNick, ircAddr, password, channels, store, log)
+}
+
+// NewWithNick is the nick-aware constructor used by manager.buildBot so the
+// operator's policy nick wins over the package default. See #173.
+func NewWithNick(nick, ircAddr, password string, channels []string, store scribe.Store, log *slog.Logger) *Bot {
+	if nick == "" {
+		nick = botNick
+	}
 	return &Bot{
+		nick:     nick,
 		ircAddr:  ircAddr,
 		password: password,
 		channels: channels,
@@ -58,7 +70,7 @@ func New(ircAddr, password string, channels []string, store scribe.Store, log *s
 }
 
 // Name returns the bot's IRC nick.
-func (b *Bot) Name() string { return botNick }
+func (b *Bot) Name() string { return b.nick }
 
 // Start connects to IRC and begins handling replay requests. Blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
@@ -70,10 +82,10 @@ func (b *Bot) Start(ctx context.Context) error {
 	c := girc.New(girc.Config{
 		Server:      host,
 		Port:        port,
-		Nick:        botNick,
-		User:        botNick,
+		Nick:        b.nick,
+		User:        b.nick,
 		Name:        "scuttlebot scroll",
-		SASL:        &girc.SASLPlain{User: botNick, Pass: b.password},
+		SASL:        &girc.SASLPlain{User: b.nick, Pass: b.password},
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
 		SSL:         false,

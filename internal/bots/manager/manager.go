@@ -335,7 +335,7 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 		// Persistent backing so replay still works when CHATHISTORY isn't
 		// available on the server. Reuses scribe's JSONL FileStore (#166).
 		scrollDir := cfgStr(cfg, "dir", filepath.Join(m.dataDir, "logs", "scroll"))
-		return scroll.New(m.ircAddr, pass, channels, scribe.NewFileStore(scribe.FileStoreConfig{
+		return scroll.NewWithNick(spec.Nick, m.ircAddr, pass, channels, scribe.NewFileStore(scribe.FileStoreConfig{
 			Dir:    scrollDir,
 			Format: "jsonl",
 		}), m.log), nil
@@ -384,7 +384,7 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 		fs := scribe.NewFileStore(scribe.FileStoreConfig{Dir: scribeDir, Format: "jsonl"})
 		history := &scribeHistoryAdapter{store: fs}
 
-		return oracle.New(m.ircAddr, pass, channels, history, provider, m.log), nil
+		return oracle.NewWithNick(spec.Nick, m.ircAddr, pass, channels, history, provider, m.log), nil
 
 	case "sentinel":
 		apiKey := cfgStr(cfg, "api_key", "")
