@@ -140,8 +140,17 @@ func (b *Bot) Start(ctx context.Context) error {
 		cl.Cmd.Mode(cl.GetNick(), "+B")
 		for _, ch := range b.cfg.Channels {
 			cl.Cmd.Join(ch)
+			// Steward enforces via mute (+b) and kick — both require +o.
+			// Self-request OP via ChanServ AMODE so that a freshly-provisioned
+			// channel grants it automatically on every future join. If
+			// ChanServ refuses (e.g. channel not registered, or steward's
+			// account lacks founder access), the AMODE silently fails and the
+			// operator must grant manually — but the attempt makes intent
+			// auditable. See #164.
+			cl.Cmd.Message("ChanServ", fmt.Sprintf("AMODE %s +o %s", ch, b.cfg.Nick))
 		}
 		cl.Cmd.Join(b.cfg.ModChannel)
+		cl.Cmd.Message("ChanServ", fmt.Sprintf("AMODE %s +o %s", b.cfg.ModChannel, b.cfg.Nick))
 		if b.log != nil {
 			b.log.Info("steward connected", "channels", b.cfg.Channels)
 		}

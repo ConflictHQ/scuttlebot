@@ -276,11 +276,23 @@ func (b *Bot) Start(ctx context.Context) error {
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {
 		cl.Cmd.Mode(cl.GetNick(), "+B")
+		// Warden enforces via mute (+b nick!*@*) and kick — both require +o.
+		// Self-request OP via ChanServ AMODE so a freshly-provisioned channel
+		// grants it on every future join. If ChanServ refuses (e.g. channel
+		// not registered) the AMODE silently fails and the operator must
+		// grant manually. See #164.
+		joined := make(map[string]struct{})
 		for _, ch := range b.initChannels {
 			cl.Cmd.Join(ch)
+			joined[ch] = struct{}{}
+			cl.Cmd.Message("ChanServ", fmt.Sprintf("AMODE %s +o %s", ch, botNick))
 		}
 		for ch := range b.channelConfigs {
+			if _, dup := joined[ch]; dup {
+				continue
+			}
 			cl.Cmd.Join(ch)
+			cl.Cmd.Message("ChanServ", fmt.Sprintf("AMODE %s +o %s", ch, botNick))
 		}
 		if b.log != nil {
 			b.log.Info("warden connected", "channels", b.initChannels)
