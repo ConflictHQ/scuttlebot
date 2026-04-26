@@ -21,20 +21,20 @@ type ircPasswdSetter interface {
 
 // Server is the scuttlebot HTTP API server.
 type Server struct {
-	registry    *registry.Registry
-	apiKeys     *auth.APIKeyStore
-	log         *slog.Logger
-	bridge      chatBridge        // nil if bridge is disabled
-	policies    *PolicyStore      // nil if not configured
-	admins      adminStore        // nil if not configured
-	llmCfg      *config.LLMConfig // nil if no LLM backends configured
-	topoMgr     topologyManager   // nil if topology not configured
-	cfgStore    *ConfigStore      // nil if config write-back not configured
-	ircPasswd   ircPasswdSetter   // nil if not configured
-	loginRL     *loginRateLimiter
-	tlsDomain   string // empty if no TLS
-	noAuthMode  bool   // SCUTTLEBOT_NO_AUTH: UI auto-logs in without credentials
-	showToken   bool   // SCUTTLEBOT_SHOW_TOKEN: UI shows a dev token in the login modal
+	registry   *registry.Registry
+	apiKeys    *auth.APIKeyStore
+	log        *slog.Logger
+	bridge     chatBridge        // nil if bridge is disabled
+	policies   *PolicyStore      // nil if not configured
+	admins     adminStore        // nil if not configured
+	llmCfg     *config.LLMConfig // nil if no LLM backends configured
+	topoMgr    topologyManager   // nil if topology not configured
+	cfgStore   *ConfigStore      // nil if config write-back not configured
+	ircPasswd  ircPasswdSetter   // nil if not configured
+	loginRL    *loginRateLimiter
+	tlsDomain  string // empty if no TLS
+	noAuthMode bool   // SCUTTLEBOT_NO_AUTH: UI auto-logs in without credentials
+	showToken  bool   // SCUTTLEBOT_SHOW_TOKEN: UI shows a dev token in the login modal
 }
 
 // New creates a new API Server. Pass nil for b to disable the chat bridge.
