@@ -497,3 +497,24 @@ func (s *Server) handlePatchPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, s.policies.Get())
 }
+
+// RelayConfig is the slice of policy a relay binary needs at runtime to
+// honour daemon-side admin-UI settings without env churn. Returned by
+// GET /v1/relay/config.
+type RelayConfig struct {
+	// ChannelResolutions: channel name (with or without leading #) →
+	// "minimal" | "actions" | "full" | "debug". Relays apply via
+	// FilteredConnector.SetResolution.
+	ChannelResolutions map[string]string `json:"channel_resolutions"`
+	// HandoffBudget — initial agent→agent hop budget per channel. 0 means
+	// "use the relay's compiled-in default" (4).
+	HandoffBudget int `json:"handoff_budget,omitempty"`
+}
+
+func (s *Server) handleGetRelayConfig(w http.ResponseWriter, r *http.Request) {
+	p := s.policies.Get()
+	cfg := RelayConfig{
+		ChannelResolutions: p.ChannelResolutions,
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
