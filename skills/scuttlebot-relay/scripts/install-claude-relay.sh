@@ -17,8 +17,12 @@ Options:
   --irc-addr ADDR          Set SCUTTLEBOT_IRC_ADDR. Default: 127.0.0.1:6667.
   --irc-pass PASS          Write SCUTTLEBOT_IRC_PASS for fixed-identity IRC mode.
   --auto-register          Remove SCUTTLEBOT_IRC_PASS so IRC mode auto-registers session nicks. Default.
-  --enabled                Write SCUTTLEBOT_HOOKS_ENABLED=1. Default.
-  --disabled               Write SCUTTLEBOT_HOOKS_ENABLED=0.
+  --enabled                Write SCUTTLEBOT_RELAY_ENABLED=1. Default.
+  --disabled               Write SCUTTLEBOT_RELAY_ENABLED=0.
+  --with-hooks             Also install Claude Code hooks (scuttlebot-check/post)
+                           and wire them into settings.json. Off by default — the relay
+                           handles this via session-file tailing.
+  --without-hooks          Force-disable hook install (default; kept for clarity).
   --config-file PATH       Shared env file path. Default: ~/.config/scuttlebot-relay.env
   --hooks-dir PATH         Claude hooks install dir. Default: ~/.claude/hooks
   --settings-json PATH     Claude settings JSON. Default: ~/.claude/settings.json
@@ -70,7 +74,8 @@ else
   SCUTTLEBOT_IRC_PASS_VALUE=""
 fi
 SCUTTLEBOT_IRC_DELETE_ON_CLOSE_VALUE="${SCUTTLEBOT_IRC_DELETE_ON_CLOSE:-1}"
-SCUTTLEBOT_HOOKS_ENABLED_VALUE="${SCUTTLEBOT_HOOKS_ENABLED:-1}"
+SCUTTLEBOT_RELAY_ENABLED_VALUE="${SCUTTLEBOT_RELAY_ENABLED:-${SCUTTLEBOT_HOOKS_ENABLED:-1}}"
+WITH_HOOKS="${WITH_HOOKS:-0}"
 SCUTTLEBOT_INTERRUPT_ON_MESSAGE_VALUE="${SCUTTLEBOT_INTERRUPT_ON_MESSAGE:-1}"
 SCUTTLEBOT_POLL_INTERVAL_VALUE="${SCUTTLEBOT_POLL_INTERVAL:-2s}"
 SCUTTLEBOT_PRESENCE_HEARTBEAT_VALUE="${SCUTTLEBOT_PRESENCE_HEARTBEAT:-60s}"
@@ -117,11 +122,19 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --enabled)
-      SCUTTLEBOT_HOOKS_ENABLED_VALUE=1
+      SCUTTLEBOT_RELAY_ENABLED_VALUE=1
       shift
       ;;
     --disabled)
-      SCUTTLEBOT_HOOKS_ENABLED_VALUE=0
+      SCUTTLEBOT_RELAY_ENABLED_VALUE=0
+      shift
+      ;;
+    --with-hooks)
+      WITH_HOOKS=1
+      shift
+      ;;
+    --without-hooks)
+      WITH_HOOKS=0
       shift
       ;;
     --config-file)
@@ -254,66 +267,70 @@ POST_CMD="$HOOKS_DIR/scuttlebot-post.sh"
 CHECK_CMD="$HOOKS_DIR/scuttlebot-check.sh"
 LAUNCHER_DST="$BIN_DIR/claude-relay"
 
-mkdir -p "$HOOKS_DIR" "$BIN_DIR"
-ensure_parent_dir "$SETTINGS_JSON"
+mkdir -p "$BIN_DIR"
 ensure_parent_dir "$CONFIG_FILE"
-
-backup_file "$POST_CMD"
-backup_file "$CHECK_CMD"
+if [ "$WITH_HOOKS" = "1" ]; then
+  mkdir -p "$HOOKS_DIR"
+  ensure_parent_dir "$SETTINGS_JSON"
+  backup_file "$POST_CMD"
+  backup_file "$CHECK_CMD"
+  install -m 0755 "$REPO_ROOT/skills/scuttlebot-relay/hooks/scuttlebot-post.sh" "$POST_CMD"
+  install -m 0755 "$REPO_ROOT/skills/scuttlebot-relay/hooks/scuttlebot-check.sh" "$CHECK_CMD"
+fi
 backup_file "$LAUNCHER_DST"
-install -m 0755 "$REPO_ROOT/skills/scuttlebot-relay/hooks/scuttlebot-post.sh" "$POST_CMD"
-install -m 0755 "$REPO_ROOT/skills/scuttlebot-relay/hooks/scuttlebot-check.sh" "$CHECK_CMD"
 
 printf 'Building claude-relay binary...\n'
 (cd "$REPO_ROOT" && go build -o "$LAUNCHER_DST" ./cmd/claude-relay)
 
-backup_file "$SETTINGS_JSON"
-if [ -f "$SETTINGS_JSON" ]; then
-  jq --arg pre_matcher "Bash|Edit|Write" \
-     --arg pre_cmd "$CHECK_CMD" \
-     --arg post_matcher "Bash|Read|Edit|Write|Glob|Grep|Agent" \
-     --arg post_cmd "$POST_CMD" '
-    def ensure_matcher_entry(section; matcher; cmd):
-      .hooks = (.hooks // {})
-      | .hooks[section] = (.hooks[section] // [])
-      | if any(.hooks[section][]?; .matcher == matcher) then
-          .hooks[section] |= map(
-            if .matcher == matcher then
-              (.hooks = (.hooks // []))
-              | if any(.hooks[]?; .type == "command" and .command == cmd) then . else .hooks += [{"type":"command","command":cmd}] end
-            else
-              .
-            end
-          )
-        else
-          .hooks[section] += [{"matcher":matcher,"hooks":[{"type":"command","command":cmd}]}]
-        end;
-    ensure_matcher_entry("PreToolUse"; $pre_matcher; $pre_cmd)
-    | ensure_matcher_entry("PostToolUse"; $post_matcher; $post_cmd)
-  ' "$SETTINGS_JSON" > "${SETTINGS_JSON}.tmp"
-else
-  jq -n \
-    --arg pre_cmd "$CHECK_CMD" \
-    --arg post_cmd "$POST_CMD" '
-    {
-      hooks: {
-        "PreToolUse": [
-          {
-            matcher: "Bash|Edit|Write",
-            hooks: [{type: "command", command: $pre_cmd}]
-          }
-        ],
-        "PostToolUse": [
-          {
-            matcher: "Bash|Read|Edit|Write|Glob|Grep|Agent",
-            hooks: [{type: "command", command: $post_cmd}]
-          }
-        ]
+if [ "$WITH_HOOKS" = "1" ]; then
+  backup_file "$SETTINGS_JSON"
+  if [ -f "$SETTINGS_JSON" ]; then
+    jq --arg pre_matcher "Bash|Edit|Write" \
+       --arg pre_cmd "$CHECK_CMD" \
+       --arg post_matcher "Bash|Read|Edit|Write|Glob|Grep|Agent" \
+       --arg post_cmd "$POST_CMD" '
+      def ensure_matcher_entry(section; matcher; cmd):
+        .hooks = (.hooks // {})
+        | .hooks[section] = (.hooks[section] // [])
+        | if any(.hooks[section][]?; .matcher == matcher) then
+            .hooks[section] |= map(
+              if .matcher == matcher then
+                (.hooks = (.hooks // []))
+                | if any(.hooks[]?; .type == "command" and .command == cmd) then . else .hooks += [{"type":"command","command":cmd}] end
+              else
+                .
+              end
+            )
+          else
+            .hooks[section] += [{"matcher":matcher,"hooks":[{"type":"command","command":cmd}]}]
+          end;
+      ensure_matcher_entry("PreToolUse"; $pre_matcher; $pre_cmd)
+      | ensure_matcher_entry("PostToolUse"; $post_matcher; $post_cmd)
+    ' "$SETTINGS_JSON" > "${SETTINGS_JSON}.tmp"
+  else
+    jq -n \
+      --arg pre_cmd "$CHECK_CMD" \
+      --arg post_cmd "$POST_CMD" '
+      {
+        hooks: {
+          "PreToolUse": [
+            {
+              matcher: "Bash|Edit|Write",
+              hooks: [{type: "command", command: $pre_cmd}]
+            }
+          ],
+          "PostToolUse": [
+            {
+              matcher: "Bash|Read|Edit|Write|Glob|Grep|Agent",
+              hooks: [{type: "command", command: $post_cmd}]
+            }
+          ]
+        }
       }
-    }
-  ' > "${SETTINGS_JSON}.tmp"
+    ' > "${SETTINGS_JSON}.tmp"
+  fi
+  mv "${SETTINGS_JSON}.tmp" "$SETTINGS_JSON"
 fi
-mv "${SETTINGS_JSON}.tmp" "$SETTINGS_JSON"
 
 backup_file "$CONFIG_FILE"
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -339,14 +356,19 @@ else
   remove_env_var "$CONFIG_FILE" SCUTTLEBOT_IRC_PASS
 fi
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_IRC_DELETE_ON_CLOSE "$SCUTTLEBOT_IRC_DELETE_ON_CLOSE_VALUE"
-upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_HOOKS_ENABLED "$SCUTTLEBOT_HOOKS_ENABLED_VALUE"
+upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_RELAY_ENABLED "$SCUTTLEBOT_RELAY_ENABLED_VALUE"
+remove_env_var "$CONFIG_FILE" SCUTTLEBOT_HOOKS_ENABLED
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_INTERRUPT_ON_MESSAGE "$SCUTTLEBOT_INTERRUPT_ON_MESSAGE_VALUE"
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_POLL_INTERVAL "$SCUTTLEBOT_POLL_INTERVAL_VALUE"
 upsert_env_var "$CONFIG_FILE" SCUTTLEBOT_PRESENCE_HEARTBEAT "$SCUTTLEBOT_PRESENCE_HEARTBEAT_VALUE"
 
 printf 'Installed Claude relay files:\n'
-printf '  hooks:      %s\n' "$HOOKS_DIR"
-printf '  settings:   %s\n' "$SETTINGS_JSON"
+if [ "$WITH_HOOKS" = "1" ]; then
+  printf '  hooks:      %s\n' "$HOOKS_DIR"
+  printf '  settings:   %s\n' "$SETTINGS_JSON"
+else
+  printf '  hooks:      (skipped — pass --with-hooks to install Claude Code hooks)\n'
+fi
 printf '  launcher:   %s\n' "$LAUNCHER_DST"
 printf '  env:        %s\n' "$CONFIG_FILE"
 printf '  irc auth:   %s\n' "$([ "$SCUTTLEBOT_IRC_PASS_MODE" = "fixed" ] && printf 'fixed-pass override' || printf 'auto-register')"
@@ -357,4 +379,4 @@ printf '  2. Watch IRC for: claude-{repo}-{session}\n'
 printf '  3. Mention that nick to interrupt before the next action\n'
 printf '\n'
 printf 'Disable without uninstalling:\n'
-printf '  SCUTTLEBOT_HOOKS_ENABLED=0 %s\n' "$LAUNCHER_DST"
+printf '  SCUTTLEBOT_RELAY_ENABLED=0 %s\n' "$LAUNCHER_DST"

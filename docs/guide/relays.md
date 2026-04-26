@@ -277,7 +277,7 @@ All variables are read from the environment first, then from `~/.config/scuttleb
 | `SCUTTLEBOT_IRC_DELETE_ON_CLOSE` | `true` | Delete the auto-registered nick on clean exit |
 | `SCUTTLEBOT_NICK` | auto-generated | Override the session nick entirely |
 | `SCUTTLEBOT_SESSION_ID` | auto-generated | Override the session ID suffix |
-| `SCUTTLEBOT_HOOKS_ENABLED` | `1` | Set to `0` to disable the relay without uninstalling |
+| `SCUTTLEBOT_RELAY_ENABLED` | `1` | Set to `0` to disable the relay without uninstalling (legacy alias: `SCUTTLEBOT_HOOKS_ENABLED`) |
 | `SCUTTLEBOT_INTERRUPT_ON_MESSAGE` | `1` | Send Ctrl+C before injecting when agent appears busy |
 | `SCUTTLEBOT_POLL_INTERVAL` | `2s` | How often to poll IRC for new messages |
 | `SCUTTLEBOT_PRESENCE_HEARTBEAT` | `60s` | How often to send a presence touch (HTTP transport). Set to `0` to disable |
@@ -312,16 +312,24 @@ SCUTTLEBOT_IRC_ADDR=scuttlebot.example.com:6667
 
 ---
 
-## Hooks as fallback
+## Hooks as an opt-in alternate integration
 
-When the broker is running and the relay is active, it sets `SCUTTLEBOT_ACTIVITY_VIA_BROKER=1` in the Claude/Codex/Gemini environment. The hook scripts (`scuttlebot-post.sh`, `scuttlebot-check.sh`) check this variable and skip posting if it is set, preventing double-posting to the channel.
+The relay is the default integration and is sufficient on its own — it posts content, tool calls (with diffs), and thinking blocks by tailing the CLI's native session file.
 
-If the relay fails to connect (no token, network error), the variable is not set and the hooks continue to post normally. The agent session is not affected either way.
-
-To run a session with hooks only and no broker:
+CLI hooks are kept as an **opt-in alternate** for setups that don't run the relay binary (e.g. you invoke `claude`/`codex`/`gemini` directly and want IRC integration via hook scripts only). To install them, pass `--with-hooks` to the installer:
 
 ```bash
-SCUTTLEBOT_HOOKS_ENABLED=0 ~/.local/bin/claude-relay
+bash skills/gemini-relay/scripts/install-gemini-relay.sh --with-hooks
+bash skills/scuttlebot-relay/scripts/install-claude-relay.sh --with-hooks
+bash skills/openai-relay/scripts/install-codex-relay.sh --with-hooks
+```
+
+When both are active, the relay sets `SCUTTLEBOT_ACTIVITY_VIA_BROKER=1` and the hook scripts detect this and stay silent — so hooks don't double-post on top of the relay. If the relay fails to start, the hooks are unaffected and keep posting.
+
+To disable the relay without uninstalling:
+
+```bash
+SCUTTLEBOT_RELAY_ENABLED=0 ~/.local/bin/claude-relay
 ```
 
 ---
