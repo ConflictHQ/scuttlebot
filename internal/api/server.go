@@ -19,6 +19,15 @@ type ircPasswdSetter interface {
 	ChangePassword(name, passphrase string) error
 }
 
+// channelChangeNotifier is the slice of bot-manager API the HTTP server uses
+// to fan out runtime channel topology changes (provision / drop) to running
+// bots that have JoinAllChannels=true. nil means no fan-out — bots will pick
+// up the change on their next restart.
+type channelChangeNotifier interface {
+	NotifyChannelProvisioned(channel string)
+	NotifyChannelDropped(channel string)
+}
+
 // Server is the scuttlebot HTTP API server.
 type Server struct {
 	registry   *registry.Registry
@@ -31,10 +40,18 @@ type Server struct {
 	topoMgr    topologyManager   // nil if topology not configured
 	cfgStore   *ConfigStore      // nil if config write-back not configured
 	ircPasswd  ircPasswdSetter   // nil if not configured
+	botMgr     channelChangeNotifier
 	loginRL    *loginRateLimiter
 	tlsDomain  string // empty if no TLS
 	noAuthMode bool   // SCUTTLEBOT_NO_AUTH: UI auto-logs in without credentials
 	showToken  bool   // SCUTTLEBOT_SHOW_TOKEN: UI shows a dev token in the login modal
+}
+
+// SetBotManager wires the bot manager so channel-provision/drop endpoints
+// can fan out to running bots. Optional — when nil, bots only catch up on
+// restart.
+func (s *Server) SetBotManager(m channelChangeNotifier) {
+	s.botMgr = m
 }
 
 // New creates a new API Server. Pass nil for b to disable the chat bridge.

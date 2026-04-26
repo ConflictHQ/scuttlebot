@@ -84,6 +84,14 @@ func (s *Server) handleProvisionChannel(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Tell running bots with JoinAllChannels=true to join now (#162).
+	// Without this, scribe / herald / oracle / warden / scroll / systembot /
+	// snitch / sentinel / steward / shepherd never see channels created
+	// after their startup until something else triggers a manager Sync.
+	if s.botMgr != nil {
+		s.botMgr.NotifyChannelProvisioned(req.Name)
+	}
+
 	// Save instructions to policies if provided.
 	if req.Instructions != "" && s.policies != nil {
 		p := s.policies.Get()
@@ -144,6 +152,9 @@ func (s *Server) handleDropChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.topoMgr.DropChannel(channel)
+	if s.botMgr != nil {
+		s.botMgr.NotifyChannelDropped(channel)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -74,6 +74,28 @@ type bot interface {
 	Start(ctx context.Context) error
 }
 
+// channelJoiner is implemented by bots that can join an additional channel
+// at runtime without a restart. Used by Manager.NotifyChannelProvisioned.
+// Bots that don't satisfy this interface will pick up the new channel on
+// their next restart (they re-resolve via ChannelLister at Start).
+type channelJoiner interface {
+	JoinChannel(channel string)
+}
+
+// channelLeaver is implemented by bots that can leave a channel at runtime.
+type channelLeaver interface {
+	LeaveChannel(channel string)
+}
+
+// runningBot tracks a live bot instance so the manager can fan out runtime
+// channel changes to it without a restart when the bot supports the
+// channelJoiner / channelLeaver interfaces.
+type runningBot struct {
+	cancel context.CancelFunc
+	bot    bot
+	spec   BotSpec
+}
+
 // Manager starts and stops bots based on BotSpec slices.
 type Manager struct {
 	ircAddr   string
@@ -82,7 +104,7 @@ type Manager struct {
 	channels  ChannelLister
 	log       *slog.Logger
 	passwords map[string]string // nick → password, persisted
-	running   map[string]context.CancelFunc
+	running   map[string]runningBot
 }
 
 // New creates a Manager.
@@ -94,7 +116,7 @@ func New(ircAddr, dataDir string, prov Provisioner, channels ChannelLister, log 
 		channels:  channels,
 		log:       log,
 		passwords: make(map[string]string),
-		running:   make(map[string]context.CancelFunc),
+		running:   make(map[string]runningBot),
 	}
 	_ = m.loadPasswords()
 	return m
@@ -117,11 +139,11 @@ func (m *Manager) Sync(ctx context.Context, specs []BotSpec) {
 	}
 
 	// Stop bots that are running but should be disabled.
-	for nick, cancel := range m.running {
+	for nick, rb := range m.running {
 		spec, ok := desired[nick]
 		if !ok || !spec.Enabled {
 			m.log.Info("manager: stopping bot", "nick", nick)
-			cancel()
+			rb.cancel()
 			delete(m.running, nick)
 		}
 	}
@@ -161,7 +183,7 @@ func (m *Manager) Sync(ctx context.Context, specs []BotSpec) {
 		}
 
 		botCtx, cancel := context.WithCancel(ctx)
-		m.running[spec.Nick] = cancel
+		m.running[spec.Nick] = runningBot{cancel: cancel, bot: b, spec: spec}
 
 		go func(nick string, b bot, ctx context.Context) {
 			backoff := 5 * time.Second
@@ -186,6 +208,49 @@ func (m *Manager) Sync(ctx context.Context, specs []BotSpec) {
 				}
 			}
 		}(spec.Nick, b, botCtx)
+	}
+}
+
+// NotifyChannelProvisioned tells the manager that a new channel has been
+// provisioned at runtime. Every running bot with JoinAllChannels=true that
+// implements channelJoiner is told to join immediately. Bots without the
+// interface will pick up the channel on their next restart (they re-resolve
+// via ChannelLister at Start). See #162.
+func (m *Manager) NotifyChannelProvisioned(channel string) {
+	if channel == "" {
+		return
+	}
+	if !strings.HasPrefix(channel, "#") {
+		channel = "#" + channel
+	}
+	for nick, rb := range m.running {
+		if !rb.spec.JoinAllChannels {
+			continue
+		}
+		if joiner, ok := rb.bot.(channelJoiner); ok {
+			m.log.Info("manager: bot joining new channel", "nick", nick, "channel", channel)
+			joiner.JoinChannel(channel)
+		}
+	}
+}
+
+// NotifyChannelDropped tells the manager that a channel was dropped at
+// runtime. Mirror of NotifyChannelProvisioned.
+func (m *Manager) NotifyChannelDropped(channel string) {
+	if channel == "" {
+		return
+	}
+	if !strings.HasPrefix(channel, "#") {
+		channel = "#" + channel
+	}
+	for nick, rb := range m.running {
+		if !rb.spec.JoinAllChannels {
+			continue
+		}
+		if leaver, ok := rb.bot.(channelLeaver); ok {
+			m.log.Info("manager: bot leaving dropped channel", "nick", nick, "channel", channel)
+			leaver.LeaveChannel(channel)
+		}
 	}
 }
 
@@ -352,17 +417,17 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 
 	case "steward":
 		return steward.New(steward.Config{
-			IRCAddr:         m.ircAddr,
-			Nick:            spec.Nick,
-			Password:        pass,
-			ModChannel:      cfgStr(cfg, "mod_channel", "#moderation"),
-			OperatorNicks:   splitCSV(cfgStr(cfg, "operator_nicks", "")),
-			DMOnAction:      cfgBool(cfg, "dm_on_action", false),
-			AutoAct:         cfgBool(cfg, "auto_act", true),
+			IRCAddr:            m.ircAddr,
+			Nick:               spec.Nick,
+			Password:           pass,
+			ModChannel:         cfgStr(cfg, "mod_channel", "#moderation"),
+			OperatorNicks:      splitCSV(cfgStr(cfg, "operator_nicks", "")),
+			DMOnAction:         cfgBool(cfg, "dm_on_action", false),
+			AutoAct:            cfgBool(cfg, "auto_act", true),
 			MuteDuration:       time.Duration(cfgInt(cfg, "mute_duration_sec", 600)) * time.Second,
 			SilenceLowWarnings: cfgBool(cfg, "silence_low_warnings", false),
 			CooldownPerNick:    time.Duration(cfgInt(cfg, "cooldown_sec", 300)) * time.Second,
-			Channels:        channels,
+			Channels:           channels,
 		}, m.log), nil
 
 	case "shepherd":
