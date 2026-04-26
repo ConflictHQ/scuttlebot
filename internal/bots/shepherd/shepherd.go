@@ -213,6 +213,24 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	// Request +v on every channel we join — including ones added at runtime
+	// via INVITE/manager fan-out — not just the static initial set. Without
+	// this hook, shepherd was muted on any channel provisioned after its
+	// startup (#172).
+	c.Handlers.AddBg(girc.JOIN, func(cl *girc.Client, e girc.Event) {
+		if e.Source == nil || e.Source.Name != cl.GetNick() {
+			return
+		}
+		if len(e.Params) < 1 {
+			return
+		}
+		ch := e.Params[0]
+		if !strings.HasPrefix(ch, "#") {
+			return
+		}
+		cl.Cmd.Message("ChanServ", "VOICE "+ch)
+	})
+
 	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
 		if len(e.Params) < 1 || e.Source == nil {
 			return
