@@ -84,11 +84,71 @@ func SnapshotDir(dir string) map[string]bool {
 }
 
 // GeminiMessage is a message from a Gemini CLI session file.
+//
+// Content is polymorphic in the on-disk format: a string for gemini/info
+// messages, and an array of {text: "..."} parts for user messages. We
+// decode both shapes via UnmarshalJSON into a single string field.
 type GeminiMessage struct {
-	Type      string           `json:"type"` // "user", "gemini"
-	Content   string           `json:"content,omitempty"`
+	Type      string           `json:"type"` // "user", "gemini", "info"
+	Content   string           `json:"-"`
 	Thoughts  []GeminiThought  `json:"thoughts,omitempty"`
 	ToolCalls []GeminiToolCall `json:"toolCalls,omitempty"`
+}
+
+// geminiMessageRaw mirrors GeminiMessage but leaves Content as a raw
+// JSON message for manual decoding.
+type geminiMessageRaw struct {
+	Type      string           `json:"type"`
+	Content   json.RawMessage  `json:"content,omitempty"`
+	Thoughts  []GeminiThought  `json:"thoughts,omitempty"`
+	ToolCalls []GeminiToolCall `json:"toolCalls,omitempty"`
+}
+
+func (m *GeminiMessage) UnmarshalJSON(data []byte) error {
+	var raw geminiMessageRaw
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	m.Type = raw.Type
+	m.Thoughts = raw.Thoughts
+	m.ToolCalls = raw.ToolCalls
+	m.Content = ""
+	if len(raw.Content) == 0 {
+		return nil
+	}
+	// Try string first.
+	var s string
+	if err := json.Unmarshal(raw.Content, &s); err == nil {
+		m.Content = s
+		return nil
+	}
+	// Fall back to parts array: [{"text": "..."}, ...].
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw.Content, &parts); err == nil {
+		var b strings.Builder
+		for i, p := range parts {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(p.Text)
+		}
+		m.Content = b.String()
+		return nil
+	}
+	// Unknown shape — leave empty rather than error out on one odd message.
+	return nil
+}
+
+func (m GeminiMessage) MarshalJSON() ([]byte, error) {
+	// Marshal as the plain string-content form for tests / compatibility.
+	return json.Marshal(struct {
+		Type      string           `json:"type"`
+		Content   string           `json:"content,omitempty"`
+		Thoughts  []GeminiThought  `json:"thoughts,omitempty"`
+		ToolCalls []GeminiToolCall `json:"toolCalls,omitempty"`
+	}{m.Type, m.Content, m.Thoughts, m.ToolCalls})
 }
 
 // GeminiThought is a thinking/reasoning block in a Gemini session message.
