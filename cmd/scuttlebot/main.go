@@ -424,6 +424,7 @@ func main() {
 		log.Warn("show-token mode enabled (SCUTTLEBOT_SHOW_TOKEN=1) — dev token will be visible in the login UI")
 	}
 	apiSrv := api.New(reg, apiKeyStore, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, ergoMgr.API(), cfg.TLS.Domain, noAuthMode, showToken, log)
+	apiSrv.SetBotManager(botMgr)
 	handler := apiSrv.Handler()
 
 	var httpServer, tlsServer *http.Server
