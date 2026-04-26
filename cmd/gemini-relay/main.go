@@ -144,9 +144,10 @@ type config struct {
 	ChannelStateFile   string
 	SessionID          string
 	Nick               string
-	HooksEnabled       bool
+	RelayEnabled       bool
 	InterruptOnMessage bool
 	MirrorReasoning    bool
+	HandoffBudget      int // initial agent→agent hop budget per channel
 	PollInterval       time.Duration
 	HeartbeatInterval  time.Duration
 	TargetCWD          string
@@ -156,8 +157,49 @@ type config struct {
 type message = sessionrelay.Message
 
 type relayState struct {
-	mu       sync.RWMutex
-	lastBusy time.Time
+	mu            sync.RWMutex
+	lastBusy      time.Time
+	handoffBudget map[string]int // channel → remaining agent→agent hops since last operator intervention
+}
+
+// handoffDefault is the initial budget granted to each channel whenever an
+// operator or bridge user posts. Agent→agent messages decrement it; when it
+// hits 0 further agent→agent traffic is dropped until the next operator
+// intervention. Override via SCUTTLEBOT_HANDOFF_BUDGET env var at startup.
+const handoffDefault = 4
+
+func (s *relayState) resetHandoff(channel string, budget int) {
+	if channel == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.handoffBudget == nil {
+		s.handoffBudget = map[string]int{}
+	}
+	s.handoffBudget[channel] = budget
+	s.mu.Unlock()
+}
+
+// consumeHandoff returns true if there was budget to consume (and decrements).
+// Returns false when the budget is exhausted and the message should be dropped.
+// Channels never seen before receive `initial` as their starting budget.
+func (s *relayState) consumeHandoff(channel string, initial int) bool {
+	if channel == "" {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.handoffBudget == nil {
+		s.handoffBudget = map[string]int{}
+	}
+	if _, seen := s.handoffBudget[channel]; !seen {
+		s.handoffBudget[channel] = initial
+	}
+	if s.handoffBudget[channel] <= 0 {
+		return false
+	}
+	s.handoffBudget[channel]--
+	return true
 }
 
 func main() {
@@ -175,7 +217,7 @@ func main() {
 
 func run(cfg config) error {
 	fmt.Fprintf(os.Stderr, "gemini-relay: nick %s\n", cfg.Nick)
-	relayRequested := cfg.HooksEnabled && shouldRelaySession(cfg.Args)
+	relayRequested := cfg.RelayEnabled && shouldRelaySession(cfg.Args)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -251,7 +293,8 @@ func run(cfg config) error {
 		"SCUTTLEBOT_CHANNEL="+cfg.Channel,
 		"SCUTTLEBOT_CHANNELS="+strings.Join(cfg.Channels, ","),
 		"SCUTTLEBOT_CHANNEL_STATE_FILE="+cfg.ChannelStateFile,
-		"SCUTTLEBOT_HOOKS_ENABLED="+boolString(cfg.HooksEnabled),
+		"SCUTTLEBOT_RELAY_ENABLED="+boolString(cfg.RelayEnabled),
+		"SCUTTLEBOT_HOOKS_ENABLED="+boolString(cfg.RelayEnabled), // deprecated alias
 		"SCUTTLEBOT_SESSION_ID="+cfg.SessionID,
 		"SCUTTLEBOT_NICK="+cfg.Nick,
 	)
@@ -344,7 +387,7 @@ func relayInputLoop(ctx context.Context, relay sessionrelay.Connector, cfg confi
 			if err != nil {
 				continue
 			}
-			batch, newest := filterMessages(messages, lastSeen, cfg.Nick, cfg.IRCAgentType)
+			batch, newest := filterMessagesState(messages, lastSeen, cfg.Nick, cfg.IRCAgentType, state, cfg.HandoffBudget)
 			if len(batch) == 0 {
 				continue
 			}
@@ -615,19 +658,38 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 	_ = os.MkdirAll(chatsDir, 0755)
 	existing := relaymirror.SnapshotDir(chatsDir)
 
-	// Wait for a new session file.
-	watcher := relaymirror.NewSessionWatcher(chatsDir, "session-", 60*time.Second)
-	sessionPath, err := watcher.Discover(ctx, existing)
-	if err != nil {
-		if ctx.Err() == nil {
-			fmt.Fprintf(os.Stderr, "gemini-relay: session discovery in %s: %v\n", chatsDir, err)
+	// When resuming into an existing session (gemini --resume <uuid>), the CLI
+	// appends to the matching session file rather than creating a new one. The
+	// watcher would never see a "new" file and would time out. Detect resume
+	// and use the existing file directly, seeding msgIdx past the prior history.
+	var sessionPath string
+	startIdx := 0
+	if resumeUUID := extractResumeUUID(cfg.Args); resumeUUID != "" {
+		if path := findSessionByUUID(chatsDir, resumeUUID); path != "" {
+			sessionPath = path
+			if _, idx, err := relaymirror.PollGeminiSession(path, 0); err == nil {
+				startIdx = idx
+			}
+			fmt.Fprintf(os.Stderr, "gemini-relay: resuming into %s (skipping %d prior messages)\n", sessionPath, startIdx)
 		}
-		return
 	}
-	fmt.Fprintf(os.Stderr, "gemini-relay: session file discovered: %s\n", sessionPath)
+
+	// Fresh-session path: wait for a new file to appear.
+	if sessionPath == "" {
+		watcher := relaymirror.NewSessionWatcher(chatsDir, "session-", 60*time.Second)
+		p, err := watcher.Discover(ctx, existing)
+		if err != nil {
+			if ctx.Err() == nil {
+				fmt.Fprintf(os.Stderr, "gemini-relay: session discovery in %s: %v\n", chatsDir, err)
+			}
+			return
+		}
+		sessionPath = p
+		fmt.Fprintf(os.Stderr, "gemini-relay: session file discovered: %s\n", sessionPath)
+	}
 
 	// Poll the session file for new messages.
-	msgIdx := 0
+	msgIdx := startIdx
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
@@ -759,6 +821,63 @@ func slugify(s string) string {
 	return s
 }
 
+// extractResumeUUID returns the UUID following --resume/-r in args, or "".
+// Accepts both "--resume UUID" and "--resume=UUID" forms. Returns empty if
+// the next arg is a flag or doesn't look like a UUID.
+func extractResumeUUID(args []string) string {
+	var raw string
+	for i, a := range args {
+		switch {
+		case a == "--resume" || a == "-r":
+			if i+1 < len(args) {
+				raw = strings.TrimSpace(args[i+1])
+			}
+		case strings.HasPrefix(a, "--resume="):
+			raw = strings.TrimSpace(strings.TrimPrefix(a, "--resume="))
+		}
+		if raw != "" {
+			break
+		}
+	}
+	if raw == "" || strings.HasPrefix(raw, "-") {
+		return ""
+	}
+	// Loose UUID check: hex chars + dashes, 32+ hex.
+	hex := strings.ReplaceAll(raw, "-", "")
+	if len(hex) < 8 {
+		return ""
+	}
+	for _, c := range hex {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return ""
+		}
+	}
+	return raw
+}
+
+// findSessionByUUID returns the path of a session file matching the UUID's
+// first 8 hex chars (Gemini's session-<ts>-<short-uuid>.json naming).
+func findSessionByUUID(dir, uuid string) string {
+	short := strings.ReplaceAll(uuid, "-", "")
+	if len(short) < 8 {
+		return ""
+	}
+	suffix := short[:8] + ".json"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), suffix) {
+			return filepath.Join(dir, e.Name())
+		}
+	}
+	return ""
+}
+
 // geminiChatsDirCandidates returns candidate ~/.gemini/tmp/<slug>/chats paths
 // in order of likelihood. Gemini CLI ≥0.36 uses basename(gitRoot); older
 // versions and non-git-repo runs use a full-path slug.
@@ -819,9 +938,20 @@ func splitMirrorText(text string) []string {
 }
 
 func filterMessages(messages []message, since time.Time, nick, agentType string) ([]message, time.Time) {
+	return filterMessagesState(messages, since, nick, agentType, nil, handoffDefault)
+}
+
+// filterMessagesState is the tested path — the package-level filterMessages is a
+// convenience wrapper that skips budget enforcement (nil state) used only by
+// callers that don't care about agent→agent handoff limits.
+func filterMessagesState(messages []message, since time.Time, nick, agentType string, state *relayState, handoffBudget int) ([]message, time.Time) {
 	filtered := make([]message, 0, len(messages))
 	newest := since
-	for _, msg := range messages {
+	// Process in time order so operator interventions reset the budget before
+	// any later agent→agent messages in the same batch try to consume it.
+	ordered := append([]message(nil), messages...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].At.Before(ordered[j].At) })
+	for _, msg := range ordered {
 		if msg.At.IsZero() || !msg.At.After(since) {
 			continue
 		}
@@ -839,9 +969,16 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 		isActivityPost := ircagent.HasAnyPrefix(msg.Nick, ircagent.DefaultActivityPrefixes())
 		isExplicitMention := ircagent.MentionsNick(msg.Text, nick)
 		isGroupMention := ircagent.MatchesGroupMention(msg.Text, nick, agentType)
-		// Agent→agent chatter is ignored by default; let explicit by-nick
-		// mentions through so operator-directed handoffs work. Warden handles
-		// runaway loop detection.
+		// Non-activity senders are operators (or the bridge web UI): they
+		// reset the per-channel handoff budget for subsequent agent→agent
+		// messages within this batch.
+		if !isActivityPost && state != nil {
+			state.resetHandoff(msg.Channel, handoffBudget)
+		}
+		// Another agent's activity is ignored by default to prevent agent→agent
+		// chatter loops, but let explicit by-nick mentions through and enforce
+		// a per-channel handoff budget: each operator message grants N hops,
+		// each accepted agent→agent message consumes one.
 		if isActivityPost && !isExplicitMention {
 			debugf("gemini-relay: filter skip activity-prefix %s (no explicit mention)\n", msg.Nick)
 			continue
@@ -850,12 +987,13 @@ func filterMessages(messages []message, since time.Time, nick, agentType string)
 			debugf("gemini-relay: filter drop from=%s: no nick mention (nick=%s text=%q)\n", msg.Nick, nick, truncateMsg(msg.Text, 80))
 			continue
 		}
+		if isActivityPost && state != nil && !state.consumeHandoff(msg.Channel, handoffBudget) {
+			debugf("gemini-relay: filter drop agent→agent from=%s: handoff budget exhausted on %s\n", msg.Nick, msg.Channel)
+			continue
+		}
 		debugf("gemini-relay: filter pass from=%s: %s\n", msg.Nick, truncateMsg(msg.Text, 100))
 		filtered = append(filtered, msg)
 	}
-	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].At.Before(filtered[j].At)
-	})
 	return filtered, newest
 }
 
@@ -888,9 +1026,10 @@ func loadConfig(args []string) (config, error) {
 		IRCAgentType:       getenvOr(fileConfig, "SCUTTLEBOT_IRC_AGENT_TYPE", "worker"),
 		IRCDeleteOnClose:   getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_DELETE_ON_CLOSE", true),
 		IRCTLS:             getenvBoolOr(fileConfig, "SCUTTLEBOT_IRC_TLS", false),
-		HooksEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true),
+		RelayEnabled:       getenvBoolOr(fileConfig, "SCUTTLEBOT_RELAY_ENABLED", getenvBoolOr(fileConfig, "SCUTTLEBOT_HOOKS_ENABLED", true)),
 		InterruptOnMessage: getenvBoolOr(fileConfig, "SCUTTLEBOT_INTERRUPT_ON_MESSAGE", true),
 		MirrorReasoning:    getenvBoolOr(fileConfig, "SCUTTLEBOT_MIRROR_REASONING", true),
+		HandoffBudget:      getenvIntOr(fileConfig, "SCUTTLEBOT_HANDOFF_BUDGET", handoffDefault),
 		PollInterval:       getenvDurationOr(fileConfig, "SCUTTLEBOT_POLL_INTERVAL", defaultPollInterval),
 		HeartbeatInterval:  getenvDurationAllowZeroOr(fileConfig, "SCUTTLEBOT_PRESENCE_HEARTBEAT", defaultHeartbeat),
 		Args:               append([]string(nil), args...),
@@ -943,7 +1082,7 @@ func loadConfig(args []string) (config, error) {
 		cfg.Channels = []string{defaultChannel}
 	}
 	if cfg.Transport == sessionrelay.TransportHTTP && cfg.Token == "" {
-		cfg.HooksEnabled = false
+		cfg.RelayEnabled = false
 	}
 	return cfg, nil
 }
@@ -1042,6 +1181,18 @@ func getenvBoolOr(file map[string]string, key string, fallback bool) bool {
 	default:
 		return true
 	}
+}
+
+func getenvIntOr(file map[string]string, key string, fallback int) int {
+	value := getenvOr(file, key, "")
+	if value == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 func getenvDurationOr(file map[string]string, key string, fallback time.Duration) time.Duration {
