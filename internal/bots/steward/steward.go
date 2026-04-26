@@ -60,9 +60,12 @@ type Config struct {
 	// MuteDuration is how long a medium-severity mute lasts. Default: 10m.
 	MuteDuration time.Duration
 
-	// WarnOnLow — send a warning notice for low-severity incidents.
-	// Default: true.
-	WarnOnLow bool
+	// SilenceLowWarnings, when true, suppresses warning notices for
+	// low-severity incidents. Zero value (default) means low-severity
+	// warnings are sent. Inverted from the original WarnOnLow flag because
+	// a bool-with-default-true cannot be turned off via config — the
+	// applyDefaults pass would force it back on. See #163.
+	SilenceLowWarnings bool
 	// DMOnAction, when true, sends a DM to all OperatorNicks when steward takes action.
 	DMOnAction bool
 
@@ -87,9 +90,9 @@ func (c *Config) setDefaults() {
 	if c.CooldownPerNick == 0 {
 		c.CooldownPerNick = 5 * time.Minute
 	}
-	if !c.WarnOnLow {
-		c.WarnOnLow = true
-	}
+	// (No default needed for SilenceLowWarnings — Go's zero value (false)
+	// already means "warn on low", which is the intended default. Operators
+	// who want to suppress low-severity warnings set it to true.)
 }
 
 // Bot is the steward bot.
@@ -254,7 +257,7 @@ func (b *Bot) handleReport(c *girc.Client, text string) {
 		b.warn(c, nick, channel, reason)
 		b.mute(c, nick, channel, b.cfg.MuteDuration)
 	case "low":
-		if b.cfg.WarnOnLow {
+		if !b.cfg.SilenceLowWarnings {
 			b.warn(c, nick, channel, reason)
 		}
 	}

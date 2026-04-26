@@ -351,9 +351,9 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 			OperatorNicks:   splitCSV(cfgStr(cfg, "operator_nicks", "")),
 			DMOnAction:      cfgBool(cfg, "dm_on_action", false),
 			AutoAct:         cfgBool(cfg, "auto_act", true),
-			MuteDuration:    time.Duration(cfgInt(cfg, "mute_duration_sec", 600)) * time.Second,
-			WarnOnLow:       cfgBool(cfg, "warn_on_low", true),
-			CooldownPerNick: time.Duration(cfgInt(cfg, "cooldown_sec", 300)) * time.Second,
+			MuteDuration:       time.Duration(cfgInt(cfg, "mute_duration_sec", 600)) * time.Second,
+			SilenceLowWarnings: cfgBool(cfg, "silence_low_warnings", false),
+			CooldownPerNick:    time.Duration(cfgInt(cfg, "cooldown_sec", 300)) * time.Second,
 			Channels:        channels,
 		}, m.log), nil
 
