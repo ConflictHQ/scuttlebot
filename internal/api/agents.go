@@ -394,13 +394,17 @@ func (s *Server) handleAgentBlocker(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// agentModeLevel maps an agent type to the ChanServ access level it should
-// receive. Returns "" for types that get no special mode.
+// agentModeLevel maps an agent type to the default ChanServ access level it
+// should receive on every assigned channel. Operators (humans) get +o
+// everywhere; agents — including orchestrators — get +v everywhere by default.
+// Orchestrators that need +o on specific channels declare them via
+// EngagementConfig.OpsChannels; setAgentModes grants OP per-channel for that
+// allowlist. Returns "" for types that get no special mode.
 func agentModeLevel(t registry.AgentType) string {
 	switch t {
-	case registry.AgentTypeOperator, registry.AgentTypeOrchestrator:
+	case registry.AgentTypeOperator:
 		return "OP"
-	case registry.AgentTypeWorker:
+	case registry.AgentTypeOrchestrator, registry.AgentTypeWorker:
 		return "VOICE"
 	default:
 		return ""
@@ -408,8 +412,8 @@ func agentModeLevel(t registry.AgentType) string {
 }
 
 // setAgentModes grants the appropriate ChanServ access for an agent on all
-// its assigned channels based on its type. For orchestrators with OpsChannels
-// configured, +o is granted only on those channels and +v on the rest.
+// its assigned channels based on its type. Orchestrators get OP only on the
+// channels listed in OpsChannels; everywhere else they're +v like workers.
 // No-op when topology is not configured or the agent type doesn't warrant a mode.
 func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg registry.EngagementConfig) {
 	if s.topoMgr == nil {
@@ -420,9 +424,10 @@ func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg re
 		return
 	}
 
-	// Orchestrators with explicit OpsChannels get +o only on those channels
-	// and +v on remaining channels.
-	if level == "OP" && len(cfg.OpsChannels) > 0 {
+	// Orchestrators may opt in to +o on a per-channel allowlist via
+	// OpsChannels. Channels outside the allowlist still get the default
+	// +v level so the orchestrator can post under +m moderation.
+	if agentType == registry.AgentTypeOrchestrator && len(cfg.OpsChannels) > 0 {
 		opsSet := make(map[string]struct{}, len(cfg.OpsChannels))
 		for _, ch := range cfg.OpsChannels {
 			opsSet[ch] = struct{}{}

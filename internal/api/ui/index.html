@@ -132,7 +132,10 @@ select option { background:#161b22; }
 #pane-chat { flex-direction:row; overflow:hidden; }
 .chat-sidebar { width:180px; min-width:0; flex-shrink:0; border-right:1px solid #30363d; display:flex; flex-direction:column; background:#161b22; overflow:hidden; transition:width .15s; }
 .chat-sidebar.collapsed { width:28px; }
-.chat-sidebar.collapsed .chan-join,.chat-sidebar.collapsed .chan-list { display:none; }
+.chat-sidebar.collapsed .chan-join,.chat-sidebar.collapsed .chan-list,.chat-sidebar.collapsed .chan-scope { display:none; }
+.chan-scope-btn { font-size:10px; padding:2px 7px; border-radius:8px; background:transparent; border:1px solid #30363d; color:#8b949e; cursor:pointer; flex:1; }
+.chan-scope-btn.active { background:#1f6feb22; border-color:#1f6feb66; color:#58a6ff; }
+.chan-scope-btn:hover:not(.active) { color:#e6edf3; border-color:#58a6ff66; }
 .sidebar-head { padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#8b949e; border-bottom:1px solid #30363d; flex-shrink:0; display:flex; align-items:center; gap:4px; }
 .sidebar-toggle { margin-left:auto; background:none; border:none; color:#8b949e; cursor:pointer; font-size:14px; padding:0 2px; line-height:1; }
 .sidebar-toggle:hover { color:#e6edf3; }
@@ -680,6 +683,10 @@ canvas { display:block; width:100% !important; }
     <div class="chan-join">
       <input type="text" id="join-channel-input" placeholder="#general" autocomplete="off">
       <button class="sm" onclick="joinChannel()">+</button>
+    </div>
+    <div class="chan-scope" style="padding:6px 10px 4px 10px;font-size:10px;color:#8b949e;display:flex;gap:6px;align-items:center">
+      <button class="sm chan-scope-btn active" id="chan-scope-mine" onclick="setChannelScope('mine')" title="show only channels you've selected this session">mine</button>
+      <button class="sm chan-scope-btn"        id="chan-scope-all"  onclick="setChannelScope('all')"  title="show every channel the bridge sees (admin)">all</button>
     </div>
     <div class="chan-list" id="chan-list"></div>
   </div>
@@ -2316,18 +2323,53 @@ function updateROERateLimit(i, field, val) {
 
 // --- chat ---
 let chatChannel = null, chatSSE = null;
+let _allChannels = []; // last full list from /v1/channels
+function getMyChannels() {
+  try { return JSON.parse(localStorage.getItem('sb_my_channels') || '[]'); }
+  catch { return []; }
+}
+function setMyChannels(list) {
+  localStorage.setItem('sb_my_channels', JSON.stringify([...new Set(list)]));
+}
+function addMyChannel(ch) {
+  const set = new Set(getMyChannels());
+  set.add(ch);
+  setMyChannels([...set]);
+}
+function getChannelScope() {
+  return localStorage.getItem('sb_chan_scope') || 'mine';
+}
+function setChannelScope(scope) {
+  localStorage.setItem('sb_chan_scope', scope);
+  document.getElementById('chan-scope-mine').classList.toggle('active', scope === 'mine');
+  document.getElementById('chan-scope-all').classList.toggle('active', scope === 'all');
+  renderChanSidebar(_allChannels);
+}
 
 async function loadChannels() {
   if (!getToken()) return;
   try {
     const data = await api('GET', '/v1/channels');
-    renderChanSidebar(data.channels || []);
+    _allChannels = data.channels || [];
+    renderChanSidebar(_allChannels);
   } catch(e) {}
 }
 function renderChanSidebar(channels) {
   const list = document.getElementById('chan-list');
   list.innerHTML = '';
-  channels.sort().forEach(ch => {
+  const scope = getChannelScope();
+  const mine = new Set(getMyChannels());
+  const visible = scope === 'all'
+    ? channels
+    : channels.filter(ch => mine.has(ch) || ch === chatChannel);
+  // Apply scope-button active state in case sidebar was just opened.
+  document.getElementById('chan-scope-mine')?.classList.toggle('active', scope === 'mine');
+  document.getElementById('chan-scope-all')?.classList.toggle('active', scope === 'all');
+  if (visible.length === 0 && scope === 'mine') {
+    list.innerHTML = '<div class="empty" style="padding:14px 12px;font-size:11px;line-height:1.5">no channels yet — type a name above to join, or click <strong>all</strong> to browse</div>';
+    return;
+  }
+  visible.sort().forEach(ch => {
     const el = document.createElement('div');
     el.className = 'chan-item' + (ch===chatChannel?' active':'');
     el.textContent = ch;
@@ -2342,9 +2384,11 @@ async function joinChannel() {
   const slug = ch.replace(/^#/,'');
   try {
     await api('POST', `/v1/channels/${slug}/join`);
+    addMyChannel(ch);
     document.getElementById('join-channel-input').value = '';
     const data = await api('GET', '/v1/channels');
-    renderChanSidebar(data.channels||[]);
+    _allChannels = data.channels || [];
+    renderChanSidebar(_allChannels);
     selectChannel(ch);
   } catch(e) { alert('Join failed: '+e.message); }
 }
@@ -2353,6 +2397,9 @@ document.getElementById('join-channel-input').addEventListener('keydown', e => {
 async function selectChannel(ch) {
   _lastMsgNick = null; _lastMsgAt = 0; _hideChatBanner(); _chatUnread = 0;
   chatChannel = ch;
+  // Selecting a channel adds it to the operator's "mine" set so it sticks
+  // across reloads regardless of scope toggle.
+  addMyChannel(ch);
   document.getElementById('chat-ch-name').textContent = ch;
   document.getElementById('chat-placeholder').style.display = 'none';
   document.querySelectorAll('.chan-item').forEach(el => el.classList.toggle('active', el.textContent===ch));
@@ -3267,6 +3314,7 @@ function toggleSidebar(side) {
       const collapsed = el.classList.toggle('collapsed');
       btn.textContent = collapsed ? '›' : '‹';
       btn.title = collapsed ? 'expand' : 'collapse';
+      localStorage.setItem('sb_chat_left_collapsed', collapsed ? '1' : '0');
     }
   } else {
     const el = document.getElementById('chat-nicklist');
@@ -3281,9 +3329,36 @@ function toggleSidebar(side) {
       const collapsed = el.classList.toggle('collapsed');
       btn.textContent = collapsed ? '‹' : '›';
       btn.title = collapsed ? 'expand' : 'collapse';
+      localStorage.setItem('sb_chat_right_collapsed', collapsed ? '1' : '0');
     }
   }
 }
+
+// Restore collapse state on load. Default: left sidebar collapsed (operator
+// opens it deliberately when needed) so the chat tab leads with the
+// conversation rather than the channel inventory.
+(function() {
+  const leftEl = document.getElementById('chat-sidebar-left');
+  const leftBtn = document.getElementById('sidebar-left-toggle');
+  if (leftEl && leftBtn && !window.matchMedia('(max-width:600px)').matches) {
+    const saved = localStorage.getItem('sb_chat_left_collapsed');
+    const collapsed = saved === null ? true : saved === '1';
+    leftEl.classList.toggle('collapsed', collapsed);
+    leftBtn.textContent = collapsed ? '›' : '‹';
+    leftBtn.title = collapsed ? 'expand' : 'collapse';
+  }
+  const rightEl = document.getElementById('chat-nicklist');
+  const rightBtn = document.getElementById('sidebar-right-toggle');
+  if (rightEl && rightBtn && !window.matchMedia('(max-width:600px)').matches) {
+    const saved = localStorage.getItem('sb_chat_right_collapsed');
+    if (saved !== null) {
+      const collapsed = saved === '1';
+      rightEl.classList.toggle('collapsed', collapsed);
+      rightBtn.textContent = collapsed ? '‹' : '›';
+      rightBtn.title = collapsed ? 'expand' : 'collapse';
+    }
+  }
+})();
 
 // --- sidebar drag-to-resize ---
 (function() {

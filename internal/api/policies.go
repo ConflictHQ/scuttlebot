@@ -187,10 +187,11 @@ var defaultBehaviors = []BehaviorConfig{
 		JoinAllChannels: true,
 	},
 	{
-		ID:          "shepherd",
-		Name:        "Shepherd",
-		Description: "Goal-directed agent coordinator. Assigns work, tracks progress, checks in on agents, generates plans using LLM. Configurable with any LLM provider.",
-		Nick:        "shepherd",
+		ID:              "shepherd",
+		Name:            "Shepherd",
+		Description:     "Goal-directed agent coordinator. Assigns work, tracks progress, checks in on agents, generates plans using LLM. Configurable with any LLM provider.",
+		Nick:            "shepherd",
+		JoinAllChannels: true,
 	},
 }
 
