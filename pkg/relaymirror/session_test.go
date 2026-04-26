@@ -95,6 +95,25 @@ func TestPollGeminiSessionWithThoughts(t *testing.T) {
 	}
 }
 
+func TestGeminiMessageArrayContent(t *testing.T) {
+	// User-type messages in real Gemini session files have `content` as an
+	// array of {text: "..."} parts rather than a plain string.
+	raw := `{"messages":[{"type":"user","content":[{"text":"hi there"}]},{"type":"gemini","content":"hello back"}]}`
+	var s GeminiSession
+	if err := json.Unmarshal([]byte(raw), &s); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(s.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(s.Messages))
+	}
+	if s.Messages[0].Content != "hi there" {
+		t.Errorf("user content = %q, want %q", s.Messages[0].Content, "hi there")
+	}
+	if s.Messages[1].Content != "hello back" {
+		t.Errorf("gemini content = %q, want %q", s.Messages[1].Content, "hello back")
+	}
+}
+
 func TestGeminiMessageNoThoughts(t *testing.T) {
 	// Verify that messages without thoughts deserialize cleanly.
 	raw := `{"type":"gemini","content":"hello","toolCalls":[{"name":"ls","args":{},"status":"done"}]}`

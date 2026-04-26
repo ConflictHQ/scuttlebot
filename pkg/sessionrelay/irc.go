@@ -53,6 +53,7 @@ type ircConnector struct {
 	messages []Message
 	client   *girc.Client
 	errCh    chan error
+	closed   bool // set by Close; dial() aborts if true
 
 	// keepAliveCtx/keepAliveCancel govern the keepAlive goroutine lifetime.
 	// They are independent of the dial-timeout context passed to Connect() so
@@ -208,7 +209,20 @@ func (c *ircConnector) dial(host string, port int, onJoined func()) {
 		c.appendMessage(Message{At: at, Channel: target, Nick: sender, Text: text, MsgID: msgID})
 	})
 
+	// Bail out if Close raced us. We must not start a new girc goroutine
+	// after Close, or the old TCP socket will outlive the connector and
+	// Ergo will see a duplicate login.
 	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		client.Close()
+		return
+	}
+	// Replace any existing client we're about to shadow — Close() may have
+	// run on a previous client, but a stuck dial could have left one live.
+	if c.client != nil && c.client != client {
+		c.client.Close()
+	}
 	c.client = client
 	c.mu.Unlock()
 
@@ -236,13 +250,18 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 			fmt.Fprintf(os.Stderr, "sessionrelay: connection lost: %v\n", err)
 		}
 
-		// Close the dead client before replacing it.
+		// Close the dead client before replacing it. Send QUIT in case the
+		// socket is still half-alive (server restart with FIN ACK pending)
+		// so Ergo drops the old session and doesn't treat our reconnect as
+		// a nick collision.
 		c.mu.Lock()
-		if c.client != nil {
-			c.client.Close()
-			c.client = nil
-		}
+		old := c.client
+		c.client = nil
 		c.mu.Unlock()
+		if old != nil {
+			_ = old.Cmd.SendRaw("QUIT :session relay reconnecting")
+			old.Close()
+		}
 
 		select {
 		case <-ctx.Done():
@@ -514,11 +533,17 @@ func (c *ircConnector) ControlChannel() string {
 func (c *ircConnector) Close(ctx context.Context) error {
 	c.keepAliveCancel()
 	c.mu.Lock()
-	if c.client != nil {
-		c.client.Close()
-		c.client = nil
-	}
+	c.closed = true
+	client := c.client
+	c.client = nil
 	c.mu.Unlock()
+	if client != nil {
+		// Send QUIT so Ergo releases the nick immediately. If we just
+		// Close() the socket, the server may keep the old session alive
+		// until ping timeout and reject our reconnect with a `_` suffix.
+		_ = client.Cmd.SendRaw("QUIT :session relay shutting down")
+		client.Close()
+	}
 	return c.cleanupRegistration(ctx)
 }
 
