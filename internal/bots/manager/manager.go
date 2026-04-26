@@ -265,10 +265,18 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 		}, m.log), nil
 
 	case "scroll":
-		return scroll.New(m.ircAddr, pass, channels, &scribe.MemoryStore{}, m.log), nil
+		// Persistent backing so replay still works when CHATHISTORY isn't
+		// available on the server. Reuses scribe's JSONL FileStore (#166).
+		scrollDir := cfgStr(cfg, "dir", filepath.Join(m.dataDir, "logs", "scroll"))
+		return scroll.New(m.ircAddr, pass, channels, scribe.NewFileStore(scribe.FileStoreConfig{
+			Dir:    scrollDir,
+			Format: "jsonl",
+		}), m.log), nil
 
 	case "systembot":
-		return systembot.New(m.ircAddr, pass, channels, &systembot.MemoryStore{}, m.log), nil
+		// Persistent backing so IRC-system events survive bot restart (#167).
+		systemDir := cfgStr(cfg, "dir", filepath.Join(m.dataDir, "logs", "systembot"))
+		return systembot.New(m.ircAddr, pass, channels, systembot.NewFileStore(systemDir), m.log), nil
 
 	case "herald":
 		return herald.New(m.ircAddr, pass, channels, herald.RouteConfig{
