@@ -240,7 +240,9 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 		return scribe.New(m.ircAddr, pass, channels, store, m.log), nil
 
 	case "auditbot":
-		return auditbot.New(m.ircAddr, pass, channels, nil, &auditbot.MemoryStore{}, m.log), nil
+		bot := auditbot.New(m.ircAddr, pass, channels, nil, &auditbot.MemoryStore{}, m.log)
+		bot.SetThrottle(buildAuditThrottle(cfg))
+		return bot, nil
 
 	case "snitch":
 		return snitch.New(snitch.Config{
@@ -514,4 +516,42 @@ func cfgFloat(cfg map[string]any, key string, def float64) float64 {
 		return float64(n)
 	}
 	return def
+}
+
+// buildAuditThrottle assembles the auditbot throttle from a behavior Config
+// map. Recognised keys (all optional):
+//
+//	throttle_window_sec       int   — window size for all presence rules; default 300
+//	throttle_join_max         int   — max user.join events per window; default 60; 0 = uncapped
+//	throttle_part_max         int   — max user.part events per window; default 60; 0 = uncapped
+//	throttle_quit_max         int   — max user.quit events per window; default 60; 0 = uncapped
+//	throttle_nick_max         int   — max user.nick events per window; default 60; 0 = uncapped
+//	throttle_kick_max         int   — max user.kick events per window; default 0 = uncapped
+//
+// Operators who want to disable presence throttling entirely set every
+// throttle_*_max to 0.
+func buildAuditThrottle(cfg map[string]any) auditbot.ThrottleConfig {
+	windowSec := cfgInt(cfg, "throttle_window_sec", 300)
+	if windowSec <= 0 {
+		windowSec = 300
+	}
+	window := time.Duration(windowSec) * time.Second
+
+	rule := func(key string, def int) auditbot.ThrottleRule {
+		max := cfgInt(cfg, key, def)
+		if max < 0 {
+			max = 0
+		}
+		return auditbot.ThrottleRule{Max: max, Window: window}
+	}
+
+	return auditbot.ThrottleConfig{
+		PerType: map[string]auditbot.ThrottleRule{
+			auditbot.EventUserJoin: rule("throttle_join_max", 60),
+			auditbot.EventUserPart: rule("throttle_part_max", 60),
+			auditbot.EventUserQuit: rule("throttle_quit_max", 60),
+			auditbot.EventUserNick: rule("throttle_nick_max", 60),
+			auditbot.EventUserKick: rule("throttle_kick_max", 0),
+		},
+	}
 }
