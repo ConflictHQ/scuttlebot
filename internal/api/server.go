@@ -80,6 +80,11 @@ func (s *Server) Handler() http.Handler {
 		apiMux.HandleFunc("GET /v1/settings/policies", s.requireScope(auth.ScopeRead, s.handleGetPolicies))
 		apiMux.HandleFunc("PUT /v1/settings/policies", s.requireScope(auth.ScopeAdmin, s.handlePutPolicies))
 		apiMux.HandleFunc("PATCH /v1/settings/policies", s.requireScope(auth.ScopeAdmin, s.handlePatchPolicies))
+		// Relay-facing config endpoint: subset of policies that relays need to
+		// honour at runtime (channel resolutions, handoff budget). Read by
+		// each relay binary on connect (and on demand) so admin-UI changes
+		// take effect without env restart.
+		apiMux.HandleFunc("GET /v1/relay/config", s.requireScope(auth.ScopeAgents, s.handleGetRelayConfig))
 	}
 
 	// Agents — agents scope.

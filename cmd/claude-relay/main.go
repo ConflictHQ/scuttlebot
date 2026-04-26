@@ -247,6 +247,12 @@ func run(cfg config) error {
 				}
 
 				filtered = buildFilteredConnector(relay, cfg)
+				// Apply daemon-pushed channel resolutions on top of the env defaults.
+				// Best-effort: an older daemon (no /v1/relay/config) returns 404 and
+				// we keep the env-derived resolutions.
+				if rc, err := sessionrelay.FetchRelayConfig(ctx, cfg.URL, cfg.Token); err == nil {
+					sessionrelay.ApplyChannelResolutions(filtered, rc.ChannelResolutions)
+				}
 				if err := sessionrelay.WriteChannelStateFile(cfg.ChannelStateFile, relay.ControlChannel(), relay.Channels()); err != nil {
 					fmt.Fprintf(os.Stderr, "claude-relay: channel state disabled: %v\n", err)
 				}
