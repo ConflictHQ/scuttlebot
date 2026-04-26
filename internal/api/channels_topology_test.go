@@ -223,7 +223,10 @@ func topoDoJSON(t *testing.T, srv *httptest.Server, tok, method, path string, bo
 	return resp
 }
 
-func TestRegisterGrantsOPForOrchestrator(t *testing.T) {
+// Orchestrators no longer get +o on every assigned channel by default —
+// they get +v like workers, and opt in to +o per-channel via OpsChannels.
+// Operators (humans) keep +o everywhere. See agentModeLevel.
+func TestRegisterGrantsVoiceForOrchestratorByDefault(t *testing.T) {
 	stub := &stubTopologyManager{}
 	srv, tok := newTopoTestServerWithRegistry(t, stub)
 
@@ -241,8 +244,8 @@ func TestRegisterGrantsOPForOrchestrator(t *testing.T) {
 		t.Fatalf("grants: want 2, got %d", len(stub.grants))
 	}
 	for i, want := range []accessCall{
-		{Nick: "orch-1", Channel: "#fleet", Level: "OP"},
-		{Nick: "orch-1", Channel: "#project.foo", Level: "OP"},
+		{Nick: "orch-1", Channel: "#fleet", Level: "VOICE"},
+		{Nick: "orch-1", Channel: "#project.foo", Level: "VOICE"},
 	} {
 		if stub.grants[i] != want {
 			t.Errorf("grant[%d] = %+v, want %+v", i, stub.grants[i], want)
