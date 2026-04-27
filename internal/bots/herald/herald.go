@@ -95,6 +95,7 @@ type Bot struct {
 	limiter  *RateLimiter
 	queue    chan Event
 	log      *slog.Logger
+	mu       sync.RWMutex // guards client (#168)
 	client   *girc.Client
 }
 
@@ -195,7 +196,9 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	b.mu.Lock()
 	b.client = c
+	b.mu.Unlock()
 
 	errCh := make(chan error, 1)
 	go func() {
