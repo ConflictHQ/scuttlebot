@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -27,6 +28,18 @@ func ircDebugf(format string, args ...any) {
 	}
 }
 
+// logf writes a sessionrelay status line to the configured LogWriter, falling
+// back to os.Stderr when none was set. Routed through this helper so a relay
+// attached to a TUI agent can pipe the noise to a log file instead of
+// corrupting the terminal display.
+func (c *ircConnector) logf(format string, args ...any) {
+	w := io.Writer(os.Stderr)
+	if c.logw != nil {
+		w = c.logw
+	}
+	fmt.Fprintf(w, format, args...)
+}
+
 // ircTruncate returns s truncated to at most n bytes with "…" appended if cut.
 func ircTruncate(s string, n int) string {
 	if len(s) <= n {
@@ -47,6 +60,7 @@ type ircConnector struct {
 	deleteOnClose bool
 	envelopeMode  bool
 	tls           bool
+	logw          io.Writer // status-message destination; nil means os.Stderr
 
 	mu       sync.RWMutex
 	channels []string
@@ -83,6 +97,7 @@ func newIRCConnector(cfg Config) (Connector, error) {
 		deleteOnClose:   cfg.IRC.DeleteOnClose,
 		envelopeMode:    cfg.IRC.EnvelopeMode,
 		tls:             cfg.IRC.TLS,
+		logw:            cfg.LogWriter,
 		channels:        normalizeChannels(cfg.Channel, cfg.Channels),
 		messages:        make([]Message, 0, defaultBufferSize),
 		errCh:           make(chan error, 1),
@@ -247,7 +262,7 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 		case <-ctx.Done():
 			return
 		case err := <-c.errCh:
-			fmt.Fprintf(os.Stderr, "sessionrelay: connection lost: %v\n", err)
+			c.logf("sessionrelay: connection lost: %v\n", err)
 		}
 
 		// Close the dead client before replacing it. Send QUIT in case the
@@ -268,13 +283,13 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 			return
 		case <-time.After(wait):
 		}
-		fmt.Fprintf(os.Stderr, "sessionrelay: reconnecting (backoff %v)...\n", wait)
+		c.logf("sessionrelay: reconnecting (backoff %v)...\n", wait)
 
 		// Re-register to get fresh SASL credentials in case the server
 		// restarted and the Ergo database was reset.
 		c.pass = "" // clear stale creds
 		if err := c.ensureCredentials(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "sessionrelay: reconnect credential refresh failed: %v\n", err)
+			c.logf("sessionrelay: reconnect credential refresh failed: %v\n", err)
 			wait = min(wait*2, ircReconnectMax)
 			// Push a synthetic error so the loop retries.
 			go func() {
@@ -285,12 +300,12 @@ func (c *ircConnector) keepAlive(ctx context.Context, host string, port int) {
 			}()
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "sessionrelay: credentials refreshed, dialing...\n")
+		c.logf("sessionrelay: credentials refreshed, dialing...\n")
 
 		wait = min(wait*2, ircReconnectMax)
 		c.dial(host, port, func() {
 			wait = ircReconnectMin
-			fmt.Fprintf(os.Stderr, "sessionrelay: reconnected successfully\n")
+			c.logf("sessionrelay: reconnected successfully\n")
 		})
 	}
 }

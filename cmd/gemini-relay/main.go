@@ -224,6 +224,15 @@ func run(cfg config) error {
 	_ = sessionrelay.RemoveChannelStateFile(cfg.ChannelStateFile)
 	defer func() { _ = sessionrelay.RemoveChannelStateFile(cfg.ChannelStateFile) }()
 
+	// Sessionrelay status messages (connection lost, reconnect backoff, …) go
+	// to a per-relay log file rather than stderr — gemini's TUI repaints on
+	// top of stderr, leaving reconnect chatter as visible artefacts in the
+	// status line.
+	relayLog := openRelayLog(cfg.Nick)
+	if relayLog != nil {
+		defer relayLog.Close()
+	}
+
 	var relay sessionrelay.Connector
 	var filtered *sessionrelay.FilteredConnector
 	relayActive := false
@@ -236,6 +245,7 @@ func run(cfg config) error {
 			Channel:   cfg.Channel,
 			Channels:  cfg.Channels,
 			Nick:      cfg.Nick,
+			LogWriter: relayLog,
 			IRC: sessionrelay.IRCConfig{
 				Addr:          cfg.IRCAddr,
 				Pass:          cfg.IRCPass,
@@ -460,6 +470,7 @@ func handleReconnectSignal(ctx context.Context, relayPtr *sessionrelay.Connector
 				Channel:   cfg.Channel,
 				Channels:  cfg.Channels,
 				Nick:      cfg.Nick,
+				LogWriter: openRelayLog(cfg.Nick),
 				IRC: sessionrelay.IRCConfig{
 					Addr:          cfg.IRCAddr,
 					Pass:          "", // force re-registration
@@ -1459,4 +1470,34 @@ func mergeChannels(existing, extra []string) []string {
 		merged = append(merged, ch)
 	}
 	return merged
+}
+
+// openRelayLog opens a per-relay status log so sessionrelay messages don't
+// pollute the agent's TUI on stderr. Best-effort — returns nil if the file
+// cannot be opened, in which case sessionrelay falls back to stderr.
+func openRelayLog(nick string) *os.File {
+	if nick == "" {
+		nick = "gemini"
+	}
+	path := filepath.Join(os.TempDir(), "scuttlebot-relay-"+sanitizeNickForPath(nick)+".log")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil
+	}
+	return f
+}
+
+// sanitizeNickForPath strips characters that aren't safe in a filename so an
+// arbitrary nick can become a log path.
+func sanitizeNickForPath(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
