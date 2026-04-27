@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/conflicthq/scuttlebot/internal/bots/auditbot"
@@ -103,6 +104,7 @@ type Manager struct {
 	prov      Provisioner
 	channels  ChannelLister
 	log       *slog.Logger
+	mu        sync.Mutex
 	passwords map[string]string // nick → password, persisted
 	running   map[string]runningBot
 }
@@ -185,17 +187,47 @@ func (m *Manager) Sync(ctx context.Context, specs []BotSpec) {
 		botCtx, cancel := context.WithCancel(ctx)
 		m.running[spec.Nick] = runningBot{cancel: cancel, bot: b, spec: spec}
 
-		go func(nick string, b bot, ctx context.Context) {
+		go func(nick string, b bot, ctx context.Context, currentSpec BotSpec) {
 			backoff := 5 * time.Second
 			const maxBackoff = 5 * time.Minute
+			// Track consecutive auth-shaped failures so we can recover from
+			// stale-credentials lock-out instead of looping forever (#174).
+			authFailures := 0
 			for {
 				m.log.Info("manager: starting bot", "nick", nick)
-				if err := b.Start(ctx); ctx.Err() != nil {
+				err := b.Start(ctx)
+				if ctx.Err() != nil {
 					return // context cancelled — intentional shutdown
-				} else if err != nil {
+				}
+				if err != nil {
 					m.log.Error("manager: bot exited with error, restarting", "nick", nick, "err", err, "backoff", backoff)
+					if isAuthFailure(err) {
+						authFailures++
+						if authFailures >= 3 {
+							// Three consecutive auth failures — credentials may
+							// have drifted from what NickServ has on disk.
+							// Rotate the password and rebuild the bot so it
+							// starts with fresh creds. Reset the counter.
+							m.log.Warn("manager: rotating bot credentials after repeated auth failures", "nick", nick, "failures", authFailures)
+							if newPass, perr := m.rotatePassword(nick); perr == nil {
+								if newBot, berr := m.buildBot(currentSpec, newPass, nil); berr == nil && newBot != nil {
+									b = newBot
+									m.mu.Lock()
+									if rb, ok := m.running[nick]; ok {
+										rb.bot = newBot
+										m.running[nick] = rb
+									}
+									m.mu.Unlock()
+								}
+							}
+							authFailures = 0
+						}
+					} else {
+						authFailures = 0 // unrelated error — reset counter
+					}
 				} else {
 					m.log.Info("manager: bot exited cleanly, restarting", "nick", nick, "backoff", backoff)
+					authFailures = 0
 				}
 				select {
 				case <-ctx.Done():
@@ -207,7 +239,7 @@ func (m *Manager) Sync(ctx context.Context, specs []BotSpec) {
 					backoff = maxBackoff
 				}
 			}
-		}(spec.Nick, b, botCtx)
+		}(spec.Nick, b, botCtx, spec)
 	}
 }
 
@@ -266,14 +298,19 @@ func (m *Manager) resolveChannels(spec BotSpec) ([]string, error) {
 }
 
 func (m *Manager) ensurePassword(nick string) (string, error) {
+	m.mu.Lock()
 	if pass, ok := m.passwords[nick]; ok {
+		m.mu.Unlock()
 		return pass, nil
 	}
+	m.mu.Unlock()
 	pass, err := genPassword()
 	if err != nil {
 		return "", err
 	}
+	m.mu.Lock()
 	m.passwords[nick] = pass
+	m.mu.Unlock()
 	if err := m.savePasswords(); err != nil {
 		return "", err
 	}
@@ -288,6 +325,50 @@ func (m *Manager) ensureAccount(nick, pass string) error {
 		return err
 	}
 	return nil
+}
+
+// rotatePassword generates a fresh password, sets it on NickServ via the
+// provisioner, and persists. Used by the bot-restart loop after repeated
+// auth failures suggest the cached credential drifted from server state
+// (#174). Returns the new password.
+func (m *Manager) rotatePassword(nick string) (string, error) {
+	pass, err := genPassword()
+	if err != nil {
+		return "", err
+	}
+	if err := m.prov.ChangePassword(nick, pass); err != nil {
+		return "", fmt.Errorf("manager: rotate password: %w", err)
+	}
+	m.mu.Lock()
+	m.passwords[nick] = pass
+	m.mu.Unlock()
+	if err := m.savePasswords(); err != nil {
+		m.log.Warn("manager: persist rotated password failed", "nick", nick, "err", err)
+	}
+	return pass, nil
+}
+
+// isAuthFailure returns true if err looks like a SASL/account auth problem
+// rather than an ordinary network blip. Heuristic — girc surfaces these
+// errors as plain strings, so we string-match common patterns.
+func isAuthFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "sasl"):
+		return true
+	case strings.Contains(s, "authentication failed"):
+		return true
+	case strings.Contains(s, "invalid password"):
+		return true
+	case strings.Contains(s, "account does not exist"):
+		return true
+	case strings.Contains(s, "nick collision") && strings.Contains(s, "registered"):
+		return true
+	}
+	return false
 }
 
 func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, error) {
