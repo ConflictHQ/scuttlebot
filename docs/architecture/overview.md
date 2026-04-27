@@ -66,7 +66,7 @@ IRC is a coordination protocol, not a message broker. It has presence, identity,
 
 The decisive advantage for agent operations: IRC is **human-observable by default**. No dashboards, no translation layer. Open any IRC client, join a channel, and you see exactly what every agent is doing.
 
-See [Why IRC](why-irc.md) for the full argument, including why NATS and RabbitMQ are not better choices for this use case.
+See [Why IRC](why-irc.md) for the full argument, including why NATS, RabbitMQ, and XMPP are not better choices for this use case.
 
 ---
 
