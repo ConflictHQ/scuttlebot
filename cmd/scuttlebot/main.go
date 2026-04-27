@@ -425,6 +425,10 @@ func main() {
 	}
 	apiSrv := api.New(reg, apiKeyStore, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, ergoMgr.API(), cfg.TLS.Domain, noAuthMode, showToken, log)
 	apiSrv.SetBotManager(botMgr)
+	// Re-apply ChanServ AMODE for every persisted agent under the current
+	// policy so stale +o grants written under older code (e.g. before
+	// orchestrators defaulted to +v) get cleared automatically on restart.
+	apiSrv.ReconcileAgentModes()
 	handler := apiSrv.Handler()
 
 	var httpServer, tlsServer *http.Server

@@ -2444,7 +2444,7 @@ async function loadNicklist(ch) {
     renderNicklist(data.users || [], data.channel_modes || '');
   } catch(e) {}
 }
-const SYSTEM_BOTS = new Set(['bridge','oracle','sentinel','steward','scribe','warden','snitch','herald','scroll','systembot','auditbot']);
+const SYSTEM_BOTS = new Set(['bridge','oracle','sentinel','steward','scribe','warden','snitch','herald','scroll','systembot','auditbot','shepherd']);
 const AGENT_PREFIXES = ['claude-','codex-','gemini-','openclaw-'];
 
 function nickTier(nick) {
