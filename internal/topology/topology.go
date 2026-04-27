@@ -252,6 +252,22 @@ func (m *Manager) DropChannel(channel string) {
 	m.log.Info("dropped channel", "channel", channel)
 }
 
+// SetChannelMode sets a single channel mode flag on a target nick (e.g.
+// "-o nick" to deop). Used by the API to immediately catch up live joined
+// sessions whose AMODE has been downgraded — AMODE alone only takes effect
+// on next join, so an already-joined agent keeps its old mode until it
+// parts and rejoins.
+func (m *Manager) SetChannelMode(channel, mode, target string) {
+	m.mu.Lock()
+	cl := m.client
+	m.mu.Unlock()
+	if cl == nil {
+		return
+	}
+	cl.Cmd.Mode(channel, mode, target)
+	m.log.Info("set channel mode", "channel", channel, "mode", mode, "target", target)
+}
+
 // StartReaper starts a background goroutine that drops ephemeral channels once
 // their TTL has elapsed. The reaper runs until ctx is cancelled.
 // Policy must be set on the Manager for TTL rules to be evaluated.
