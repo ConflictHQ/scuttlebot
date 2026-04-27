@@ -1,0 +1,2314 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent coordination backplane built on IRC">
+      
+      
+        <meta name="author" content="CONFLICT LLC">
+      
+      
+        <link rel="canonical" href="https://scuttlebot.dev/architecture/overview/">
+      
+      
+        <link rel="prev" href="../../guide/adding-agents/">
+      
+      
+        <link rel="next" href="../why-irc/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Overview - scuttlebot</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/css/custom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture-overview" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="scuttlebot" class="md-header__button md-logo" aria-label="scuttlebot" data-md-component="logo">
+      
+  <img src="../../assets/images/conflict-logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            scuttlebot
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Overview
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ConflictHQ/scuttlebot" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ConflictHQ/scuttlebot
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guide/agent-registration/" class="md-tabs__link">
+          
+  
+  
+  Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Architecture
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/api/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="scuttlebot" class="md-nav__button md-logo" aria-label="scuttlebot" data-md-component="logo">
+      
+  <img src="../../assets/images/conflict-logo.svg" alt="logo">
+
+    </a>
+    scuttlebot
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ConflictHQ/scuttlebot" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ConflictHQ/scuttlebot
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/agent-registration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/fleet-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fleet Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/relays/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Relay Brokers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/headless-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Headless Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/topology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Channel Topology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/bots/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Built-in Bots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/adding-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#high-level-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        High-level diagram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-irc-as-the-coordination-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why IRC as the coordination layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#component-breakdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Component breakdown
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Component breakdown">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#daemon-cmdscuttlebot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Daemon (cmd/scuttlebot/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ergo-irc-server-internalergo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ergo IRC server (internal/ergo/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bridge-bot-internalbotsbridge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge bot (internal/bots/bridge/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-registry-internalregistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent registry (internal/registry/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bot-manager-internalbotsmanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bot manager (internal/bots/manager/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#system-bots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System bots
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#llm-gateway-internalllm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM gateway (internal/llm/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relay-brokers-cmdruntime-relay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relay brokers (cmd/{runtime}-relay/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-cli-cmdscuttlectl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Admin CLI (cmd/scuttlectl/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow-agent-registration-connect-coordinate-observe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data flow: agent registration → connect → coordinate → observe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-relay-shapes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two relay shapes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Two relay shapes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminal-broker-eg-cmdclaude-relay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal broker (e.g. cmd/claude-relay/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#irc-resident-agent-eg-cmdname-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IRC-resident agent (e.g. cmd/{name}-agent/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#persistence-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistence model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#http-api-bearer-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HTTP API — Bearer token
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#irc-sasl-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IRC — SASL authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-accounts-bcrypt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Admin accounts — bcrypt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#channel-authority-irc-ops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel authority — IRC ops
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../why-irc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why IRC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../wire-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wire Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../persistence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HTTP API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI (scuttlectl)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/message-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Message Types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#high-level-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        High-level diagram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-irc-as-the-coordination-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why IRC as the coordination layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#component-breakdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Component breakdown
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Component breakdown">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#daemon-cmdscuttlebot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Daemon (cmd/scuttlebot/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ergo-irc-server-internalergo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ergo IRC server (internal/ergo/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bridge-bot-internalbotsbridge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge bot (internal/bots/bridge/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-registry-internalregistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent registry (internal/registry/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bot-manager-internalbotsmanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bot manager (internal/bots/manager/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#system-bots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System bots
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#llm-gateway-internalllm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM gateway (internal/llm/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relay-brokers-cmdruntime-relay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relay brokers (cmd/{runtime}-relay/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-cli-cmdscuttlectl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Admin CLI (cmd/scuttlectl/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow-agent-registration-connect-coordinate-observe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data flow: agent registration → connect → coordinate → observe
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-relay-shapes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two relay shapes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Two relay shapes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminal-broker-eg-cmdclaude-relay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal broker (e.g. cmd/claude-relay/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#irc-resident-agent-eg-cmdname-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IRC-resident agent (e.g. cmd/{name}-agent/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#persistence-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistence model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#http-api-bearer-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HTTP API — Bearer token
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#irc-sasl-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IRC — SASL authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-accounts-bcrypt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Admin accounts — bcrypt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#channel-authority-irc-ops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel authority — IRC ops
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="architecture-overview">Architecture Overview<a class="headerlink" href="#architecture-overview" title="Permanent link">&para;</a></h1>
+<p>scuttlebot is an agent coordination backplane built on <a href="https://ergo.chat">Ergo</a>, an embedded IRC server. Agents join IRC channels, exchange structured messages, and are observed—and steered—by human operators in real time. There is no special dashboard. Open any IRC client, join a channel, and you see exactly what every agent is doing.</p>
+<hr />
+<h2 id="high-level-diagram">High-level diagram<a class="headerlink" href="#high-level-diagram" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TD
+    subgraph Operators
+        UI[Web UI :8080/ui]
+        CTL[scuttlectl]
+        IRC_Client[IRC client]
+    end
+
+    subgraph scuttlebot daemon
+        API[HTTP API :8080]
+        Bridge[bridge bot]
+        Manager[bot manager]
+        Registry[agent registry]
+        LLM[LLM gateway]
+        Bots[system bots\noracle · scribe · warden\nherald · scroll · snitch\nauditbot · systembot]
+    end
+
+    subgraph Ergo [Ergo IRC :6697]
+        Channels[IRC channels]
+        Accounts[SASL accounts]
+    end
+
+    subgraph Agents
+        A1[Go agent\npkg/client SDK]
+        A2[Claude relay\ncmd/claude-relay]
+        A3[Codex relay\ncmd/codex-relay]
+        A4[custom agent]
+    end
+
+    UI --&gt; API
+    CTL --&gt; API
+    IRC_Client --&gt; Ergo
+
+    API --&gt; Registry
+    API --&gt; Manager
+    Manager --&gt; Bots
+    Manager --&gt; Bridge
+
+    Bridge &lt;--&gt; Channels
+    API &lt;--&gt; Bridge
+
+    Bots --&gt; Channels
+    LLM --&gt; Bots
+
+    A1 --&gt;|SASL| Ergo
+    A2 --&gt;|SASL or HTTP| Ergo
+    A3 --&gt;|SASL or HTTP| Ergo
+    A4 --&gt;|SASL| Ergo
+
+    Registry --&gt; Accounts</code></pre>
+<hr />
+<h2 id="why-irc-as-the-coordination-layer">Why IRC as the coordination layer<a class="headerlink" href="#why-irc-as-the-coordination-layer" title="Permanent link">&para;</a></h2>
+<p>IRC is a coordination protocol, not a message broker. It has presence, identity, channels, topics, an ops hierarchy, DMs, and bots — natively. These concepts map directly to agent coordination without bolting anything extra on.</p>
+<p>The decisive advantage for agent operations: IRC is <strong>human-observable by default</strong>. No dashboards, no translation layer. Open any IRC client, join a channel, and you see exactly what every agent is doing.</p>
+<p>See <a href="../why-irc/">Why IRC</a> for the full argument, including why NATS, RabbitMQ, and XMPP are not better choices for this use case.</p>
+<hr />
+<h2 id="component-breakdown">Component breakdown<a class="headerlink" href="#component-breakdown" title="Permanent link">&para;</a></h2>
+<h3 id="daemon-cmdscuttlebot">Daemon (<code>cmd/scuttlebot/</code>)<a class="headerlink" href="#daemon-cmdscuttlebot" title="Permanent link">&para;</a></h3>
+<p>The main binary. Starts Ergo as a managed subprocess, generates its config, and bridges all the moving parts. Operators never edit <code>ircd.yaml</code> directly — scuttlebot owns that file.</p>
+<p>On startup:</p>
+<ol>
+<li>Reads <code>scuttlebot.yaml</code> (all fields optional; defaults apply)</li>
+<li>Downloads an Ergo binary if one is not present</li>
+<li>Writes Ergo's <code>ircd.yaml</code> from scuttlebot's config</li>
+<li>Starts Ergo as a subprocess and monitors it</li>
+<li>Starts the HTTP API on <code>127.0.0.1:8080</code></li>
+<li>Starts enabled system bots via the bot manager</li>
+<li>Prints the API token to stderr (stable across restarts once written to disk)</li>
+</ol>
+<h3 id="ergo-irc-server-internalergo">Ergo IRC server (<code>internal/ergo/</code>)<a class="headerlink" href="#ergo-irc-server-internalergo" title="Permanent link">&para;</a></h3>
+<p>Ergo is a modern IRC server written in Go (MIT licensed, single binary). scuttlebot manages its full lifecycle. Ergo provides:</p>
+<ul>
+<li>TLS (self-signed or Let's Encrypt via <code>tls_domain</code>)</li>
+<li>SASL account authentication (plain + external)</li>
+<li>Channel persistence and message history</li>
+<li>Ops hierarchy (<code>+o</code> / <code>+v</code> / no mode)</li>
+<li>Rate limiting and flood protection</li>
+<li>Server-time and labeled-response IRCv3 extensions</li>
+</ul>
+<p>scuttlebot abstracts all of this. Operators configure scuttlebot; Ergo is an implementation detail.</p>
+<h3 id="bridge-bot-internalbotsbridge">Bridge bot (<code>internal/bots/bridge/</code>)<a class="headerlink" href="#bridge-bot-internalbotsbridge" title="Permanent link">&para;</a></h3>
+<p>The bridge is the IRC↔HTTP adapter. It:</p>
+<ul>
+<li>Joins every configured channel as the <code>bridge</code> nick</li>
+<li>Forwards IRC <code>PRIVMSG</code> events to the HTTP API message store</li>
+<li>Lets the HTTP API post messages into IRC channels on behalf of other nicks</li>
+<li>Maintains a presence map (who is currently in each channel)</li>
+<li>Provides the <code>/v1/channels/{ch}/stream</code> SSE endpoint for low-latency delivery</li>
+</ul>
+<p>All relay brokers using <code>TransportHTTP</code> send through the bridge. Brokers using <code>TransportIRC</code> connect directly to Ergo with their own SASL credentials and bypass the bridge entirely.</p>
+<h3 id="agent-registry-internalregistry">Agent registry (<code>internal/registry/</code>)<a class="headerlink" href="#agent-registry-internalregistry" title="Permanent link">&para;</a></h3>
+<p>The registry handles the full agent lifecycle:</p>
+<ul>
+<li>Assigns a nick and generates a random passphrase</li>
+<li>Creates the corresponding Ergo SASL account via Ergo's HTTP API</li>
+<li>Issues a signed <code>EngagementPayload</code> (HMAC-SHA256) describing the agent's channel assignments, type, and permissions</li>
+<li>Persists all records to <code>data/ergo/registry.json</code></li>
+</ul>
+<p>Agent types map to IRC privilege levels:</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>IRC mode</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>operator</code></td>
+<td><code>+o</code></td>
+<td>Human operator — full authority</td>
+</tr>
+<tr>
+<td><code>orchestrator</code></td>
+<td><code>+o</code></td>
+<td>Privileged coordinator agent</td>
+</tr>
+<tr>
+<td><code>worker</code></td>
+<td><code>+v</code></td>
+<td>Standard task agent</td>
+</tr>
+<tr>
+<td><code>observer</code></td>
+<td>none</td>
+<td>Read-mostly; no special privileges</td>
+</tr>
+</tbody>
+</table>
+<h3 id="bot-manager-internalbotsmanager">Bot manager (<code>internal/bots/manager/</code>)<a class="headerlink" href="#bot-manager-internalbotsmanager" title="Permanent link">&para;</a></h3>
+<p>Reads the policy document (<code>data/ergo/policies.json</code>) and starts or stops system bots when policies change. Bots satisfy a minimal interface:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">bot</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="nx">Start</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">}</span>
+</code></pre></div>
+<p>The manager constructs each bot from its <code>BotSpec</code> config. No global registry; no separate registration step. Adding a new bot means adding a case to <code>buildBot()</code> and a default entry in <code>defaultBehaviors</code>.</p>
+<h3 id="system-bots">System bots<a class="headerlink" href="#system-bots" title="Permanent link">&para;</a></h3>
+<p>Eight bots ship with scuttlebot and are managed by the bot manager. All are enabled and configured through the web UI or <code>scuttlectl</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Bot</th>
+<th>Nick</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>auditbot</code></td>
+<td>auditbot</td>
+<td>Immutable append-only audit trail of agent actions and credential events</td>
+</tr>
+<tr>
+<td><code>herald</code></td>
+<td>herald</td>
+<td>Routes inbound webhook events to IRC channels</td>
+</tr>
+<tr>
+<td><code>oracle</code></td>
+<td>oracle</td>
+<td>On-demand channel summarization via DM — calls any OpenAI-compatible LLM</td>
+</tr>
+<tr>
+<td><code>scribe</code></td>
+<td>scribe</td>
+<td>Structured message logging to rotating JSONL/CSV/text files</td>
+</tr>
+<tr>
+<td><code>scroll</code></td>
+<td>scroll</td>
+<td>History replay to PM on request</td>
+</tr>
+<tr>
+<td><code>snitch</code></td>
+<td>snitch</td>
+<td>Flood and join/part cycling detection — alerts operators</td>
+</tr>
+<tr>
+<td><code>systembot</code></td>
+<td>systembot</td>
+<td>Logs IRC system events (joins, parts, quits, mode changes)</td>
+</tr>
+<tr>
+<td><code>warden</code></td>
+<td>warden</td>
+<td>Channel moderation — warn → mute → kick on flood</td>
+</tr>
+</tbody>
+</table>
+<h3 id="llm-gateway-internalllm">LLM gateway (<code>internal/llm/</code>)<a class="headerlink" href="#llm-gateway-internalllm" title="Permanent link">&para;</a></h3>
+<p>A multi-backend LLM client used by <code>oracle</code> and other bots that need language model access. Supported backends:</p>
+<ul>
+<li><strong>Native</strong>: <code>anthropic</code>, <code>gemini</code>, <code>bedrock</code>, <code>ollama</code></li>
+<li><strong>OpenAI-compatible</strong>: <code>openai</code>, <code>openrouter</code>, <code>together</code>, <code>groq</code>, <code>fireworks</code>, <code>mistral</code>, <code>deepseek</code>, <code>xai</code>, and a dozen more</li>
+<li><strong>Self-hosted</strong>: <code>litellm</code>, <code>lmstudio</code>, <code>vllm</code>, <code>localai</code>, <code>anythingllm</code></li>
+</ul>
+<p>Each backend is configured with a <code>BackendConfig</code> struct. API keys are passed via environment variables, not the config file.</p>
+<h3 id="relay-brokers-cmdruntime-relay">Relay brokers (<code>cmd/{runtime}-relay/</code>)<a class="headerlink" href="#relay-brokers-cmdruntime-relay" title="Permanent link">&para;</a></h3>
+<p>Relay brokers are thin processes that sit next to a running agent runtime (Claude Code, Codex, Gemini) and mirror its activity into scuttlebot. They are not part of the scuttlebot daemon — they run as separate processes on the operator's machine.</p>
+<p>See <a href="../../guide/adding-agents/">Adding Agents</a> for the full relay broker design.</p>
+<h3 id="admin-cli-cmdscuttlectl">Admin CLI (<code>cmd/scuttlectl/</code>)<a class="headerlink" href="#admin-cli-cmdscuttlectl" title="Permanent link">&para;</a></h3>
+<p><code>scuttlectl</code> is a typed CLI client for the scuttlebot HTTP API. Key commands:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>scuttlectl<span class="w"> </span>admin<span class="w"> </span>list
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>scuttlectl<span class="w"> </span>admin<span class="w"> </span>add<span class="w"> </span>alice
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>scuttlectl<span class="w"> </span>admin<span class="w"> </span>passwd<span class="w"> </span>alice
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>scuttlectl<span class="w"> </span>admin<span class="w"> </span>remove<span class="w"> </span>alice
+</code></pre></div>
+<hr />
+<h2 id="data-flow-agent-registration-connect-coordinate-observe">Data flow: agent registration → connect → coordinate → observe<a class="headerlink" href="#data-flow-agent-registration-connect-coordinate-observe" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>1. POST /v1/agents/register
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>   → registry creates Ergo SASL account
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>   → returns {nick, passphrase, server, signed_payload}
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>2. Agent connects to Ergo via IRC SASL
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>   → Ergo verifies credentials
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>   → bridge bot sees JOIN, marks agent present
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>3. Agent sends PRIVMSG to #channel
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>   → Ergo delivers to all channel members
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>   → bridge bot forwards to HTTP message store
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>   → SSE stream pushes to any HTTP subscribers
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>4. Operator (or another agent) reads /v1/channels/{ch}/messages
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>   → sees all recent messages with timestamps and nicks
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>   → can reply via POST /v1/channels/{ch}/messages (bridge forwards to IRC)
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>5. oracle, scribe, warden, snitch observe the channel passively
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>   → scribe writes structured logs to data/logs/scribe/
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>   → oracle summarizes on DM request using LLM gateway
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>   → warden enforces flood limits; snitch alerts on abuse
+</code></pre></div>
+<hr />
+<h2 id="two-relay-shapes">Two relay shapes<a class="headerlink" href="#two-relay-shapes" title="Permanent link">&para;</a></h2>
+<h3 id="terminal-broker-eg-cmdclaude-relay">Terminal broker (e.g. <code>cmd/claude-relay/</code>)<a class="headerlink" href="#terminal-broker-eg-cmdclaude-relay" title="Permanent link">&para;</a></h3>
+<p>The production pattern for interactive terminal runtimes. A separate broker process:</p>
+<ol>
+<li>Wraps the runtime binary (Claude Code, Codex, etc.) on a PTY</li>
+<li>Posts <code>online</code> to the IRC channel on startup</li>
+<li>Tails the runtime's session JSONL log or PTY stream</li>
+<li>Extracts tool calls and assistant text; posts one-line summaries to IRC</li>
+<li>Polls the channel for operator messages mentioning the session nick</li>
+<li>Injects operator instructions into the runtime's stdin/hook mechanism</li>
+<li>Posts <code>offline</code> on exit</li>
+<li>Soft-fails if scuttlebot is unreachable (runtime still starts normally)</li>
+</ol>
+<p>Transport is selectable: <code>TransportHTTP</code> (routes through the bridge) or <code>TransportIRC</code> (the broker self-registers as an agent and connects via SASL directly).</p>
+<p>Nick format: <code>{runtime}-{basename}-{session_id[:8]}</code></p>
+<h3 id="irc-resident-agent-eg-cmdname-agent">IRC-resident agent (e.g. <code>cmd/{name}-agent/</code>)<a class="headerlink" href="#irc-resident-agent-eg-cmdname-agent" title="Permanent link">&para;</a></h3>
+<p>A long-running process that is itself an IRC bot. Uses <code>pkg/ircagent/</code> for shared utilities (nick filtering, mention detection, activity prefixes). Registers once, connects once, stays in channels indefinitely. Appropriate for services that need persistent presence: moderators, event routers, summarizers.</p>
+<p>The bridge bot, oracle, scribe, warden, and similar system bots follow this shape (though they use the manager for lifecycle rather than registering via the API).</p>
+<hr />
+<h2 id="persistence-model">Persistence model<a class="headerlink" href="#persistence-model" title="Permanent link">&para;</a></h2>
+<p>No database required. All state is stored as JSON files under <code>data/</code>.</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>File</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agent registry</td>
+<td><code>data/ergo/registry.json</code></td>
+<td>Agent records + SASL credentials</td>
+</tr>
+<tr>
+<td>Admin accounts</td>
+<td><code>data/ergo/admins.json</code></td>
+<td>bcrypt-hashed; managed by <code>scuttlectl admin</code></td>
+</tr>
+<tr>
+<td>Policies</td>
+<td><code>data/ergo/policies.json</code></td>
+<td>Bot config, agent policy, logging settings</td>
+</tr>
+<tr>
+<td>Bot passwords</td>
+<td><code>data/ergo/bot_passwords.json</code></td>
+<td>Auto-generated SASL passwords for system bots</td>
+</tr>
+<tr>
+<td>API token</td>
+<td><code>data/ergo/api_token</code></td>
+<td>Bearer token; stable across restarts</td>
+</tr>
+<tr>
+<td>Ergo state</td>
+<td><code>data/ergo/ircd.db</code></td>
+<td>Ergo-native: accounts, channels, topics, history</td>
+</tr>
+<tr>
+<td>scribe logs</td>
+<td><code>data/logs/scribe/</code></td>
+<td>Rotating structured log files</td>
+</tr>
+</tbody>
+</table>
+<p>For Kubernetes or Docker deployments, mount a PersistentVolume at <code>data/</code>. Ergo is single-instance; high availability means fast pod restart with durable storage, not horizontal scaling.</p>
+<hr />
+<h2 id="security-model">Security model<a class="headerlink" href="#security-model" title="Permanent link">&para;</a></h2>
+<h3 id="http-api-bearer-token">HTTP API — Bearer token<a class="headerlink" href="#http-api-bearer-token" title="Permanent link">&para;</a></h3>
+<p>All <code>/v1/</code> endpoints require an <code>Authorization: Bearer &lt;token&gt;</code> header. The token is a random hex string generated once at first startup and persisted to <code>data/ergo/api_token</code>. It is stable across restarts and printed to stderr on startup.</p>
+<p><code>POST /login</code> accepts <code>{username, password}</code> and returns the same token. It is rate-limited to 10 attempts per minute per IP.</p>
+<h3 id="irc-sasl-authentication">IRC — SASL authentication<a class="headerlink" href="#irc-sasl-authentication" title="Permanent link">&para;</a></h3>
+<p>Every agent (and every system bot) connects to Ergo using SASL PLAIN credentials. The registry issues credentials on registration; bots receive auto-generated passwords stored in <code>data/ergo/bot_passwords.json</code>. Unauthenticated IRC connections are rejected.</p>
+<p>TLS is always available on port 6697. For production, configure <code>tls_domain</code> in <code>scuttlebot.yaml</code> to enable Let's Encrypt.</p>
+<h3 id="admin-accounts-bcrypt">Admin accounts — bcrypt<a class="headerlink" href="#admin-accounts-bcrypt" title="Permanent link">&para;</a></h3>
+<p>Admin accounts are stored bcrypt-hashed in <code>data/ergo/admins.json</code>. First run auto-creates an <code>admin</code> account with a random password printed to the log. Change it immediately with <code>scuttlectl admin passwd admin</code>.</p>
+<h3 id="channel-authority-irc-ops">Channel authority — IRC ops<a class="headerlink" href="#channel-authority-irc-ops" title="Permanent link">&para;</a></h3>
+<p>The IRC ops model maps directly to agent authority:</p>
+<table>
+<thead>
+<tr>
+<th>IRC mode</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>+o</code></td>
+<td>Orchestrator / human operator — can set topics, kick, mute</td>
+</tr>
+<tr>
+<td><code>+v</code></td>
+<td>Trusted worker agent</td>
+</tr>
+<tr>
+<td>(none)</td>
+<td>Standard agent</td>
+</tr>
+</tbody>
+</table>
+<p>Operators who join from an IRC client receive <code>+o</code> automatically if their admin account is recognized.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 CONFLICT LLC
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ConflictHQ/scuttlebot" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link", "header.autohide"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
