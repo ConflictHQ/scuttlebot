@@ -10,11 +10,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/lrstanley/girc"
+
+	"github.com/conflicthq/scuttlebot/internal/bots/cmdparse"
 )
 
 // ChannelConfig describes a channel to provision.
@@ -104,7 +107,52 @@ func (m *Manager) Connect(ctx context.Context) error {
 		if m.operPass != "" {
 			_ = client.Cmd.SendRawf("OPER scuttlebot %s", m.operPass)
 		}
+		// Mark self as a bot — same hint the system bots set so clients
+		// can suppress activity counters and the UI can style accordingly.
+		client.Cmd.Mode(client.GetNick(), "+B")
 		close(connected)
+	})
+
+	// Wire a cmdparse router so topology responds to greetings, HELP, and
+	// operator queries about its provisioned-channel state — same surface
+	// the system bots expose. Founder + op privilege already lets it speak
+	// in any channel it manages.
+	router := cmdparse.NewRouter(m.nick)
+	router.SetPurpose("the channel topology manager — provisions channels, holds founder rights, and grants AMODE")
+	router.Register(cmdparse.Command{
+		Name:        "status",
+		Usage:       "STATUS",
+		Description: "show how many channels topology has provisioned",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return m.cmdStatus()
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "list",
+		Usage:       "LIST",
+		Description: "list provisioned channels with provisioning timestamps",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return m.cmdList()
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "ping",
+		Usage:       "PING",
+		Description: "liveness check",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return "pong"
+		},
+	})
+
+	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
+		if len(e.Params) < 1 || e.Source == nil {
+			return
+		}
+		if reply := router.Dispatch(e.Source.Name, e.Params[0], e.Last()); reply != nil {
+			for _, line := range reply.Lines() {
+				cl.Cmd.Message(reply.Target, line)
+			}
+		}
 	})
 
 	go func() {
@@ -226,6 +274,13 @@ func (m *Manager) provision(ch ChannelConfig) error {
 	for _, mode := range ch.Modes {
 		m.client.Cmd.Mode(ch.Name, mode)
 	}
+
+	// Self-grant +v on the channel so topology shows up alongside the other
+	// system bots in the voiced section of user lists. Founder and +o are
+	// implied (topology is the channel founder and ChanServ auto-ops it on
+	// every join), but +v makes its presence explicit and consistent with
+	// the other bots' display.
+	go m.chanserv("AMODE %s +v %s", ch.Name, m.nick)
 
 	// Fire ChanServ AMODE grants asynchronously — persistent, auto-applied on join.
 	if len(ch.Ops) > 0 || len(ch.Voice) > 0 {
@@ -379,6 +434,39 @@ func (m *Manager) ListChannels() []ChannelInfo {
 		out = append(out, ci)
 	}
 	return out
+}
+
+func (m *Manager) cmdStatus() string {
+	m.mu.Lock()
+	count := len(m.channels)
+	m.mu.Unlock()
+	oper := "no oper auth"
+	if m.operPass != "" {
+		oper = "oper-up (SAMODE available)"
+	}
+	return fmt.Sprintf("topology: %s | provisioned %d channel(s) | nick=%s", oper, count, m.nick)
+}
+
+func (m *Manager) cmdList() string {
+	m.mu.Lock()
+	if len(m.channels) == 0 {
+		m.mu.Unlock()
+		return "topology: no channels provisioned yet"
+	}
+	rows := make([]channelRecord, 0, len(m.channels))
+	for _, rec := range m.channels {
+		rows = append(rows, rec)
+	}
+	m.mu.Unlock()
+	sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("topology: %d provisioned channel(s):\n", len(rows)))
+	for _, rec := range rows {
+		sb.WriteString(fmt.Sprintf("  %s — provisioned %s ago\n",
+			rec.name, time.Since(rec.provisionedAt).Round(time.Second)))
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // ValidateName checks that a channel name follows scuttlebot conventions.

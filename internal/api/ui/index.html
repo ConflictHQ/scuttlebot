@@ -217,7 +217,7 @@ select option { background:#161b22; }
 .msg-text strong { font-weight:600; }
 .msg-text em { font-style:italic; }
 .chat-msgs.modern.hide-timestamps .msg-time { display:none !important; }
-/* tool-call chip: visible in modern mode regardless of rich toggle */
+/* tool-call chip: visible inline; click to expand the rich detail card */
 .chat-msgs.modern .msg-meta-toggle { display:inline-flex !important; align-items:center; gap:6px; margin:6px 0 0 0; padding:4px 10px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:#a5d6ff; background:linear-gradient(180deg,#1c2128,#161b22); border:1px solid #30363d; border-radius:999px; font-weight:500; max-width:100%; box-shadow:0 1px 0 rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.03); cursor:pointer; transition:border-color .1s, box-shadow .1s, color .1s; }
 .chat-msgs.modern .msg-meta-toggle::before { content:"▸"; display:inline-block; transition:transform .1s; font-size:9px; color:#8b949e; }
 .chat-msgs.modern .msg-meta-toggle.expanded::before { transform:rotate(90deg); }
@@ -706,7 +706,6 @@ canvas { display:block; width:100% !important; }
       <button class="sm" id="chat-ts-toggle" onclick="toggleTimestamps()" title="Timestamps: show or hide message timestamps" aria-label="Toggle timestamps" style="font-size:11px;padding:2px 6px">timestamps</button>
       <button class="sm" id="chat-tools-toggle" onclick="toggleShowTools()" title="Tool calls: hide all tool-call rows to focus on chat (off shows everything)" aria-label="Show/hide tool calls" style="font-size:11px;padding:2px 6px">🔧</button>
       <button class="sm" id="chat-thinking-toggle" onclick="toggleShowThinking()" title="Thinking blocks: hide all 💭 reasoning rows" aria-label="Show/hide thinking rows" style="font-size:11px;padding:2px 6px">💭</button>
-      <button class="sm" id="chat-rich-toggle" onclick="toggleRichMode()" title="Rich mode: when on, expand tool-call detail cards (diffs, command output) inline by default; when off, show only the chip and expand on click" aria-label="Toggle rich/text mode" style="font-size:11px;padding:2px 6px">✨</button>
       <button class="sm" onclick="promptHighlightWords()" title="Highlight keywords: configure words that highlight rows (mentions of you, danger words, etc.)" aria-label="Configure highlight keywords" style="font-size:11px;padding:2px 6px">✦</button>
       <span class="stream-badge" id="chat-stream-status" style="margin-left:8px"></span>
     </div>
@@ -2674,17 +2673,16 @@ function appendMsg(msg, isHistory) {
   const kind = classifyMsg(msg, displayText);
   row.classList.add('kind-' + kind);
 
-  // Build meta toggle if metadata present.
-  // In rich mode: toggle visible. In modern mode: toggle always visible with a summary label.
+  // Build meta toggle if metadata present. Tool chip is always visible; the
+  // rich detail card starts collapsed and expands on click.
   let metaToggle = '';
   let metaBlock = '';
   if (msg.meta && msg.meta.type) {
     const html = renderMeta(msg.meta);
     if (html) {
-      const rich = isRichMode();
       const label = toolSummary(msg.meta);
-      metaToggle = `<span class="msg-meta-toggle" style="${rich ? '' : 'display:none'}" onclick="toggleMetaOpen(this, event)"><span class="chip-label">${esc(label)}</span></span>`;
-      metaBlock = `<div class="msg-meta${rich ? ' open' : ''}">${html}</div>`;
+      metaToggle = `<span class="msg-meta-toggle" onclick="toggleMetaOpen(this, event)"><span class="chip-label">${esc(label)}</span></span>`;
+      metaBlock = `<div class="msg-meta">${html}</div>`;
     }
   }
 
@@ -3090,39 +3088,6 @@ function toggleTimestamps() {
   const hidden = localStorage.getItem('sb_hide_timestamps') === '1';
   if (hidden) document.getElementById('chat-msgs').classList.add('hide-timestamps');
   updateTsToggle(hidden);
-})();
-
-// --- rich mode toggle ---
-function isRichMode() { return localStorage.getItem('sb_rich_mode') === '1'; }
-function applyRichToggleStyle(btn, on) {
-  if (on) {
-    btn.style.background = '#1f6feb';
-    btn.style.borderColor = '#1f6feb';
-    btn.style.color = '#fff';
-    btn.title = 'rich mode ON — click for text only';
-  } else {
-    btn.style.background = '';
-    btn.style.borderColor = '';
-    btn.style.color = '#8b949e';
-    btn.title = 'text only — click for rich mode';
-  }
-}
-function toggleRichMode() {
-  const on = !isRichMode();
-  localStorage.setItem('sb_rich_mode', on ? '1' : '0');
-  const btn = document.getElementById('chat-rich-toggle');
-  applyRichToggleStyle(btn, on);
-  // Toggle all existing meta blocks visibility. In modern mode the CSS keeps
-  // the chip visible regardless; we only adjust the inline display hint here.
-  document.querySelectorAll('.msg-meta-toggle').forEach(el => { el.style.display = on ? '' : 'none'; });
-  if (!on) {
-    document.querySelectorAll('.msg-meta.open').forEach(el => el.classList.remove('open'));
-    document.querySelectorAll('.msg-meta-toggle.expanded').forEach(el => el.classList.remove('expanded'));
-  }
-}
-// Initialize toggle button state on load.
-(function() {
-  applyRichToggleStyle(document.getElementById('chat-rich-toggle'), isRichMode());
 })();
 
 // --- meta renderers ---

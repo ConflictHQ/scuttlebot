@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -30,6 +31,12 @@ type Config struct {
 	Nick       string
 	HTTPClient *http.Client
 	IRC        IRCConfig
+
+	// LogWriter is where sessionrelay status messages (connection lost,
+	// reconnect backoff, credential refresh, …) are written. Defaults to
+	// os.Stderr when nil. Relays attached to a TUI agent should pass a log
+	// file here so the messages don't corrupt the terminal display.
+	LogWriter io.Writer
 }
 
 type IRCConfig struct {
