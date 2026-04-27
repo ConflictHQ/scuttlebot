@@ -130,23 +130,31 @@ select option { background:#161b22; }
 
 /* chat */
 #pane-chat { flex-direction:row; overflow:hidden; }
-.chat-sidebar { width:180px; min-width:0; flex-shrink:0; border-right:1px solid #30363d; display:flex; flex-direction:column; background:#161b22; overflow:hidden; transition:width .15s; }
-.chat-sidebar.collapsed { width:28px; }
+.chat-sidebar { width:200px; min-width:0; flex-shrink:0; border-right:1px solid #21262d; display:flex; flex-direction:column; background:#0e1218; overflow:hidden; transition:width .22s cubic-bezier(.2,.8,.2,1); }
+.chat-sidebar.collapsed { width:32px; }
 .chat-sidebar.collapsed .chan-join,.chat-sidebar.collapsed .chan-list,.chat-sidebar.collapsed .chan-scope { display:none; }
-.chan-scope-btn { font-size:10px; padding:2px 7px; border-radius:8px; background:transparent; border:1px solid #30363d; color:#8b949e; cursor:pointer; flex:1; }
-.chan-scope-btn.active { background:#1f6feb22; border-color:#1f6feb66; color:#58a6ff; }
-.chan-scope-btn:hover:not(.active) { color:#e6edf3; border-color:#58a6ff66; }
-.sidebar-head { padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#8b949e; border-bottom:1px solid #30363d; flex-shrink:0; display:flex; align-items:center; gap:4px; }
-.sidebar-toggle { margin-left:auto; background:none; border:none; color:#8b949e; cursor:pointer; font-size:14px; padding:0 2px; line-height:1; }
-.sidebar-toggle:hover { color:#e6edf3; }
-.sidebar-resize { width:4px; flex-shrink:0; cursor:col-resize; background:transparent; transition:background .1s; z-index:10; }
+.chat-sidebar.collapsed .sidebar-head { padding:8px 0; justify-content:center; }
+.chat-sidebar.collapsed .sidebar-head > span { display:none; }
+/* Tiny vertical "CHANNELS" cap on the collapsed sidebar so it isn't a
+ * mystery sliver — keeps purpose discoverable when narrow. */
+.chat-sidebar.collapsed::after { content:"CHANNELS"; position:absolute; top:64px; left:5px; font-size:9px; letter-spacing:.18em; color:#484f58; writing-mode:vertical-rl; transform:rotate(180deg); pointer-events:none; }
+.chat-sidebar { position:relative; }
+.chan-scope { padding:8px 12px 6px; font-size:10px; color:#8b949e; display:flex; gap:6px; align-items:center; }
+.chan-scope-btn { font-size:10px; padding:3px 9px; border-radius:999px; background:transparent; border:1px solid #30363d; color:#8b949e; cursor:pointer; flex:1; transition:background .12s, border-color .12s, color .12s; }
+.chan-scope-btn.active { background:#1f6feb1f; border-color:#1f6feb88; color:#79b8ff; }
+.chan-scope-btn:hover:not(.active) { color:#e6edf3; border-color:#58a6ff66; background:#161b22; }
+.sidebar-head { padding:11px 14px 9px; font-size:10px; text-transform:uppercase; letter-spacing:.12em; color:#6e7681; flex-shrink:0; display:flex; align-items:center; gap:4px; font-weight:600; }
+.sidebar-toggle { margin-left:auto; background:none; border:none; color:#6e7681; cursor:pointer; font-size:14px; padding:2px 5px; line-height:1; border-radius:4px; transition:background .12s, color .12s; }
+.sidebar-toggle:hover { color:#e6edf3; background:#21262d; }
+.sidebar-resize { width:4px; flex-shrink:0; cursor:col-resize; background:transparent; transition:background .12s; z-index:10; }
 .sidebar-resize:hover,.sidebar-resize.dragging { background:#58a6ff55; }
-.chan-join { display:flex; gap:5px; padding:7px 9px; border-bottom:1px solid #21262d; flex-shrink:0; }
-.chan-join input { flex:1; padding:4px 7px; font-size:12px; }
-.chan-list { flex:1; overflow-y:auto; }
-.chan-item { padding:7px 14px; font-size:13px; cursor:pointer; color:#8b949e; border-bottom:1px solid #21262d; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.chan-item:hover { background:#1c2128; color:#e6edf3; }
-.chan-item.active { background:#1f6feb22; color:#58a6ff; border-left:2px solid #58a6ff; padding-left:12px; }
+.chan-join { display:flex; gap:5px; padding:6px 12px 10px; flex-shrink:0; }
+.chan-join input { flex:1; padding:4px 8px; font-size:12px; background:#0d1117; border:1px solid #21262d; border-radius:6px; color:#e6edf3; transition:border-color .12s; }
+.chan-join input:focus { border-color:#58a6ff66; outline:none; }
+.chan-list { flex:1; overflow-y:auto; padding:2px 6px 8px; }
+.chan-item { padding:6px 10px; font-size:13px; cursor:pointer; color:#8b949e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-radius:6px; margin:1px 0; transition:background .12s, color .12s; }
+.chan-item:hover { background:#161b22; color:#e6edf3; }
+.chan-item.active { background:#1f6feb22; color:#79b8ff; font-weight:500; }
 .chat-main { flex:1; display:flex; flex-direction:column; min-width:0; }
 .chat-topbar { padding:9px 16px; border-bottom:1px solid #30363d; display:flex; align-items:center; gap:10px; flex-shrink:0; background:#161b22; font-size:13px; }
 .chat-ch-name { font-weight:600; color:#58a6ff; }
@@ -265,11 +273,16 @@ select option { background:#161b22; }
 .chat-msgs.hide-tools    .msg-row.kind-tool + .msg-meta-wrap,
 .chat-msgs.hide-thinking .msg-row.kind-thinking,
 .chat-msgs.hide-thinking .msg-row.kind-thinking + .msg-meta-wrap { display:none !important; }
-.chat-nicklist { width:148px; min-width:0; flex-shrink:0; border-left:1px solid #30363d; display:flex; flex-direction:column; background:#161b22; overflow-y:auto; overflow-x:hidden; transition:width .15s; }
-.chat-nicklist.collapsed { width:28px; overflow:hidden; }
+.chat-nicklist { width:170px; min-width:0; flex-shrink:0; border-left:1px solid #21262d; display:flex; flex-direction:column; background:#0e1218; overflow-y:auto; overflow-x:hidden; transition:width .22s cubic-bezier(.2,.8,.2,1); position:relative; }
+.chat-nicklist.collapsed { width:32px; overflow:hidden; }
 .chat-nicklist.collapsed #nicklist-users { display:none; }
-.nicklist-head { padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#8b949e; border-bottom:1px solid #30363d; flex-shrink:0; display:flex; align-items:center; gap:4px; }
-.nicklist-nick { padding:5px 12px; font-size:12px; color:#8b949e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chat-nicklist.collapsed .nicklist-head { padding:8px 0; justify-content:center; }
+.chat-nicklist.collapsed .nicklist-head > span { display:none; }
+.chat-nicklist.collapsed::after { content:"USERS"; position:absolute; top:60px; right:5px; font-size:9px; letter-spacing:.18em; color:#484f58; writing-mode:vertical-rl; pointer-events:none; }
+.nicklist-head { padding:11px 14px 9px; font-size:10px; text-transform:uppercase; letter-spacing:.12em; color:#6e7681; flex-shrink:0; display:flex; align-items:center; gap:4px; font-weight:600; }
+#nicklist-users { padding:2px 6px 8px; }
+.nicklist-nick { padding:4px 10px; font-size:12px; color:#8b949e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-radius:6px; margin:1px 0; transition:background .12s, color .12s; }
+.nicklist-nick:hover { background:#161b22; color:#e6edf3; }
 .nicklist-nick.is-bot { color:#58a6ff; }
 .nicklist-nick.is-op { color:#3fb950; font-weight:600; }
 .nicklist-nick::before { content:""; }
@@ -680,7 +693,7 @@ canvas { display:block; width:100% !important; }
       <input type="text" id="join-channel-input" placeholder="#general" autocomplete="off">
       <button class="sm" onclick="joinChannel()">+</button>
     </div>
-    <div class="chan-scope" style="padding:6px 10px 4px 10px;font-size:10px;color:#8b949e;display:flex;gap:6px;align-items:center">
+    <div class="chan-scope">
       <button class="sm chan-scope-btn active" id="chan-scope-mine" onclick="setChannelScope('mine')" title="show only channels you've selected this session">mine</button>
       <button class="sm chan-scope-btn"        id="chan-scope-all"  onclick="setChannelScope('all')"  title="show every channel the bridge sees (admin)">all</button>
     </div>
