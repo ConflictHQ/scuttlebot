@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/conflicthq/scuttlebot/internal/registry"
+	"github.com/conflicthq/scuttlebot/pkg/ircagent"
 )
 
 type registerRequest struct {
@@ -400,6 +401,11 @@ func (s *Server) handleAgentBlocker(w http.ResponseWriter, r *http.Request) {
 // Orchestrators that need +o on specific channels declare them via
 // EngagementConfig.OpsChannels; setAgentModes grants OP per-channel for that
 // allowlist. Returns "" for types that get no special mode.
+//
+// Hard rule (operator-flagged): nicks matching a known agent prefix
+// (claude-, codex-, gemini-, openclaw-) NEVER receive +o regardless of the
+// configured type. Only humans get ops. This guards against accidentally
+// (or intentionally) registering an automation as type=operator.
 func agentModeLevel(t registry.AgentType) string {
 	switch t {
 	case registry.AgentTypeOperator:
@@ -411,6 +417,13 @@ func agentModeLevel(t registry.AgentType) string {
 	}
 }
 
+// isAgentPrefixedNick reports whether the nick looks like a relay session
+// (claude-, codex-, gemini-, openclaw-, …). Used to enforce the
+// "agents-never-op" rule independently of the registered AgentType.
+func isAgentPrefixedNick(nick string) bool {
+	return ircagent.HasAnyPrefix(nick, ircagent.DefaultActivityPrefixes())
+}
+
 // setAgentModes reconciles the ChanServ AMODE entries for an agent so they
 // match the current agentModeLevel policy. Each call revokes any prior
 // AMODE for the nick on each channel and grants the correct level — making
@@ -418,6 +431,10 @@ func agentModeLevel(t registry.AgentType) string {
 // older policy (e.g. orchestrator-was-OP entries that should now be +v).
 // No-op when topology is not configured or the agent type doesn't warrant
 // a mode.
+//
+// Hard rule: nicks matching a relay-agent prefix (claude-, codex-, gemini-,
+// openclaw-) are pinned to VOICE regardless of the requested level. Only
+// human operators get ops.
 func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg registry.EngagementConfig) {
 	if s.topoMgr == nil {
 		return
@@ -426,11 +443,17 @@ func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg re
 	if level == "" {
 		return
 	}
+	// Agents never get +o regardless of configured type.
+	if isAgentPrefixedNick(nick) && level == "OP" {
+		level = "VOICE"
+		if s.log != nil {
+			s.log.Info("api: agent-prefixed nick capped to VOICE", "nick", nick)
+		}
+	}
 
 	// Orchestrators may opt in to +o on a per-channel allowlist via
-	// OpsChannels. Channels outside the allowlist still get the default
-	// +v level so the orchestrator can post under +m moderation.
-	if agentType == registry.AgentTypeOrchestrator && len(cfg.OpsChannels) > 0 {
+	// OpsChannels — but only for non-agent-prefixed nicks.
+	if agentType == registry.AgentTypeOrchestrator && len(cfg.OpsChannels) > 0 && !isAgentPrefixedNick(nick) {
 		opsSet := make(map[string]struct{}, len(cfg.OpsChannels))
 		for _, ch := range cfg.OpsChannels {
 			opsSet[ch] = struct{}{}
@@ -450,6 +473,27 @@ func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg re
 		s.topoMgr.RevokeAccess(nick, ch)
 		s.topoMgr.GrantAccess(nick, ch, level)
 	}
+
+	// If the agent is currently joined to any of these channels with a
+	// stale +o, AMODE alone won't take effect until they part+rejoin.
+	// Issue a live MODE -o via the topology manager for the now-incorrect
+	// channels so the running session loses ops immediately.
+	if level != "OP" && s.botMgr != nil {
+		if mode, ok := s.topoMgr.(channelLiveModeSetter); ok {
+			for _, ch := range cfg.Channels {
+				mode.SetChannelMode(ch, "-o", nick)
+			}
+		}
+	}
+}
+
+// channelLiveModeSetter is the optional interface a topology manager can
+// implement to set channel modes on already-joined sessions (in addition
+// to ChanServ AMODE which only applies on next join). When the manager
+// doesn't implement it, the live mode catch-up is skipped — the AMODE
+// state alone will take effect on the agent's next reconnect.
+type channelLiveModeSetter interface {
+	SetChannelMode(channel, mode, target string)
 }
 
 // removeAgentModes revokes ChanServ access for an agent on all its assigned
