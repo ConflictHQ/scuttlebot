@@ -428,7 +428,10 @@ func main() {
 	// Re-apply ChanServ AMODE for every persisted agent under the current
 	// policy so stale +o grants written under older code (e.g. before
 	// orchestrators defaulted to +v) get cleared automatically on restart.
-	apiSrv.ReconcileAgentModes()
+	// Run async — each AMODE call waits for ChanServ; with dozens of agents
+	// across multiple channels this can take a minute and we don't want to
+	// block the HTTP listener.
+	go apiSrv.ReconcileAgentModes()
 	handler := apiSrv.Handler()
 
 	var httpServer, tlsServer *http.Server
