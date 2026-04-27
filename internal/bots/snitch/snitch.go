@@ -314,6 +314,7 @@ func (b *Bot) checkFlood(c *girc.Client, channel, nick string) {
 		key := "flood:" + channel + ":" + nick
 		if last, ok := b.alerted[key]; !ok || now.Sub(last) > 60*time.Second {
 			b.alerted[key] = now
+			pruneTimeMap(b.alerted, 24*time.Hour) // bound the map (#175)
 			go b.alert(fmt.Sprintf("flood detected: %s in %s (%d msgs in %s)",
 				nick, channel, len(w.msgs), b.cfg.FloodWindow))
 		}
@@ -333,6 +334,18 @@ func (b *Bot) alert(msg string) {
 	}
 	for _, nick := range b.cfg.AlertNicks {
 		b.client.Cmd.Message(nick, full)
+	}
+}
+
+// pruneTimeMap drops keys whose timestamp is older than maxAge. Keeps the
+// alerted/cooldown map bounded over long-running deployments (#175).
+// Caller must hold the appropriate lock.
+func pruneTimeMap(m map[string]time.Time, maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	for k, t := range m {
+		if t.Before(cutoff) {
+			delete(m, k)
+		}
 	}
 }
 

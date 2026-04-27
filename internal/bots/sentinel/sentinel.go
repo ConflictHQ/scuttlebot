@@ -114,20 +114,26 @@ type Bot struct {
 	log    *slog.Logger
 	client *girc.Client
 
-	mu       sync.Mutex
-	buffers  map[string]*chanBuffer // channel → buffer
-	cooldown map[string]time.Time   // "channel:nick" → last report time
+	mu          sync.Mutex
+	buffers     map[string]*chanBuffer // channel → buffer
+	cooldown    map[string]time.Time   // "channel:nick" → last report time
+	analyseSlot chan struct{}          // bounded-concurrency semaphore for analyse goroutines (#175)
 }
+
+// maxConcurrentAnalyses caps simultaneous LLM analysis goroutines so a busy
+// fleet doesn't fan out N×M concurrent provider calls and rate-limit itself.
+const maxConcurrentAnalyses = 4
 
 // New creates a sentinel Bot.
 func New(cfg Config, llm LLMProvider, log *slog.Logger) *Bot {
 	cfg.setDefaults()
 	return &Bot{
-		cfg:      cfg,
-		llm:      llm,
-		log:      log,
-		buffers:  make(map[string]*chanBuffer),
-		cooldown: make(map[string]time.Time),
+		cfg:         cfg,
+		llm:         llm,
+		log:         log,
+		buffers:     make(map[string]*chanBuffer),
+		cooldown:    make(map[string]time.Time),
+		analyseSlot: make(chan struct{}, maxConcurrentAnalyses),
 	}
 }
 
@@ -299,10 +305,19 @@ func (b *Bot) flushStale(ctx context.Context) {
 }
 
 // analyse sends a window of messages to the LLM and reports any violations.
+// Concurrency-capped via analyseSlot to prevent N×M parallel provider calls
+// when many channel windows fill simultaneously (#175).
 func (b *Bot) analyse(ctx context.Context, channel string, msgs []msgEntry) {
 	if b.llm == nil || len(msgs) == 0 {
 		return
 	}
+	// Acquire a slot — blocks if maxConcurrentAnalyses are already in flight.
+	select {
+	case b.analyseSlot <- struct{}{}:
+	case <-ctx.Done():
+		return
+	}
+	defer func() { <-b.analyseSlot }()
 
 	prompt := b.buildPrompt(channel, msgs)
 	result, err := b.llm.Summarize(ctx, prompt)
@@ -359,6 +374,7 @@ func (b *Bot) parseAndReport(channel, result string) {
 			continue
 		}
 		b.cooldown[coolKey] = time.Now()
+		pruneTimeMap(b.cooldown, 24*time.Hour) // bound the map (#175)
 		b.mu.Unlock()
 
 		report := fmt.Sprintf("[sentinel] incident in %s | nick: %s | severity: %s | reason: %s",
@@ -406,6 +422,18 @@ func (b *Bot) severityMeetsMin(severity string) bool {
 		return true // unknown severity — report it
 	}
 	return got >= min
+}
+
+// pruneTimeMap drops keys whose timestamp is older than maxAge. Keeps the
+// cooldown map bounded over long-running deployments (#175).
+// Caller must hold the appropriate lock.
+func pruneTimeMap(m map[string]time.Time, maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	for k, t := range m {
+		if t.Before(cutoff) {
+			delete(m, k)
+		}
+	}
 }
 
 func splitHostPort(addr string) (string, int, error) {

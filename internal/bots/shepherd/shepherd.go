@@ -16,9 +16,12 @@ package shepherd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,8 +54,9 @@ type Config struct {
 	// CheckinInterval is how often to check in on agents. 0 = disabled.
 	CheckinInterval time.Duration
 
-	// GoalSource is an optional URL for seeding goals (e.g. GitHub milestone).
-	GoalSource string
+	// StatePath is the JSON file shepherd writes goals/assignments/activity
+	// to so they survive bot restarts. Empty = disabled (in-memory only).
+	StatePath string
 }
 
 // Goal is a tracked objective.
@@ -88,12 +92,13 @@ type Bot struct {
 	history     map[string][]string    // channel → recent messages for LLM context
 }
 
-// New creates a shepherd bot.
+// New creates a shepherd bot. If cfg.StatePath is set and the file exists,
+// goals/assignments/activity are restored from it (#175).
 func New(cfg Config, llm LLMProvider, log *slog.Logger) *Bot {
 	if cfg.Nick == "" {
 		cfg.Nick = defaultNick
 	}
-	return &Bot{
+	b := &Bot{
 		cfg:         cfg,
 		llm:         llm,
 		log:         log,
@@ -102,6 +107,75 @@ func New(cfg Config, llm LLMProvider, log *slog.Logger) *Bot {
 		activity:    make(map[string]time.Time),
 		history:     make(map[string][]string),
 	}
+	b.loadState()
+	return b
+}
+
+// shepherdState is the on-disk snapshot shape; intentionally a sibling type
+// so adding new fields to Bot doesn't change the JSON format unintentionally.
+type shepherdState struct {
+	Goals       map[string][]Goal      `json:"goals"`
+	Assignments map[string]*Assignment `json:"assignments"`
+	Activity    map[string]time.Time   `json:"activity"`
+}
+
+// loadState reads the JSON file at cfg.StatePath and merges into the bot's
+// in-memory maps. Missing or unreadable file is a soft fallback to empty
+// state — shepherd starts fresh rather than failing.
+func (b *Bot) loadState() {
+	if b.cfg.StatePath == "" {
+		return
+	}
+	data, err := os.ReadFile(b.cfg.StatePath)
+	if err != nil {
+		return
+	}
+	var s shepherdState
+	if err := json.Unmarshal(data, &s); err != nil {
+		if b.log != nil {
+			b.log.Warn("shepherd: state load: invalid JSON, starting fresh", "err", err)
+		}
+		return
+	}
+	if s.Goals != nil {
+		b.goals = s.Goals
+	}
+	if s.Assignments != nil {
+		b.assignments = s.Assignments
+	}
+	if s.Activity != nil {
+		b.activity = s.Activity
+	}
+	if b.log != nil {
+		b.log.Info("shepherd: state restored", "path", b.cfg.StatePath, "goal_channels", len(b.goals), "assignments", len(b.assignments))
+	}
+}
+
+// saveState snapshots the bot's mutable maps to disk. Atomic via tmp-rename
+// so a crash mid-write doesn't corrupt the file. Caller must hold b.mu.
+func (b *Bot) saveState() {
+	if b.cfg.StatePath == "" {
+		return
+	}
+	s := shepherdState{Goals: b.goals, Assignments: b.assignments, Activity: b.activity}
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(b.cfg.StatePath), 0o755); err != nil {
+		if b.log != nil {
+			b.log.Warn("shepherd: state save: mkdir", "err", err)
+		}
+		return
+	}
+	tmp := b.cfg.StatePath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		if b.log != nil {
+			b.log.Warn("shepherd: state save: write", "err", err)
+		}
+		return
+	}
+	_ = os.Rename(tmp, b.cfg.StatePath)
 }
 
 // Name returns the bot's IRC nick.
@@ -306,6 +380,7 @@ func (b *Bot) handleGoal(channel, nick, desc string) string {
 		CreatedBy:   nick,
 		Status:      "active",
 	})
+	b.saveState()
 	return fmt.Sprintf("goal %s set: %s", id, desc)
 }
 
@@ -330,6 +405,7 @@ func (b *Bot) handleDone(channel, goalID string) string {
 	for i, g := range b.goals[channel] {
 		if strings.EqualFold(g.ID, goalID) {
 			b.goals[channel][i].Status = "done"
+			b.saveState()
 			return fmt.Sprintf("goal %s marked done: %s", g.ID, g.Description)
 		}
 	}
@@ -350,6 +426,7 @@ func (b *Bot) handleAssign(channel, args string) string {
 		AssignedAt: time.Now(),
 		LastUpdate: time.Now(),
 	}
+	b.saveState()
 	b.mu.Unlock()
 	return fmt.Sprintf("assigned %s to %s", nick, task)
 }

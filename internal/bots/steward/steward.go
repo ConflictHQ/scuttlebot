@@ -257,6 +257,7 @@ func (b *Bot) handleReport(c *girc.Client, text string) {
 		return
 	}
 	b.cooldown[nick] = time.Now()
+	pruneTimeMap(b.cooldown, 24*time.Hour) // bound the map (#175)
 	b.mu.Unlock()
 
 	switch severity {
@@ -428,6 +429,18 @@ func parseSentinelReport(text string) (channel, nick, severity, reason string) {
 		}
 	}
 	return
+}
+
+// pruneTimeMap drops keys whose timestamp is older than maxAge. Keeps the
+// cooldown map bounded over long-running deployments (#175).
+// Caller must hold the appropriate lock.
+func pruneTimeMap(m map[string]time.Time, maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	for k, t := range m {
+		if t.Before(cutoff) {
+			delete(m, k)
+		}
+	}
 }
 
 func splitHostPort(addr string) (string, int, error) {

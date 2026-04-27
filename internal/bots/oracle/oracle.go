@@ -262,6 +262,7 @@ func (b *Bot) handle(ctx context.Context, cl *girc.Client, nick, text string) {
 		return
 	}
 	b.lastReq[nick] = time.Now()
+	pruneTimeMap(b.lastReq, 24*time.Hour) // bound the map (#175)
 	b.mu.Unlock()
 
 	// Fetch history — prefer CHATHISTORY if available, fall back to store.
@@ -345,6 +346,18 @@ func formatResponse(channel string, count int, summary string, format Format) st
 	default: // TOON
 		return fmt.Sprintf("--- oracle summary: %s (%d messages) ---\n%s\n--- end ---",
 			channel, count, summary)
+	}
+}
+
+// pruneTimeMap drops keys whose timestamp is older than maxAge. Used to keep
+// rate-limit / cooldown maps bounded over long-running deployments (#175).
+// Caller must hold the appropriate lock.
+func pruneTimeMap(m map[string]time.Time, maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	for k, t := range m {
+		if t.Before(cutoff) {
+			delete(m, k)
+		}
 	}
 }
 

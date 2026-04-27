@@ -468,7 +468,7 @@ func (m *Manager) buildBot(spec BotSpec, pass string, channels []string) (bot, e
 			Channels:        channels,
 			ReportChannel:   cfgStr(cfg, "report_channel", "#ops"),
 			CheckinInterval: time.Duration(checkinSec) * time.Second,
-			GoalSource:      cfgStr(cfg, "goal_source", ""),
+			StatePath:       cfgStr(cfg, "state_path", filepath.Join(m.dataDir, "shepherd.json")), // #175
 		}, provider, m.log), nil
 
 	default:
