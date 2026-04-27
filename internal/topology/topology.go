@@ -205,7 +205,16 @@ func (m *Manager) Invite(channel string, nicks []string) {
 }
 
 func (m *Manager) provision(ch ChannelConfig) error {
-	// Register with ChanServ (idempotent — fails silently if already registered).
+	// JOIN before REGISTER — ChanServ requires the requester to be in the
+	// channel to claim founder. Without this, REGISTER silently fails and
+	// the channel stays unregistered, leaving us with no entity that can
+	// authoritatively MODE +/-o on live sessions (#177).
+	m.client.Cmd.Join(ch.Name)
+	time.Sleep(150 * time.Millisecond)
+
+	// Register with ChanServ — the topology bot becomes founder, which
+	// gives it persistent +o on every future join and authority to deop
+	// any other user. Idempotent — fails silently if already registered.
 	m.chanserv("REGISTER %s", ch.Name)
 	time.Sleep(200 * time.Millisecond) // one short wait for ChanServ to process
 
