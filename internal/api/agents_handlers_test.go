@@ -26,10 +26,10 @@ type blockerBridge struct {
 	}
 }
 
-func (b *blockerBridge) Channels() []string                                       { return nil }
-func (b *blockerBridge) JoinChannel(string)                                       {}
-func (b *blockerBridge) LeaveChannel(string)                                      {}
-func (b *blockerBridge) Messages(string) []bridge.Message                         { return nil }
+func (b *blockerBridge) Channels() []string               { return nil }
+func (b *blockerBridge) JoinChannel(string)               {}
+func (b *blockerBridge) LeaveChannel(string)              {}
+func (b *blockerBridge) Messages(string) []bridge.Message { return nil }
 func (b *blockerBridge) Subscribe(string) (<-chan bridge.Message, func()) {
 	return make(chan bridge.Message), func() {}
 }
