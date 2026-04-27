@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,10 +127,12 @@ type Bot struct {
 	log        *slog.Logger
 	client     *girc.Client
 
-	mu       sync.Mutex
-	throttle ThrottleConfig
-	buckets  map[string]*throttleBucket
-	now      func() time.Time // overridable for tests
+	mu        sync.Mutex
+	throttle  ThrottleConfig
+	buckets   map[string]*throttleBucket
+	now       func() time.Time // overridable for tests
+	recent    []Entry          // ring buffer for QUERY/STATUS commands
+	startedAt time.Time
 }
 
 // New creates an auditbot. auditTypes is the set of message types to record;
@@ -150,8 +153,11 @@ func New(ircAddr, password string, channels []string, auditTypes []string, store
 		throttle:   DefaultThrottleConfig(),
 		buckets:    make(map[string]*throttleBucket),
 		now:        time.Now,
+		startedAt:  time.Now(),
 	}
 }
+
+const maxRecentAudit = 100
 
 // SetThrottle replaces the bot's throttle configuration. Existing bucket
 // state is reset so changes take effect immediately. Safe to call before
@@ -215,11 +221,30 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	router := cmdparse.NewRouter(botNick)
+	router.SetPurpose("the audit log — records IRC events and registry lifecycle for compliance")
 	router.Register(cmdparse.Command{
 		Name:        "query",
-		Usage:       "QUERY <nick|#channel>",
-		Description: "show recent audit events for a nick or channel",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Usage:       "QUERY <nick|#channel> [N]",
+		Description: "show recent audit events for a nick or channel (default last 5)",
+		Handler: func(_ *cmdparse.Context, args string) string {
+			return b.cmdQuery(args)
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "status",
+		Usage:       "STATUS",
+		Description: "show uptime, audited types, and throttle counters",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return b.cmdStatus()
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "recent",
+		Usage:       "RECENT [N]",
+		Description: "show the last N audit events (default 10, max 50)",
+		Handler: func(_ *cmdparse.Context, args string) string {
+			return b.cmdRecent(args)
+		},
 	})
 
 	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
@@ -473,6 +498,12 @@ func (b *Bot) write(e Entry) {
 			)
 		}
 	}
+	b.mu.Lock()
+	b.recent = append(b.recent, e)
+	if len(b.recent) > maxRecentAudit {
+		b.recent = b.recent[len(b.recent)-maxRecentAudit:]
+	}
+	b.mu.Unlock()
 }
 
 func (b *Bot) auditTypesList() []string {
@@ -530,4 +561,102 @@ func splitHostPort(addr string) (string, int, error) {
 		return "", 0, fmt.Errorf("invalid port in %q: %w", addr, err)
 	}
 	return host, port, nil
+}
+
+func (b *Bot) cmdQuery(args string) string {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return "auditbot: usage — QUERY <nick|#channel> [N]"
+	}
+	fields := strings.Fields(args)
+	target := fields[0]
+	limit := 5
+	if len(fields) > 1 {
+		if n, err := strconv.Atoi(fields[1]); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 25 {
+		limit = 25
+	}
+
+	isChannel := strings.HasPrefix(target, "#")
+
+	b.mu.Lock()
+	var hits []Entry
+	for _, e := range b.recent {
+		if isChannel && e.Channel == target {
+			hits = append(hits, e)
+		} else if !isChannel && strings.EqualFold(e.Nick, target) {
+			hits = append(hits, e)
+		}
+	}
+	b.mu.Unlock()
+
+	if len(hits) == 0 {
+		return fmt.Sprintf("auditbot: no recent events matching %s", target)
+	}
+	if len(hits) > limit {
+		hits = hits[len(hits)-limit:]
+	}
+	return fmt.Sprintf("auditbot: %d recent event(s) for %s:\n%s", len(hits), target, formatAuditEntries(hits))
+}
+
+func (b *Bot) cmdRecent(args string) string {
+	n := 10
+	if s := strings.TrimSpace(args); s != "" {
+		if parsed, err := strconv.Atoi(s); err == nil && parsed > 0 {
+			n = parsed
+		}
+	}
+	if n > 50 {
+		n = 50
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.recent) == 0 {
+		return "auditbot: no events recorded yet"
+	}
+	start := 0
+	if len(b.recent) > n {
+		start = len(b.recent) - n
+	}
+	tail := b.recent[start:]
+	return fmt.Sprintf("auditbot: %d most recent event(s):\n%s", len(tail), formatAuditEntries(tail))
+}
+
+func (b *Bot) cmdStatus() string {
+	b.mu.Lock()
+	total := len(b.recent)
+	dropped := 0
+	for _, bk := range b.buckets {
+		dropped += bk.dropped
+	}
+	b.mu.Unlock()
+
+	types := b.auditTypesList()
+	sort.Strings(types)
+	return fmt.Sprintf("auditbot: uptime %s | audit types: %s | recent in window: %d | throttle drops: %d",
+		time.Since(b.startedAt).Round(time.Second), strings.Join(types, ","), total, dropped)
+}
+
+func formatAuditEntries(entries []Entry) string {
+	var sb strings.Builder
+	for _, e := range entries {
+		who := e.Nick
+		if who == "" {
+			who = "-"
+		}
+		where := e.Channel
+		if where == "" {
+			where = "-"
+		}
+		detail := e.Detail
+		if detail == "" {
+			detail = e.MessageType
+		}
+		sb.WriteString(fmt.Sprintf("  %s %s/%s %s in %s — %s\n",
+			e.At.Format("15:04:05"), e.Kind, e.MessageType, who, where, detail))
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }

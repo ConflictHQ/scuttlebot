@@ -163,23 +163,46 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	router := cmdparse.NewRouter(b.cfg.Nick)
+	router.SetPurpose("the moderation action bot — applies warn/mute/kick on sentinel reports or operator request")
 	router.Register(cmdparse.Command{
-		Name:        "act",
-		Usage:       "ACT <incident-id>",
-		Description: "manually trigger action on incident",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Name:        "warn",
+		Usage:       "WARN <nick> [#channel] [reason]",
+		Description: "warn a user via NOTICE",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdWarn(ctx, args)
+		},
 	})
 	router.Register(cmdparse.Command{
-		Name:        "override",
-		Usage:       "OVERRIDE <incident-id>",
-		Description: "override pending action",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Name:        "mute",
+		Usage:       "MUTE <nick> [#channel] [duration]",
+		Description: "mute a user (default duration from config)",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdMute(ctx, args)
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "unmute",
+		Usage:       "UNMUTE <nick> [#channel]",
+		Description: "lift a mute early",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdUnmute(ctx, args)
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "kick",
+		Usage:       "KICK <nick> [#channel] [reason]",
+		Description: "kick a user from channel",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdKick(ctx, args)
+		},
 	})
 	router.Register(cmdparse.Command{
 		Name:        "status",
 		Usage:       "STATUS",
-		Description: "show current pending actions",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Description: "show mod channel, auto-act state, active mutes, and cooldowns",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return b.cmdStatus()
+		},
 	})
 
 	c.Handlers.AddBg(girc.PRIVMSG, func(_ *girc.Client, e girc.Event) {
@@ -443,6 +466,141 @@ func pruneTimeMap(m map[string]time.Time, maxAge time.Duration) {
 			delete(m, k)
 		}
 	}
+}
+
+// cmdWarn / cmdMute / cmdUnmute / cmdKick / cmdStatus implement the cmdparse
+// commands. Authorisation: the invoker must either be in OperatorNicks
+// (privileged direct command) or already hold +o in the target channel
+// (ad-hoc moderation by a channel op).
+
+func (b *Bot) cmdWarn(ctx *cmdparse.Context, args string) string {
+	target, channel, rest, err := b.parseModArgs(ctx, args)
+	if err != nil {
+		return err.Error()
+	}
+	if !b.authzMod(ctx.Nick, channel) {
+		return "steward: only operators or channel ops may issue WARN"
+	}
+	reason := strings.TrimSpace(rest)
+	if reason == "" {
+		reason = fmt.Sprintf("operator warning by %s", ctx.Nick)
+	}
+	b.warn(b.client, target, channel, reason)
+	return fmt.Sprintf("steward: warned %s in %s", target, channel)
+}
+
+func (b *Bot) cmdMute(ctx *cmdparse.Context, args string) string {
+	target, channel, rest, err := b.parseModArgs(ctx, args)
+	if err != nil {
+		return err.Error()
+	}
+	if !b.authzMod(ctx.Nick, channel) {
+		return "steward: only operators or channel ops may issue MUTE"
+	}
+	d := b.cfg.MuteDuration
+	if rest = strings.TrimSpace(rest); rest != "" {
+		if parsed, perr := time.ParseDuration(rest); perr == nil {
+			d = parsed
+		} else {
+			return fmt.Sprintf("steward: bad duration %q — use go time.ParseDuration syntax (e.g. 5m, 1h)", rest)
+		}
+	}
+	b.mute(b.client, target, channel, d)
+	return fmt.Sprintf("steward: muted %s in %s for %s", target, channel, d.Round(time.Second))
+}
+
+func (b *Bot) cmdUnmute(ctx *cmdparse.Context, args string) string {
+	target, channel, _, err := b.parseModArgs(ctx, args)
+	if err != nil {
+		return err.Error()
+	}
+	if !b.authzMod(ctx.Nick, channel) {
+		return "steward: only operators or channel ops may issue UNMUTE"
+	}
+	b.unmute(b.client, target, channel)
+	return fmt.Sprintf("steward: unmuted %s in %s", target, channel)
+}
+
+func (b *Bot) cmdKick(ctx *cmdparse.Context, args string) string {
+	target, channel, rest, err := b.parseModArgs(ctx, args)
+	if err != nil {
+		return err.Error()
+	}
+	if !b.authzMod(ctx.Nick, channel) {
+		return "steward: only operators or channel ops may issue KICK"
+	}
+	reason := strings.TrimSpace(rest)
+	if reason == "" {
+		reason = fmt.Sprintf("removed by %s", ctx.Nick)
+	}
+	b.kick(b.client, target, channel, reason)
+	return fmt.Sprintf("steward: kicked %s from %s", target, channel)
+}
+
+func (b *Bot) cmdStatus() string {
+	b.mu.Lock()
+	muteCount := len(b.mutes)
+	cooldownCount := len(b.cooldown)
+	b.mu.Unlock()
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("steward: mod channel %s | ", b.cfg.ModChannel))
+	if b.cfg.AutoAct {
+		sb.WriteString("auto-act ON")
+	} else {
+		sb.WriteString("auto-act OFF (operator-only)")
+	}
+	sb.WriteString(fmt.Sprintf(" | mute duration %s | cooldown/nick %s\n",
+		b.cfg.MuteDuration.Round(time.Second), b.cfg.CooldownPerNick.Round(time.Second)))
+	sb.WriteString(fmt.Sprintf("active mutes: %d | nicks in cooldown: %d", muteCount, cooldownCount))
+	return sb.String()
+}
+
+func (b *Bot) parseModArgs(ctx *cmdparse.Context, args string) (nick, channel, rest string, err error) {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return "", "", "", fmt.Errorf("steward: usage — <nick> [#channel] [reason/duration]")
+	}
+	fields := strings.Fields(args)
+	nick = fields[0]
+	tail := fields[1:]
+	channel = ctx.Channel
+	if len(tail) > 0 && strings.HasPrefix(tail[0], "#") {
+		channel = tail[0]
+		tail = tail[1:]
+	}
+	if channel == "" || channel == b.cfg.ModChannel {
+		// Mod channel itself is steward's broadcast channel — don't moderate
+		// there. If the operator addressed steward in #moderation without
+		// naming a channel, that's almost certainly an error.
+		if channel == b.cfg.ModChannel {
+			return "", "", "", fmt.Errorf("steward: name a target #channel — %s is steward's broadcast channel", b.cfg.ModChannel)
+		}
+		return "", "", "", fmt.Errorf("steward: in a DM you must name a #channel")
+	}
+	rest = strings.Join(tail, " ")
+	return nick, channel, rest, nil
+}
+
+// authzMod gates moderation commands. The invoker is allowed if they are
+// listed in OperatorNicks (configured trusted operators) or already hold +o
+// in the target channel.
+func (b *Bot) authzMod(nick, channel string) bool {
+	if b.isOperator(nick) {
+		return true
+	}
+	if b.client == nil {
+		return false
+	}
+	user := b.client.LookupUser(nick)
+	if user == nil || user.Perms == nil {
+		return false
+	}
+	perms, ok := user.Perms.Lookup(channel)
+	if !ok {
+		return false
+	}
+	return perms.IsAdmin()
 }
 
 func splitHostPort(addr string) (string, int, error) {

@@ -202,17 +202,38 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	router := cmdparse.NewRouter(b.cfg.Nick)
+	router.SetPurpose("the surveillance bot — flags floods, join/part cycling, and offline monitored nicks")
 	router.Register(cmdparse.Command{
 		Name:        "status",
 		Usage:       "STATUS",
-		Description: "show current active alerts",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Description: "show thresholds, monitored nicks, and active flood/cycling alerts",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return b.cmdStatus()
+		},
 	})
 	router.Register(cmdparse.Command{
-		Name:        "acknowledge",
-		Usage:       "ACKNOWLEDGE <alert-id>",
-		Description: "acknowledge an alert",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Name:        "watch",
+		Usage:       "WATCH <nick>",
+		Description: "add a nick to the offline-watch (MONITOR) list",
+		Handler: func(_ *cmdparse.Context, args string) string {
+			return b.cmdWatch(args)
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "unwatch",
+		Usage:       "UNWATCH <nick>",
+		Description: "remove a nick from the offline-watch list",
+		Handler: func(_ *cmdparse.Context, args string) string {
+			return b.cmdUnwatch(args)
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "ack",
+		Usage:       "ACK <nick> [#channel]",
+		Description: "acknowledge a flood alert (clears cooldown so future floods alert again)",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdAck(ctx, args)
+		},
 	})
 
 	c.Handlers.AddBg(girc.PRIVMSG, func(_ *girc.Client, e girc.Event) {
@@ -349,6 +370,87 @@ func pruneTimeMap(m map[string]time.Time, maxAge time.Duration) {
 			delete(m, k)
 		}
 	}
+}
+
+func (b *Bot) cmdStatus() string {
+	b.mu.Lock()
+	channelCount := len(b.windows)
+	activeAlerts := len(b.alerted)
+	monitorCount := len(b.cfg.MonitorNicks)
+	b.mu.Unlock()
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("snitch: alert→%s | flood %d msgs/%s | join/part %d/%s | monitor=%d nick(s) | tracking %d channel(s) | active cooldowns=%d",
+		alertDestLabel(b.cfg),
+		b.cfg.FloodMessages, b.cfg.FloodWindow.Round(time.Second),
+		b.cfg.JoinPartThreshold, b.cfg.JoinPartWindow.Round(time.Second),
+		monitorCount, channelCount, activeAlerts))
+	return sb.String()
+}
+
+func alertDestLabel(c Config) string {
+	if c.AlertChannel != "" {
+		return c.AlertChannel
+	}
+	if len(c.AlertNicks) > 0 {
+		return "DM " + strings.Join(c.AlertNicks, ",")
+	}
+	return "(none — alerts log-only)"
+}
+
+func (b *Bot) cmdWatch(args string) string {
+	nick := strings.TrimSpace(args)
+	if nick == "" {
+		return "snitch: usage — WATCH <nick>"
+	}
+	b.MonitorAdd(nick)
+	b.mu.Lock()
+	b.cfg.MonitorNicks = append(b.cfg.MonitorNicks, nick)
+	b.mu.Unlock()
+	return fmt.Sprintf("snitch: watching %s for offline events", nick)
+}
+
+func (b *Bot) cmdUnwatch(args string) string {
+	nick := strings.TrimSpace(args)
+	if nick == "" {
+		return "snitch: usage — UNWATCH <nick>"
+	}
+	b.MonitorRemove(nick)
+	b.mu.Lock()
+	out := b.cfg.MonitorNicks[:0]
+	for _, n := range b.cfg.MonitorNicks {
+		if !strings.EqualFold(n, nick) {
+			out = append(out, n)
+		}
+	}
+	b.cfg.MonitorNicks = out
+	b.mu.Unlock()
+	return fmt.Sprintf("snitch: stopped watching %s", nick)
+}
+
+func (b *Bot) cmdAck(ctx *cmdparse.Context, args string) string {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return "snitch: usage — ACK <nick> [#channel]"
+	}
+	fields := strings.Fields(args)
+	nick := fields[0]
+	channel := ctx.Channel
+	if len(fields) > 1 && strings.HasPrefix(fields[1], "#") {
+		channel = fields[1]
+	}
+	if channel == "" {
+		return "snitch: in a DM you must name a #channel — usage: ACK <nick> #channel"
+	}
+	key := "flood:" + channel + ":" + nick
+	b.mu.Lock()
+	_, had := b.alerted[key]
+	delete(b.alerted, key)
+	b.mu.Unlock()
+	if !had {
+		return fmt.Sprintf("snitch: no active flood cooldown for %s in %s", nick, channel)
+	}
+	return fmt.Sprintf("snitch: acknowledged — flood cooldown cleared for %s in %s", nick, channel)
 }
 
 func splitHostPort(addr string) (string, int, error) {

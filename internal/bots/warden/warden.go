@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -306,29 +307,38 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	router := cmdparse.NewRouter(botNick)
+	router.SetPurpose("the channel moderation bot — rate-limits, mutes, and kicks misbehaving agents")
 	router.Register(cmdparse.Command{
 		Name:        "warn",
 		Usage:       "WARN <nick> [reason]",
 		Description: "issue a warning to a user",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdWarn(c, ctx, args)
+		},
 	})
 	router.Register(cmdparse.Command{
 		Name:        "mute",
-		Usage:       "MUTE <nick> [duration]",
-		Description: "mute a user",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Usage:       "MUTE <nick> [reason]",
+		Description: "mute a user (silenced for the channel cool-down)",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdMute(c, ctx, args)
+		},
 	})
 	router.Register(cmdparse.Command{
 		Name:        "kick",
 		Usage:       "KICK <nick> [reason]",
 		Description: "kick a user from channel",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdKick(c, ctx, args)
+		},
 	})
 	router.Register(cmdparse.Command{
 		Name:        "status",
 		Usage:       "STATUS",
-		Description: "show current warnings and mutes",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Description: "show channels under moderation and recent enforcement counts",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return b.cmdStatus()
+		},
 	})
 
 	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
@@ -488,4 +498,113 @@ func minF(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// cmdWarn issues a one-shot WARN to nick. If invoked from a channel, the
+// warning lands in that channel; from a DM, the operator must name the channel
+// inline ("WARN <nick> #channel [reason]").
+func (b *Bot) cmdWarn(cl *girc.Client, ctx *cmdparse.Context, args string) string {
+	target, channel, reason, err := parseModArgs(ctx, args)
+	if err != nil {
+		return err.Error()
+	}
+	if !operatorAllowed(cl, channel, ctx.Nick) {
+		return fmt.Sprintf("warden: only channel operators may issue WARN in %s", channel)
+	}
+	b.enforce(cl, channel, target, ActionWarn, fmt.Sprintf("manual warning by %s%s", ctx.Nick, suffix(reason)))
+	return fmt.Sprintf("warden: warned %s in %s", target, channel)
+}
+
+func (b *Bot) cmdMute(cl *girc.Client, ctx *cmdparse.Context, args string) string {
+	target, channel, reason, err := parseModArgs(ctx, args)
+	if err != nil {
+		return err.Error()
+	}
+	if !operatorAllowed(cl, channel, ctx.Nick) {
+		return fmt.Sprintf("warden: only channel operators may issue MUTE in %s", channel)
+	}
+	b.enforce(cl, channel, target, ActionMute, fmt.Sprintf("manual mute by %s%s", ctx.Nick, suffix(reason)))
+	return fmt.Sprintf("warden: muted %s in %s (auto-unmute after cool-down)", target, channel)
+}
+
+func (b *Bot) cmdKick(cl *girc.Client, ctx *cmdparse.Context, args string) string {
+	target, channel, reason, err := parseModArgs(ctx, args)
+	if err != nil {
+		return err.Error()
+	}
+	if !operatorAllowed(cl, channel, ctx.Nick) {
+		return fmt.Sprintf("warden: only channel operators may issue KICK in %s", channel)
+	}
+	b.enforce(cl, channel, target, ActionKick, fmt.Sprintf("manual kick by %s%s", ctx.Nick, suffix(reason)))
+	return fmt.Sprintf("warden: kicked %s from %s", target, channel)
+}
+
+func (b *Bot) cmdStatus() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if len(b.channels) == 0 {
+		return "warden: no channels actively tracked yet"
+	}
+
+	chans := make([]string, 0, len(b.channels))
+	for ch := range b.channels {
+		chans = append(chans, ch)
+	}
+	sort.Strings(chans)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("warden: tracking %d channel(s):\n", len(chans)))
+	for _, ch := range chans {
+		cs := b.channels[ch]
+		cs.mu.Lock()
+		var active, totalViolations int
+		for _, ns := range cs.nicks {
+			if ns.violations > 0 {
+				active++
+				totalViolations += ns.violations
+			}
+		}
+		cs.mu.Unlock()
+		sb.WriteString(fmt.Sprintf("  %s — rate=%.1f/s burst=%d cooldown=%s; %d nick(s) with %d violation(s)\n",
+			ch, cs.cfg.MessagesPerSecond, cs.cfg.Burst, cs.cfg.CoolDown, active, totalViolations))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// parseModArgs extracts (nick, channel, reason) from a WARN/MUTE/KICK
+// invocation. In a channel ctx, the channel defaults to ctx.Channel; in a DM
+// the operator must include "#channel" inline.
+func parseModArgs(ctx *cmdparse.Context, args string) (nick, channel, reason string, err error) {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return "", "", "", fmt.Errorf("warden: usage — <nick> [#channel] [reason]")
+	}
+	fields := strings.Fields(args)
+	nick = fields[0]
+	rest := fields[1:]
+	channel = ctx.Channel
+	if len(rest) > 0 && strings.HasPrefix(rest[0], "#") {
+		channel = rest[0]
+		rest = rest[1:]
+	}
+	if channel == "" {
+		return "", "", "", fmt.Errorf("warden: in a DM you must name a #channel — usage: <nick> #channel [reason]")
+	}
+	reason = strings.TrimSpace(strings.Join(rest, " "))
+	return nick, channel, reason, nil
+}
+
+func suffix(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	return ": " + reason
+}
+
+// operatorAllowed authorises a moderation command. The invoker must already
+// hold +o (or higher) in the target channel — warden never trusts unprivileged
+// nicks to escalate enforcement on their own.
+func operatorAllowed(cl *girc.Client, channel, nick string) bool {
+	return isChannelOp(cl, channel, nick)
 }

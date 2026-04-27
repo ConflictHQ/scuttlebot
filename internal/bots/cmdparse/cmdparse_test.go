@@ -419,3 +419,76 @@ func TestLeadingTrailingWhitespace(t *testing.T) {
 		t.Errorf("text = %q, want %q", reply.Text, "ok")
 	}
 }
+
+// --- Greeting handling ---
+
+func TestGreet_Addressed(t *testing.T) {
+	r := testRouter()
+	r.SetPurpose("the channel history bot")
+	reply := r.Dispatch("alice", "#general", "scroll: hi")
+	if reply == nil {
+		t.Fatal("expected reply, got nil")
+	}
+	if reply.Target != "#general" {
+		t.Errorf("target = %q, want %q", reply.Target, "#general")
+	}
+	if !strings.Contains(reply.Text, "hi alice") {
+		t.Errorf("expected greeting to mention nick, got: %s", reply.Text)
+	}
+	if !strings.Contains(reply.Text, "channel history bot") {
+		t.Errorf("expected greeting to include purpose, got: %s", reply.Text)
+	}
+	if !strings.Contains(reply.Text, "HELP") {
+		t.Errorf("expected greeting to nudge to HELP, got: %s", reply.Text)
+	}
+}
+
+func TestGreet_DM_NoPurpose(t *testing.T) {
+	r := testRouter()
+	reply := r.Dispatch("alice", "scroll", "hello")
+	if reply == nil {
+		t.Fatal("expected reply, got nil")
+	}
+	if !strings.Contains(reply.Text, "hi alice") {
+		t.Errorf("expected greeting, got: %s", reply.Text)
+	}
+}
+
+func TestGreet_VariousOpeners(t *testing.T) {
+	r := testRouter()
+	for _, opener := range []string{"hi", "hello", "HEY", "yo", "sup", "howdy", "Greetings", "hi!", "hey?"} {
+		reply := r.Dispatch("bob", "scroll", opener)
+		if reply == nil {
+			t.Errorf("opener %q: expected reply, got nil", opener)
+			continue
+		}
+		if !strings.Contains(reply.Text, "hi bob") {
+			t.Errorf("opener %q: expected greeting, got: %s", opener, reply.Text)
+		}
+	}
+}
+
+func TestGreet_RegisteredCommandWins(t *testing.T) {
+	// If a bot registers PING, that handler beats the greeting fallback.
+	r := NewRouter("bot")
+	r.Register(Command{
+		Name:    "ping",
+		Handler: func(*Context, string) string { return "pong" },
+	})
+	reply := r.Dispatch("alice", "bot", "ping")
+	if reply == nil || reply.Text != "pong" {
+		t.Errorf("expected pong, got %+v", reply)
+	}
+}
+
+func TestHelp_IncludesPurpose(t *testing.T) {
+	r := testRouter()
+	r.SetPurpose("history-replay bot")
+	reply := r.Dispatch("alice", "scroll", "help")
+	if reply == nil {
+		t.Fatal("expected reply, got nil")
+	}
+	if !strings.Contains(reply.Text, "history-replay bot") {
+		t.Errorf("expected HELP to include purpose, got: %s", reply.Text)
+	}
+}

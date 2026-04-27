@@ -118,11 +118,21 @@ func (b *Bot) Start(ctx context.Context) error {
 			return
 		}
 		target := e.Params[0]
-		if strings.HasPrefix(target, "#") {
-			return // channel message, ignore
-		}
 		nick := e.Source.Name
 		text := strings.TrimSpace(e.Last())
+
+		if strings.HasPrefix(target, "#") {
+			if reply := matchAddressed(b.nick, nick, text); reply != "" {
+				client.Cmd.Message(target, reply)
+			}
+			return
+		}
+
+		// DM path: trap greetings before the strict replay parser.
+		if isGreetOrHelp(text) {
+			client.Cmd.Notice(nick, fmt.Sprintf("scroll here — I replay channel history. Try: replay #channel [last=N] [since=<unix_ms>] [format=json|toon]"))
+			return
+		}
 		b.handle(client, nick, text)
 	})
 
@@ -310,4 +320,36 @@ func splitHostPort(addr string) (string, int, error) {
 		return "", 0, fmt.Errorf("invalid port in %q: %w", addr, err)
 	}
 	return host, port, nil
+}
+
+// matchAddressed returns a friendly response when text addresses our nick in
+// a channel ("scroll: hi"). Real replay/search work runs from DMs.
+func matchAddressed(myNick, fromNick, text string) string {
+	lower := strings.ToLower(text)
+	prefixes := []string{strings.ToLower(myNick) + ": ", strings.ToLower(myNick) + ":", strings.ToLower(myNick) + ", "}
+	rest := ""
+	matched := false
+	for _, p := range prefixes {
+		if strings.HasPrefix(lower, p) {
+			rest = strings.TrimSpace(text[len(p):])
+			matched = true
+			break
+		}
+	}
+	if !matched || rest == "" {
+		return ""
+	}
+	if isGreetOrHelp(rest) {
+		return fmt.Sprintf("hi %s — I'm %s, the channel-history replay bot. Send me a DM with: replay #channel [last=N] [since=<unix_ms>] [format=json|toon]", fromNick, myNick)
+	}
+	return fmt.Sprintf("%s: %s — I run from DMs only. Send me a private message with: replay #channel [last=N]", fromNick, myNick)
+}
+
+func isGreetOrHelp(text string) bool {
+	w := strings.ToLower(strings.TrimRight(strings.Fields(text + " ")[0], "!?.,"))
+	switch w {
+	case "hi", "hello", "hey", "yo", "sup", "hola", "howdy", "greetings", "ping", "help", "?":
+		return true
+	}
+	return false
 }
