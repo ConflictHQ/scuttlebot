@@ -332,7 +332,9 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	b.mu.Lock()
 	b.client = c
+	b.mu.Unlock()
 
 	// Start periodic check-in if configured.
 	if b.cfg.CheckinInterval > 0 {

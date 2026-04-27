@@ -303,7 +303,9 @@ func (b *Bot) Start(ctx context.Context) error {
 		b.handleNick(oldNick, newNick, channels)
 	})
 
+	b.mu.Lock()
 	b.client = c
+	b.mu.Unlock()
 
 	errCh := make(chan error, 1)
 	go func() {

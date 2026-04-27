@@ -221,7 +221,9 @@ func (b *Bot) Start(ctx context.Context) error {
 		go b.handle(ctx, cl, nick, text)
 	})
 
+	b.mu.Lock()
 	b.client = c
+	b.mu.Unlock()
 
 	errCh := make(chan error, 1)
 	go func() {

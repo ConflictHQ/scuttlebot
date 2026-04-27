@@ -211,7 +211,9 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 	})
 
+	b.mu.Lock()
 	b.client = c
+	b.mu.Unlock()
 
 	// Background loop: unmute nicks whose mute duration has elapsed.
 	go b.unmuteLoop(ctx)

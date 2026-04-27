@@ -215,7 +215,9 @@ func (b *Bot) Start(ctx context.Context) error {
 		b.buffer(ctx, channel, nick, e.Last())
 	})
 
+	b.mu.Lock()
 	b.client = c
+	b.mu.Unlock()
 
 	// Background scanner — forces analysis on aged buffers.
 	go b.scanLoop(ctx)
