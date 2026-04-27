@@ -58,6 +58,8 @@ func (b *teamScopeBridge) ChannelModes(string) string { return "" }
 
 func (b *teamScopeBridge) RefreshNames(string) {}
 
+func (b *teamScopeBridge) SetMode(string, string, string) {}
+
 func newTeamScopedServer(t *testing.T, bridgeStub *teamScopeBridge) (*httptest.Server, *registry.Registry) {
 	t.Helper()
 	reg := registry.New(newMock(), []byte("test-signing-key"))

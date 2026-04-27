@@ -26,6 +26,7 @@ type chatBridge interface {
 	UsersWithModes(channel string) []bridge.UserInfo
 	ChannelModes(channel string) string
 	RefreshNames(channel string)
+	SetMode(channel, mode, target string)
 }
 
 func (s *Server) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
