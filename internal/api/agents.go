@@ -260,8 +260,12 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Channels []string `json:"channels"`
-		Team     *string  `json:"team,omitempty"`
+		Channels      []string  `json:"channels"`
+		Team          *string   `json:"team,omitempty"`
+		SystemPrompt  *string   `json:"system_prompt,omitempty"`
+		Model         *string   `json:"model,omitempty"`
+		Temperature   *float64  `json:"temperature,omitempty"`
+		ToolAllowlist *[]string `json:"tool_allowlist,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -293,6 +297,28 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "update failed")
 			return
 		}
+	}
+	// Per-agent LLM config: system prompt, model, temperature, tool allowlist
+	// (#176). Pointer types so absent vs explicit-empty is distinguishable.
+	if req.SystemPrompt != nil || req.Model != nil || req.Temperature != nil || req.ToolAllowlist != nil {
+		if req.SystemPrompt != nil {
+			agent.Config.SystemPrompt = *req.SystemPrompt
+		}
+		if req.Model != nil {
+			agent.Config.Model = *req.Model
+		}
+		if req.Temperature != nil {
+			agent.Config.Temperature = req.Temperature
+		}
+		if req.ToolAllowlist != nil {
+			agent.Config.ToolAllowlist = *req.ToolAllowlist
+		}
+		if err := s.registry.Update(agent); err != nil {
+			s.log.Error("update agent llm config", "nick", nick, "err", err)
+			writeError(w, http.StatusInternalServerError, "update failed")
+			return
+		}
+		s.log.Info("agent config updated", "nick", nick, "fields", []string{"system_prompt", "model", "temperature", "tool_allowlist"})
 	}
 	s.registry.Touch(nick)
 	w.WriteHeader(http.StatusNoContent)

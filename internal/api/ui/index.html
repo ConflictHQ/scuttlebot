@@ -1964,6 +1964,7 @@ function renderAgentTable() {
       <td>${chs||'<span style="color:#8b949e">—</span>'}</td>
       <td style="white-space:nowrap;${seenStyle}">${seen}</td>
       <td><div class="actions">${!a.revoked?`
+        <button class="sm" onclick="editAgent('${esc(a.nick)}')" title="Edit per-agent system prompt, model, temperature">edit</button>
         <button class="sm" onclick="rotateAgent('${esc(a.nick)}')">rotate</button>
         <button class="sm danger" onclick="revokeAgent('${esc(a.nick)}')">revoke</button>`:``}
         <button class="sm danger" onclick="deleteAgent('${esc(a.nick)}')">delete</button></div></td>
@@ -1972,6 +1973,84 @@ function renderAgentTable() {
   renderTable('agents-container', null, rows,
     bots.length ? 'no agents match the filter' : 'no agents registered yet',
     ['<input type="checkbox" id="agent-select-all" onchange="toggleSelectAllAgents(this.checked)" style="margin-right:6px">nick','type','channels','last seen','']);
+}
+
+// editAgent opens an inline modal for editing per-agent LLM config
+// (system prompt, model, temperature, tool allowlist) — see #176.
+function editAgent(nick) {
+  const a = allAgents.find(x => x.nick === nick);
+  if (!a) { alert('Agent not found'); return; }
+  const cfg = a.config || {};
+  const existing = document.getElementById('agent-edit-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'agent-edit-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:#000c;z-index:1000;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;max-width:640px;width:90%;max-height:90vh;overflow:auto">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <h2 style="margin:0;font-size:16px">edit agent: <code>${esc(nick)}</code></h2>
+        <span class="tag type-${esc(a.type)}">${esc(a.type)}</span>
+        <div style="flex:1"></div>
+        <button class="sm" onclick="document.getElementById('agent-edit-modal').remove()">close</button>
+      </div>
+      <p style="font-size:12px;color:#8b949e;margin-bottom:14px">Per-agent LLM configuration. Empty fields fall back to the policy default. The relay reads these on startup via <code>/v1/relay/config?nick=…</code>.</p>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;font-weight:600">system prompt</label>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px">Sent as the system message to the LLM. Empty = use the policy-level default.</div>
+        <textarea id="agent-edit-prompt" rows="8" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px">${esc(cfg.system_prompt||'')}</textarea>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <div style="flex:2">
+          <label style="font-size:12px;font-weight:600">model</label>
+          <div style="font-size:11px;color:#8b949e;margin-bottom:4px">Override the provider's default (e.g. <code>gpt-5.4</code>, <code>claude-opus-4-7</code>).</div>
+          <input type="text" id="agent-edit-model" value="${esc(cfg.model||'')}" placeholder="leave empty for default" style="width:100%">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:12px;font-weight:600">temperature</label>
+          <div style="font-size:11px;color:#8b949e;margin-bottom:4px">0.0 – 2.0; empty = default.</div>
+          <input type="number" id="agent-edit-temp" min="0" max="2" step="0.1" value="${cfg.temperature===undefined||cfg.temperature===null?'':cfg.temperature}" placeholder="" style="width:100%">
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:12px;font-weight:600">tool allowlist</label>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px">Comma-separated tool names the agent may invoke. Empty = no restriction.</div>
+        <input type="text" id="agent-edit-tools" value="${esc((cfg.tool_allowlist||[]).join(', '))}" placeholder="e.g. Read, Edit, Bash" style="width:100%">
+      </div>
+      <div id="agent-edit-result" style="display:none;margin-bottom:12px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="sm" onclick="document.getElementById('agent-edit-modal').remove()">cancel</button>
+        <button class="sm primary" onclick="saveAgentConfig('${esc(nick)}')">save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function saveAgentConfig(nick) {
+  const prompt = document.getElementById('agent-edit-prompt').value;
+  const model = document.getElementById('agent-edit-model').value.trim();
+  const tempStr = document.getElementById('agent-edit-temp').value.trim();
+  const toolsStr = document.getElementById('agent-edit-tools').value.trim();
+  const body = { system_prompt: prompt, model: model };
+  if (tempStr !== '') {
+    const t = Number(tempStr);
+    if (!isNaN(t)) body.temperature = t;
+  } else {
+    body.temperature = null;
+  }
+  body.tool_allowlist = toolsStr === '' ? [] : toolsStr.split(',').map(s => s.trim()).filter(Boolean);
+  const resultEl = document.getElementById('agent-edit-result');
+  try {
+    await api('PATCH', `/v1/agents/${nick}`, body);
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = renderAlert('success', 'saved.');
+    await loadAgents();
+    setTimeout(() => { document.getElementById('agent-edit-modal')?.remove(); }, 800);
+  } catch(e) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = renderAlert('error', e.message);
+  }
 }
 
 async function revokeAgent(nick) {
