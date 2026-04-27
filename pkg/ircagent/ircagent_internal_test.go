@@ -495,4 +495,3 @@ func TestRunUnreachableAddress(t *testing.T) {
 		t.Errorf("expected irc-wrapped error, got %v", err)
 	}
 }
-
