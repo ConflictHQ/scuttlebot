@@ -356,18 +356,25 @@ func TestRevokeRemovesAccess(t *testing.T) {
 	})
 	resp.Body.Close()
 
+	// setAgentModes is now self-healing and revokes-then-grants on every
+	// call; that means register itself emits N revokes (one per channel)
+	// before granting. Snapshot the count after register so the assertion
+	// only counts revokes from the explicit revoke API call below.
+	revokesAfterRegister := len(stub.revokes)
+
 	resp = topoDoJSON(t, srv, tok, "POST", "/v1/agents/orch-rev/revoke", nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("revoke: want 204, got %d", resp.StatusCode)
 	}
 
-	if len(stub.revokes) != 2 {
-		t.Fatalf("revokes: want 2, got %d", len(stub.revokes))
+	revokeOnly := stub.revokes[revokesAfterRegister:]
+	if len(revokeOnly) != 2 {
+		t.Fatalf("revokes from explicit revoke: want 2, got %d", len(revokeOnly))
 	}
 	for i, want := range []string{"#fleet", "#project.x"} {
-		if stub.revokes[i].Channel != want {
-			t.Errorf("revoke[%d].Channel = %q, want %q", i, stub.revokes[i].Channel, want)
+		if revokeOnly[i].Channel != want {
+			t.Errorf("revoke[%d].Channel = %q, want %q", i, revokeOnly[i].Channel, want)
 		}
 	}
 }
@@ -383,16 +390,19 @@ func TestDeleteRemovesAccess(t *testing.T) {
 	})
 	resp.Body.Close()
 
+	revokesAfterRegister := len(stub.revokes)
+
 	resp = topoDoJSON(t, srv, tok, "DELETE", "/v1/agents/del-agent", nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete: want 204, got %d", resp.StatusCode)
 	}
 
-	if len(stub.revokes) != 1 {
-		t.Fatalf("revokes: want 1, got %d", len(stub.revokes))
+	revokeOnly := stub.revokes[revokesAfterRegister:]
+	if len(revokeOnly) != 1 {
+		t.Fatalf("revokes from explicit delete: want 1, got %d", len(revokeOnly))
 	}
-	if stub.revokes[0].Nick != "del-agent" || stub.revokes[0].Channel != "#fleet" {
-		t.Errorf("revoke = %+v, want del-agent on #fleet", stub.revokes[0])
+	if revokeOnly[0].Nick != "del-agent" || revokeOnly[0].Channel != "#fleet" {
+		t.Errorf("revoke = %+v, want del-agent on #fleet", revokeOnly[0])
 	}
 }

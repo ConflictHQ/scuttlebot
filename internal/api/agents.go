@@ -411,10 +411,13 @@ func agentModeLevel(t registry.AgentType) string {
 	}
 }
 
-// setAgentModes grants the appropriate ChanServ access for an agent on all
-// its assigned channels based on its type. Orchestrators get OP only on the
-// channels listed in OpsChannels; everywhere else they're +v like workers.
-// No-op when topology is not configured or the agent type doesn't warrant a mode.
+// setAgentModes reconciles the ChanServ AMODE entries for an agent so they
+// match the current agentModeLevel policy. Each call revokes any prior
+// AMODE for the nick on each channel and grants the correct level — making
+// the function idempotent and self-healing for stale grants written under
+// older policy (e.g. orchestrator-was-OP entries that should now be +v).
+// No-op when topology is not configured or the agent type doesn't warrant
+// a mode.
 func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg registry.EngagementConfig) {
 	if s.topoMgr == nil {
 		return
@@ -433,6 +436,7 @@ func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg re
 			opsSet[ch] = struct{}{}
 		}
 		for _, ch := range cfg.Channels {
+			s.topoMgr.RevokeAccess(nick, ch)
 			if _, isOps := opsSet[ch]; isOps {
 				s.topoMgr.GrantAccess(nick, ch, "OP")
 			} else {
@@ -443,6 +447,7 @@ func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg re
 	}
 
 	for _, ch := range cfg.Channels {
+		s.topoMgr.RevokeAccess(nick, ch)
 		s.topoMgr.GrantAccess(nick, ch, level)
 	}
 }
@@ -455,5 +460,25 @@ func (s *Server) removeAgentModes(nick string, channels []string) {
 	}
 	for _, ch := range channels {
 		s.topoMgr.RevokeAccess(nick, ch)
+	}
+}
+
+// ReconcileAgentModes walks every registered agent and reapplies setAgentModes
+// so AMODE entries match the current agentModeLevel policy. Used at daemon
+// startup to clear stale +o grants written under an older policy (e.g.
+// orchestrator-was-OP entries that should now be +v). Safe to call any time.
+func (s *Server) ReconcileAgentModes() {
+	if s.topoMgr == nil || s.registry == nil {
+		return
+	}
+	agents := s.registry.List()
+	for _, a := range agents {
+		if a == nil || a.Revoked {
+			continue
+		}
+		s.setAgentModes(a.Nick, a.Type, a.Config)
+	}
+	if s.log != nil {
+		s.log.Info("api: reconciled agent modes", "count", len(agents))
 	}
 }
