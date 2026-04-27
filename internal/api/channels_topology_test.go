@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,7 +27,10 @@ type accessCall struct {
 
 // stubTopologyManager implements topologyManager for tests.
 // It records the last ProvisionChannel call and returns a canned Policy.
+// All mutable state is mutex-guarded so tests can read it concurrently with
+// the goroutine handleRegister spawns to call setAgentModes.
 type stubTopologyManager struct {
+	mu      sync.Mutex
 	last    topology.ChannelConfig
 	policy  *topology.Policy
 	provErr error
@@ -35,23 +39,74 @@ type stubTopologyManager struct {
 }
 
 func (s *stubTopologyManager) ProvisionChannel(ch topology.ChannelConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.last = ch
 	return s.provErr
 }
 
 func (s *stubTopologyManager) DropChannel(_ string) {}
 
-func (s *stubTopologyManager) Policy() *topology.Policy { return s.policy }
+func (s *stubTopologyManager) Policy() *topology.Policy {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.policy
+}
 
 func (s *stubTopologyManager) GrantAccess(nick, channel, level string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.grants = append(s.grants, accessCall{Nick: nick, Channel: channel, Level: level})
 }
 
 func (s *stubTopologyManager) RevokeAccess(nick, channel string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.revokes = append(s.revokes, accessCall{Nick: nick, Channel: channel})
 }
 
 func (s *stubTopologyManager) ListChannels() []topology.ChannelInfo { return nil }
+
+// snapshotGrants / snapshotRevokes return copies of the recorded calls under
+// the lock so tests can iterate without racing the writer goroutine.
+func (s *stubTopologyManager) snapshotGrants() []accessCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]accessCall, len(s.grants))
+	copy(out, s.grants)
+	return out
+}
+func (s *stubTopologyManager) snapshotRevokes() []accessCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]accessCall, len(s.revokes))
+	copy(out, s.revokes)
+	return out
+}
+
+// waitForGrants polls until at least n grants have been recorded or timeout.
+// Returns the snapshot. handleRegister fires setAgentModes asynchronously,
+// so synchronous tests need a brief settle window before asserting.
+func (s *stubTopologyManager) waitForGrants(n int, timeout time.Duration) []accessCall {
+	deadline := time.Now().Add(timeout)
+	for {
+		got := s.snapshotGrants()
+		if len(got) >= n || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+func (s *stubTopologyManager) waitForRevokes(n int, timeout time.Duration) []accessCall {
+	deadline := time.Now().Add(timeout)
+	for {
+		got := s.snapshotRevokes()
+		if len(got) >= n || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
 
 // stubProvisioner is a minimal AccountProvisioner for agent registration tests.
 type stubProvisioner struct {
@@ -240,15 +295,16 @@ func TestRegisterGrantsVoiceForOrchestratorByDefault(t *testing.T) {
 		t.Fatalf("register: want 201, got %d", resp.StatusCode)
 	}
 
-	if len(stub.grants) != 2 {
-		t.Fatalf("grants: want 2, got %d", len(stub.grants))
+	grants := stub.waitForGrants(2, 2*time.Second)
+	if len(grants) != 2 {
+		t.Fatalf("grants: want 2, got %d", len(grants))
 	}
 	for i, want := range []accessCall{
 		{Nick: "orch-1", Channel: "#fleet", Level: "VOICE"},
 		{Nick: "orch-1", Channel: "#project.foo", Level: "VOICE"},
 	} {
-		if stub.grants[i] != want {
-			t.Errorf("grant[%d] = %+v, want %+v", i, stub.grants[i], want)
+		if grants[i] != want {
+			t.Errorf("grant[%d] = %+v, want %+v", i, grants[i], want)
 		}
 	}
 }
@@ -267,11 +323,12 @@ func TestRegisterGrantsVOICEForWorker(t *testing.T) {
 		t.Fatalf("register: want 201, got %d", resp.StatusCode)
 	}
 
-	if len(stub.grants) != 1 {
-		t.Fatalf("grants: want 1, got %d", len(stub.grants))
+	grants := stub.waitForGrants(1, 2*time.Second)
+	if len(grants) != 1 {
+		t.Fatalf("grants: want 1, got %d", len(grants))
 	}
-	if stub.grants[0].Level != "VOICE" {
-		t.Errorf("level = %q, want VOICE", stub.grants[0].Level)
+	if grants[0].Level != "VOICE" {
+		t.Errorf("level = %q, want VOICE", grants[0].Level)
 	}
 }
 
@@ -289,8 +346,12 @@ func TestRegisterNoModeForObserver(t *testing.T) {
 		t.Fatalf("register: want 201, got %d", resp.StatusCode)
 	}
 
-	if len(stub.grants) != 0 {
-		t.Errorf("grants: want 0, got %d — observer should get no mode", len(stub.grants))
+	// Observer should get no mode — give the async setAgentModes a moment
+	// to confirm nothing accidentally fires.
+	time.Sleep(50 * time.Millisecond)
+	grants := stub.snapshotGrants()
+	if len(grants) != 0 {
+		t.Errorf("grants: want 0, got %d — observer should get no mode", len(grants))
 	}
 }
 
@@ -308,11 +369,12 @@ func TestRegisterGrantsOPForOperator(t *testing.T) {
 		t.Fatalf("register: want 201, got %d", resp.StatusCode)
 	}
 
-	if len(stub.grants) != 1 {
-		t.Fatalf("grants: want 1, got %d", len(stub.grants))
+	grants := stub.waitForGrants(1, 2*time.Second)
+	if len(grants) != 1 {
+		t.Fatalf("grants: want 1, got %d", len(grants))
 	}
-	if stub.grants[0].Level != "OP" {
-		t.Errorf("level = %q, want OP", stub.grants[0].Level)
+	if grants[0].Level != "OP" {
+		t.Errorf("level = %q, want OP", grants[0].Level)
 	}
 }
 
@@ -331,16 +393,17 @@ func TestRegisterOrchestratorWithOpsChannels(t *testing.T) {
 		t.Fatalf("register: want 201, got %d", resp.StatusCode)
 	}
 
-	if len(stub.grants) != 3 {
-		t.Fatalf("grants: want 3, got %d", len(stub.grants))
+	grants := stub.waitForGrants(3, 2*time.Second)
+	if len(grants) != 3 {
+		t.Fatalf("grants: want 3, got %d", len(grants))
 	}
 	for i, want := range []accessCall{
 		{Nick: "orch-ops", Channel: "#fleet", Level: "OP"},
 		{Nick: "orch-ops", Channel: "#project.foo", Level: "VOICE"},
 		{Nick: "orch-ops", Channel: "#project.bar", Level: "VOICE"},
 	} {
-		if stub.grants[i] != want {
-			t.Errorf("grant[%d] = %+v, want %+v", i, stub.grants[i], want)
+		if grants[i] != want {
+			t.Errorf("grant[%d] = %+v, want %+v", i, grants[i], want)
 		}
 	}
 }
@@ -356,11 +419,10 @@ func TestRevokeRemovesAccess(t *testing.T) {
 	})
 	resp.Body.Close()
 
-	// setAgentModes is now self-healing and revokes-then-grants on every
-	// call; that means register itself emits N revokes (one per channel)
-	// before granting. Snapshot the count after register so the assertion
-	// only counts revokes from the explicit revoke API call below.
-	revokesAfterRegister := len(stub.revokes)
+	// Wait for the async setAgentModes goroutine to land its 2 revokes +
+	// 2 grants before counting baseline.
+	stub.waitForRevokes(2, 2*time.Second)
+	revokesAfterRegister := len(stub.snapshotRevokes())
 
 	resp = topoDoJSON(t, srv, tok, "POST", "/v1/agents/orch-rev/revoke", nil)
 	defer resp.Body.Close()
@@ -368,7 +430,8 @@ func TestRevokeRemovesAccess(t *testing.T) {
 		t.Fatalf("revoke: want 204, got %d", resp.StatusCode)
 	}
 
-	revokeOnly := stub.revokes[revokesAfterRegister:]
+	all := stub.waitForRevokes(revokesAfterRegister+2, 2*time.Second)
+	revokeOnly := all[revokesAfterRegister:]
 	if len(revokeOnly) != 2 {
 		t.Fatalf("revokes from explicit revoke: want 2, got %d", len(revokeOnly))
 	}
@@ -390,7 +453,8 @@ func TestDeleteRemovesAccess(t *testing.T) {
 	})
 	resp.Body.Close()
 
-	revokesAfterRegister := len(stub.revokes)
+	stub.waitForRevokes(1, 2*time.Second)
+	revokesAfterRegister := len(stub.snapshotRevokes())
 
 	resp = topoDoJSON(t, srv, tok, "DELETE", "/v1/agents/del-agent", nil)
 	defer resp.Body.Close()
@@ -398,7 +462,8 @@ func TestDeleteRemovesAccess(t *testing.T) {
 		t.Fatalf("delete: want 204, got %d", resp.StatusCode)
 	}
 
-	revokeOnly := stub.revokes[revokesAfterRegister:]
+	all := stub.waitForRevokes(revokesAfterRegister+1, 2*time.Second)
+	revokeOnly := all[revokesAfterRegister:]
 	if len(revokeOnly) != 1 {
 		t.Fatalf("revokes from explicit delete: want 1, got %d", len(revokeOnly))
 	}
