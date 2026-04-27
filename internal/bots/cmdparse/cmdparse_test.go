@@ -481,6 +481,42 @@ func TestGreet_RegisteredCommandWins(t *testing.T) {
 	}
 }
 
+// --- Bridge-prefix attribution ---
+
+func TestBridgePrefix_StrippedAndAddressingMatches(t *testing.T) {
+	r := testRouter()
+	// Bridge bot publishes web-UI messages as "[glen] warden: status" when
+	// RELAYMSG isn't available. The router should strip the prefix and
+	// recognise the addressing.
+	reply := r.Dispatch("bridge", "#general", "[glen] scroll: status")
+	if reply == nil {
+		t.Fatal("expected reply, got nil")
+	}
+	if reply.Text != "ok" {
+		t.Errorf("text = %q, want %q", reply.Text, "ok")
+	}
+}
+
+func TestBridgePrefix_PreservesRealNickInGreeting(t *testing.T) {
+	r := testRouter()
+	reply := r.Dispatch("bridge", "#general", "[alice] scroll: hi")
+	if reply == nil {
+		t.Fatal("expected reply, got nil")
+	}
+	if !strings.Contains(reply.Text, "hi alice") {
+		t.Errorf("expected greeting to use real nick alice, got: %s", reply.Text)
+	}
+}
+
+func TestBridgePrefix_IgnoresNonNickContent(t *testing.T) {
+	r := testRouter()
+	// Doesn't look like a nick — should NOT be stripped.
+	reply := r.Dispatch("alice", "#general", "[some random thing] scroll: status")
+	if reply != nil {
+		t.Errorf("expected nil for unaddressed channel message, got %+v", reply)
+	}
+}
+
 func TestHelp_IncludesPurpose(t *testing.T) {
 	r := testRouter()
 	r.SetPurpose("history-replay bot")

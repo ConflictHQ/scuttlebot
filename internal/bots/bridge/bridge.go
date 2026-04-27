@@ -194,6 +194,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		PingTimeout: 30 * time.Second,
 		SSL:         false,
 		AllowFlood:  true, // trusted local connection — no rate limiting
+		// Note: we deliberately do NOT request draft/relaymsg here. When the
+		// bridge negotiates RELAYMSG, Ergo broadcasts via RELAYMSG (virtual
+		// nick "glen/bridge"), which non-relaymsg-aware clients (the system
+		// bots) don't reliably receive as PRIVMSG. Falling back to the
+		// "[nick] text" prefix is what the system-bot routers expect, and
+		// cmdparse strips that prefix before parsing.
 	})
 
 	c.Handlers.AddBg(girc.CONNECTED, func(cl *girc.Client, _ girc.Event) {

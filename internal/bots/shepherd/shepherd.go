@@ -329,7 +329,9 @@ func (b *Bot) Start(ctx context.Context) error {
 
 		// Dispatch commands.
 		if reply := router.Dispatch(nick, target, text); reply != nil {
-			cl.Cmd.Message(reply.Target, reply.Text)
+			for _, line := range reply.Lines() {
+				cl.Cmd.Message(reply.Target, line)
+			}
 		}
 	})
 

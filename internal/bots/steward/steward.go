@@ -211,7 +211,9 @@ func (b *Bot) Start(ctx context.Context) error {
 		}
 		// Dispatch commands (DMs and channel messages).
 		if reply := router.Dispatch(e.Source.Name, e.Params[0], e.Last()); reply != nil {
-			c.Cmd.Message(reply.Target, reply.Text)
+			for _, line := range reply.Lines() {
+				c.Cmd.Message(reply.Target, line)
+			}
 			return
 		}
 		target := e.Params[0]
