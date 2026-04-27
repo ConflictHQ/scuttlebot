@@ -361,6 +361,21 @@ func (b *Bot) JoinChannel(channel string) {
 	}
 }
 
+// SetMode issues a single-flag MODE on a channel target via the bridge bot.
+// The bridge is typically the first joiner of unregistered channels and
+// therefore holds +o by default — that makes it the right caller for live
+// deop operations driven by setAgentModes when an agent's level is
+// downgraded mid-session.
+func (b *Bot) SetMode(channel, mode, target string) {
+	b.mu.RLock()
+	cl := b.client
+	b.mu.RUnlock()
+	if cl == nil {
+		return
+	}
+	cl.Cmd.Mode(channel, mode, target)
+}
+
 // LeaveChannel parts the bridge from a channel and removes its buffers.
 func (b *Bot) LeaveChannel(channel string) {
 	if b.client != nil {

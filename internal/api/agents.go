@@ -476,11 +476,16 @@ func (s *Server) setAgentModes(nick string, agentType registry.AgentType, cfg re
 
 	// If the agent is currently joined to any of these channels with a
 	// stale +o, AMODE alone won't take effect until they part+rejoin.
-	// Issue a live MODE -o via the topology manager for the now-incorrect
-	// channels so the running session loses ops immediately.
-	if level != "OP" && s.botMgr != nil {
-		if mode, ok := s.topoMgr.(channelLiveModeSetter); ok {
-			for _, ch := range cfg.Channels {
+	// Issue a live MODE -o so the running session loses ops immediately.
+	// Prefer the bridge bot — on unregistered channels the bridge is the
+	// de-facto founder (first joiner) and therefore the only entity with
+	// +o privilege. Fall back to the topology manager (which works on
+	// ChanServ-registered channels via founder access).
+	if level != "OP" {
+		for _, ch := range cfg.Channels {
+			if s.bridge != nil {
+				s.bridge.SetMode(ch, "-o", nick)
+			} else if mode, ok := s.topoMgr.(channelLiveModeSetter); ok {
 				mode.SetChannelMode(ch, "-o", nick)
 			}
 		}
