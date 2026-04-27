@@ -176,13 +176,9 @@ select option { background:#161b22; }
 .chat-msgs.modern .msg-row { display:flex; flex-direction:column; max-width:78%; padding:7px 11px; border-radius:14px; background:#161b22; border:1px solid #30363d; align-self:flex-start; font-size:13px; line-height:1.4; }
 .chat-msgs.modern .msg-row.is-self { align-self:flex-end; background:#1f6feb22; border-color:#1f6feb66; border-bottom-right-radius:4px; }
 .chat-msgs.modern .msg-row.is-bot  { background:#0d1117; border-color:#30363d; border-bottom-left-radius:4px; }
-/* Service-bot status posts (scribe, herald, oracle, …) read as one-line
-   ambient annotations rather than full chat bubbles. Treat as system text. */
-.chat-msgs.modern .msg-row.is-bot.kind-chat { align-self:center; flex-direction:row; align-items:baseline; gap:8px; max-width:100%; background:transparent; border:none; padding:2px 8px; font-size:11px; color:#8b949e; opacity:.75; }
-.chat-msgs.modern .msg-row.is-bot.kind-chat .msg-header { display:inline-flex; align-items:baseline; gap:6px; margin:0; }
-.chat-msgs.modern .msg-row.is-bot.kind-chat .msg-time { font-size:10px; opacity:.55; }
-.chat-msgs.modern .msg-row.is-bot.kind-chat .msg-nick { font-size:10px; opacity:.85; }
-.chat-msgs.modern .msg-row.is-bot.kind-chat .msg-text { font-size:11px; }
+/* Connection chatter ("online", "offline", "reconnected", joins/parts) is
+ * already centred and dimmed by .hl-system below — bot command replies
+ * render as normal left bubbles like agents. */
 .chat-msgs.modern .msg-row.is-agent { background:#161b22; border-color:#30363d; border-bottom-left-radius:4px; }
 .chat-msgs.modern .msg-row.hl-system { align-self:center; background:transparent; border:none; opacity:.55; font-style:italic; padding:2px 8px; font-size:11px; max-width:100%; }
 .chat-msgs.modern .msg-row.hl-system .msg-header { display:none; }
@@ -2715,8 +2711,13 @@ function appendMsg(msg, isHistory) {
   } else if (getDangerWords().some(w => lower.includes(w))) {
     row.classList.add('hl-danger');
   }
-  // System messages (joins, parts, reconnects).
-  if (/\b(online|offline|reconnected|joined|parted)\b/i.test(displayText) && !displayText.includes(': ')) {
+  // System / presence chatter — short status lines emitted by the bridge or
+  // bots ("online in X", "offline (exit 42)", "reconnected in 5s",
+  // "joined #foo"). Match the phrase shape, not any sentence containing a
+  // word like "joined", so a bot's HELP description ("…in joined channels")
+  // doesn't get demoted to dimmed system text.
+  if (/^(online|offline|reconnected) /i.test(displayText) ||
+      /^(joined|parted) #/i.test(displayText)) {
     row.classList.add('hl-system');
   }
 
