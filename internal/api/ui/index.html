@@ -699,8 +699,10 @@ canvas { display:block; width:100% !important; }
       <select id="chat-identity" style="width:140px;padding:3px 6px;font-size:12px" onchange="saveChatIdentity()">
         <option value="">— pick a user —</option>
       </select>
-      <button class="sm" id="chat-layout-toggle" onclick="toggleChatLayout()" title="Layout: switch between compact and columnar (one-line) message rows" aria-label="Toggle compact/columnar layout" style="font-size:11px;padding:2px 6px">☰</button>
-      <button class="sm" id="chat-modern-toggle" onclick="toggleModernMode()" title="Bubble mode: toggle the modern speech-bubble look on or off (uses the classic IRC-style row when off)" aria-label="Toggle modern bubble chat" style="font-size:11px;padding:2px 6px">💬</button>
+      <span class="view-flipper" role="group" aria-label="Chat view mode" style="display:inline-flex;border:1px solid #30363d;border-radius:6px;overflow:hidden;font-size:11px">
+        <button class="sm view-flipper-btn" id="chat-view-modern"  onclick="setChatView('modern')"  title="Modern bubble chat: speech bubbles, day dividers, runtime accents" aria-label="Modern bubble view"  style="border:none;border-radius:0;padding:3px 8px">💬 modern</button>
+        <button class="sm view-flipper-btn" id="chat-view-classic" onclick="setChatView('classic')" title="Classic IRC: one-line-per-message, compact"                          aria-label="Classic IRC view"     style="border:none;border-radius:0;padding:3px 8px">☰ classic</button>
+      </span>
       <button class="sm" id="chat-ts-toggle" onclick="toggleTimestamps()" title="Timestamps: show or hide message timestamps" aria-label="Toggle timestamps" style="font-size:11px;padding:2px 6px">timestamps</button>
       <button class="sm" id="chat-tools-toggle" onclick="toggleShowTools()" title="Tool calls: hide all tool-call rows to focus on chat (off shows everything)" aria-label="Show/hide tool calls" style="font-size:11px;padding:2px 6px">🔧</button>
       <button class="sm" id="chat-thinking-toggle" onclick="toggleShowThinking()" title="Thinking blocks: hide all 💭 reasoning rows" aria-label="Show/hide thinking rows" style="font-size:11px;padding:2px 6px">💭</button>
@@ -2738,45 +2740,37 @@ function populateChatIdentity() {
   if (current) sel.value = current;
 }
 
-function toggleChatLayout() {
+// --- chat view: modern (bubbles + columnar) vs classic (compact IRC rows) ---
+// Single source of truth. Persists via localStorage `sb_chat_view`. Default: modern.
+function getChatView() { return localStorage.getItem('sb_chat_view') || 'modern'; }
+function isModernMode() { return getChatView() === 'modern'; }
+function applyChatView(view) {
   const el = document.getElementById('chat-msgs');
-  const columnar = el.classList.toggle('columnar');
-  localStorage.setItem('sb_chat_columnar', columnar ? '1' : '0');
-}
-// Restore layout preference on load.
-if (localStorage.getItem('sb_chat_columnar') === '1') {
-  document.getElementById('chat-msgs').classList.add('columnar');
-}
-
-// --- modern bubble mode ---
-function isModernMode() { return localStorage.getItem('sb_chat_modern') === '1'; }
-function applyModernToggleStyle(btn, on) {
-  if (on) {
-    btn.style.background = '#1f6feb';
-    btn.style.borderColor = '#1f6feb';
-    btn.style.color = '#fff';
-    btn.title = 'modern bubble mode ON — click for classic';
+  if (!el) return;
+  if (view === 'modern') {
+    el.classList.add('modern');
+    el.classList.add('columnar');
   } else {
-    btn.style.background = '';
-    btn.style.borderColor = '';
-    btn.style.color = '#8b949e';
-    btn.title = 'classic IRC mode — click for modern bubbles';
+    el.classList.remove('modern');
+    el.classList.remove('columnar');
+  }
+  // Update flipper button highlights.
+  const mb = document.getElementById('chat-view-modern');
+  const cb = document.getElementById('chat-view-classic');
+  if (mb && cb) {
+    const styleActive = b => { b.style.background = '#1f6feb'; b.style.color = '#fff'; };
+    const styleIdle   = b => { b.style.background = ''; b.style.color = '#8b949e'; };
+    if (view === 'modern') { styleActive(mb); styleIdle(cb); }
+    else                   { styleActive(cb); styleIdle(mb); }
   }
 }
-function toggleModernMode() {
-  const el = document.getElementById('chat-msgs');
-  const on = el.classList.toggle('modern');
-  localStorage.setItem('sb_chat_modern', on ? '1' : '0');
-  const btn = document.getElementById('chat-modern-toggle');
-  if (btn) applyModernToggleStyle(btn, on);
+function setChatView(view) {
+  if (view !== 'modern' && view !== 'classic') view = 'modern';
+  localStorage.setItem('sb_chat_view', view);
+  applyChatView(view);
 }
-(function() {
-  const on = isModernMode();
-  const el = document.getElementById('chat-msgs');
-  if (on) el.classList.add('modern');
-  const btn = document.getElementById('chat-modern-toggle');
-  if (btn) applyModernToggleStyle(btn, on);
-})();
+// Restore on load.
+(function() { applyChatView(getChatView()); })();
 
 // --- view filters: tool rows / thinking rows ---
 // Default: both shown (matrix mode). Off = hide that kind globally.
