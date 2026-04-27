@@ -50,6 +50,23 @@ type Reply struct {
 	Text string
 }
 
+// Lines returns the reply body split on "\n" with empty lines dropped, so the
+// caller can emit each as a separate IRC message — the IRC wire protocol
+// can't carry literal newlines and clients show them collapsed otherwise.
+func (r *Reply) Lines() []string {
+	if r == nil {
+		return nil
+	}
+	parts := strings.Split(r.Text, "\n")
+	out := parts[:0]
+	for _, line := range parts {
+		if line = strings.TrimRight(line, "\r"); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 // CommandRouter dispatches IRC messages to registered command handlers.
 type CommandRouter struct {
 	botNick  string
@@ -85,6 +102,26 @@ func isGreeting(word string) bool {
 	return ok
 }
 
+// isValidNick is a permissive RFC-ish nick check used to validate the prefix
+// portion of bridge-style "[nick] text" attribution. Conservative: rejects
+// anything containing whitespace or characters that can't appear in IRC nicks.
+func isValidNick(s string) bool {
+	if s == "" || len(s) > 32 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '[' || r == ']' || r == '\\' || r == '^' || r == '{' || r == '}' || r == '|' || r == '`':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // Register adds a command to the router. Panics if name is empty or duplicate.
 func (r *CommandRouter) Register(cmd Command) {
 	key := strings.ToLower(cmd.Name)
@@ -108,6 +145,23 @@ func (r *CommandRouter) Dispatch(nick, target, text string) *Reply {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
+	}
+
+	// When the bridge bot relays a web user's message and RELAYMSG isn't
+	// available, it prepends "[realnick] " to attribute the sender. Strip
+	// that so addressing like "warden: hi" is still recognised; preserve
+	// the real sender nick for context.
+	if strings.HasPrefix(text, "[") {
+		if end := strings.Index(text, "] "); end > 1 {
+			realNick := text[1:end]
+			if isValidNick(realNick) {
+				nick = realNick
+				text = strings.TrimSpace(text[end+2:])
+				if text == "" {
+					return nil
+				}
+			}
+		}
 	}
 
 	var ctx Context
