@@ -24,6 +24,23 @@ type EngagementConfig struct {
 
 	// Rules defines engagement behaviour rules for this agent.
 	Rules EngagementRules `json:"engagement,omitempty"`
+
+	// SystemPrompt is the per-agent system prompt the relay (or shepherd-
+	// driven coordinator) can pass into the underlying LLM provider. Empty
+	// = use the policy-level OnJoinDefault as a soft fallback. See #176.
+	SystemPrompt string `json:"system_prompt,omitempty"`
+
+	// Model overrides the LLM provider's default model for this agent.
+	// Empty = use the provider's default.
+	Model string `json:"model,omitempty"`
+
+	// Temperature is an optional sampling override. nil/zero = provider default.
+	// Stored as *float64 so a deliberate 0.0 is distinguishable from "unset".
+	Temperature *float64 `json:"temperature,omitempty"`
+
+	// ToolAllowlist names tools the agent is permitted to invoke. Empty = no
+	// restriction. Honoured by relay binaries that gate tool dispatch.
+	ToolAllowlist []string `json:"tool_allowlist,omitempty"`
 }
 
 // RateLimitConfig controls message throughput.

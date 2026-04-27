@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/conflicthq/scuttlebot/internal/store"
@@ -510,12 +511,35 @@ type RelayConfig struct {
 	// HandoffBudget — initial agent→agent hop budget per channel. 0 means
 	// "use the relay's compiled-in default" (4).
 	HandoffBudget int `json:"handoff_budget,omitempty"`
+	// AgentPrompt is the per-agent system-prompt override pulled from the
+	// caller's registered EngagementConfig. Empty when the relay's bearer
+	// token isn't tied to a specific agent or no prompt is configured.
+	// Relays pass this into the underlying LLM provider on startup. See #176.
+	AgentPrompt string `json:"agent_prompt,omitempty"`
+	// AgentModel optionally overrides the LLM model for the calling agent.
+	AgentModel string `json:"agent_model,omitempty"`
+	// AgentTemperature optionally overrides sampling temperature.
+	AgentTemperature *float64 `json:"agent_temperature,omitempty"`
+	// AgentToolAllowlist names tools the agent may invoke (empty = no limit).
+	AgentToolAllowlist []string `json:"agent_tool_allowlist,omitempty"`
 }
 
 func (s *Server) handleGetRelayConfig(w http.ResponseWriter, r *http.Request) {
 	p := s.policies.Get()
 	cfg := RelayConfig{
 		ChannelResolutions: p.ChannelResolutions,
+	}
+	// Optional ?nick=X — relays pass their own nick so the daemon can
+	// include the per-agent LLM-config slice (system_prompt, model, etc.)
+	// without an extra round trip. Unknown / unset nick yields empty
+	// fields; the relay falls back to the policy default.
+	if nick := strings.TrimSpace(r.URL.Query().Get("nick")); nick != "" && s.registry != nil {
+		if a, err := s.registry.Get(nick); err == nil && a != nil {
+			cfg.AgentPrompt = a.Config.SystemPrompt
+			cfg.AgentModel = a.Config.Model
+			cfg.AgentTemperature = a.Config.Temperature
+			cfg.AgentToolAllowlist = a.Config.ToolAllowlist
+		}
 	}
 	writeJSON(w, http.StatusOK, cfg)
 }
