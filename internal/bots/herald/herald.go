@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -95,8 +96,12 @@ type Bot struct {
 	limiter  *RateLimiter
 	queue    chan Event
 	log      *slog.Logger
-	mu       sync.RWMutex // guards client (#168)
+	mu       sync.RWMutex // guards client (#168) and counters
 	client   *girc.Client
+
+	// Counters for STATUS reporting.
+	delivered uint64
+	dropped   uint64
 }
 
 const defaultQueueSize = 256
@@ -130,6 +135,9 @@ func (b *Bot) Emit(e Event) {
 	select {
 	case b.queue <- e:
 	default:
+		b.mu.Lock()
+		b.dropped++
+		b.mu.Unlock()
 		if b.log != nil {
 			b.log.Warn("herald: queue full, dropping event", "type", e.Type)
 		}
@@ -172,17 +180,30 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	router := cmdparse.NewRouter(botNick)
+	router.SetPurpose("the notification bot — routes external events into IRC channels")
 	router.Register(cmdparse.Command{
 		Name:        "status",
 		Usage:       "STATUS",
-		Description: "show webhook endpoint status and recent events",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Description: "show route count, queue depth, and delivery counters",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return b.cmdStatus()
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "routes",
+		Usage:       "ROUTES",
+		Description: "list configured event-type routes",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return b.cmdRoutes()
+		},
 	})
 	router.Register(cmdparse.Command{
 		Name:        "test",
-		Usage:       "TEST #channel",
-		Description: "send a test event to a channel",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Usage:       "TEST [#channel]",
+		Description: "send a test notification (defaults to current channel)",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdTest(ctx, args)
+		},
 	})
 
 	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
@@ -243,6 +264,9 @@ func (b *Bot) deliver(evt Event) {
 		channel = b.route(evt.Type)
 	}
 	if channel == "" {
+		b.mu.Lock()
+		b.dropped++
+		b.mu.Unlock()
 		if b.log != nil {
 			b.log.Warn("herald: no route for event, dropping", "type", evt.Type)
 		}
@@ -250,6 +274,9 @@ func (b *Bot) deliver(evt Event) {
 	}
 
 	if !b.limiter.Allow() {
+		b.mu.Lock()
+		b.dropped++
+		b.mu.Unlock()
 		if b.log != nil {
 			b.log.Warn("herald: rate limited, dropping event", "type", evt.Type, "channel", channel)
 		}
@@ -264,6 +291,9 @@ func (b *Bot) deliver(evt Event) {
 	irc := b.client
 	if irc != nil {
 		irc.Cmd.Message(channel, msg)
+		b.mu.Lock()
+		b.delivered++
+		b.mu.Unlock()
 	}
 }
 
@@ -282,6 +312,60 @@ func (b *Bot) route(eventType string) string {
 		return best
 	}
 	return b.routes.DefaultChannel
+}
+
+func (b *Bot) cmdStatus() string {
+	b.mu.RLock()
+	delivered, dropped := b.delivered, b.dropped
+	b.mu.RUnlock()
+	queued := len(b.queue)
+	return fmt.Sprintf("herald: %d route(s), default=%s | queue %d/%d | delivered %d, dropped %d",
+		len(b.routes.Routes), b.routes.DefaultChannel, queued, cap(b.queue), delivered, dropped)
+}
+
+func (b *Bot) cmdRoutes() string {
+	if len(b.routes.Routes) == 0 && b.routes.DefaultChannel == "" {
+		return "herald: no routes configured"
+	}
+	prefixes := make([]string, 0, len(b.routes.Routes))
+	for p := range b.routes.Routes {
+		prefixes = append(prefixes, p)
+	}
+	sort.Strings(prefixes)
+
+	var sb strings.Builder
+	sb.WriteString("herald routes (longest prefix wins):\n")
+	for _, p := range prefixes {
+		sb.WriteString(fmt.Sprintf("  %-30s → %s\n", p, b.routes.Routes[p]))
+	}
+	if b.routes.DefaultChannel != "" {
+		sb.WriteString(fmt.Sprintf("  %-30s → %s", "(default)", b.routes.DefaultChannel))
+	} else {
+		sb.WriteString("  (no default — unrouted events drop)")
+	}
+	return sb.String()
+}
+
+// cmdTest enqueues a synthetic event so operators can verify herald is wired
+// up end-to-end without firing real webhooks. Picks a target channel from the
+// argument, the current channel context, or DefaultChannel — in that order.
+func (b *Bot) cmdTest(ctx *cmdparse.Context, args string) string {
+	channel := strings.TrimSpace(args)
+	if channel == "" {
+		channel = ctx.Channel
+	}
+	if channel == "" {
+		channel = b.routes.DefaultChannel
+	}
+	if channel == "" {
+		return "herald: no target channel — pass #channel as argument"
+	}
+	b.Emit(Event{
+		Type:    "test.herald",
+		Channel: channel,
+		Message: fmt.Sprintf("herald TEST event from %s", ctx.Nick),
+	})
+	return fmt.Sprintf("herald: queued TEST event to %s", channel)
 }
 
 func splitHostPort(addr string) (string, int, error) {

@@ -200,6 +200,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	router := cmdparse.NewRouter(b.cfg.Nick)
+	router.SetPurpose("the goal-tracking bot — assigns tasks, runs check-ins, and reports progress to the operator")
 	router.Register(cmdparse.Command{
 		Name:        "goal",
 		Usage:       "GOAL <description>",

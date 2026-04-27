@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -118,7 +119,20 @@ type Bot struct {
 	buffers     map[string]*chanBuffer // channel → buffer
 	cooldown    map[string]time.Time   // "channel:nick" → last report time
 	analyseSlot chan struct{}          // bounded-concurrency semaphore for analyse goroutines (#175)
+
+	recent []incidentRecord // ring buffer of recent reports (capped at maxRecent)
 }
+
+// incidentRecord captures a posted incident for STATUS/REPORT command output.
+type incidentRecord struct {
+	at       time.Time
+	channel  string
+	nick     string
+	severity string
+	reason   string
+}
+
+const maxRecentIncidents = 50
 
 // maxConcurrentAnalyses caps simultaneous LLM analysis goroutines so a busy
 // fleet doesn't fan out N×M concurrent provider calls and rate-limit itself.
@@ -173,23 +187,38 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	router := cmdparse.NewRouter(b.cfg.Nick)
+	router.SetPurpose("the LLM-powered policy observer — watches channels and reports incidents to the mod channel")
 	router.Register(cmdparse.Command{
 		Name:        "report",
 		Usage:       "REPORT [#channel]",
-		Description: "on-demand policy review",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Description: "force an LLM review of the current message buffer",
+		Handler: func(cmdCtx *cmdparse.Context, args string) string {
+			return b.cmdReport(ctx, cmdCtx, args)
+		},
 	})
 	router.Register(cmdparse.Command{
 		Name:        "status",
 		Usage:       "STATUS",
-		Description: "show current incidents",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Description: "show watched channels, buffer state, and recent incident count",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return b.cmdStatus()
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "recent",
+		Usage:       "RECENT [N]",
+		Description: "list the most recent incidents",
+		Handler: func(_ *cmdparse.Context, args string) string {
+			return b.cmdRecent(args)
+		},
 	})
 	router.Register(cmdparse.Command{
 		Name:        "dismiss",
-		Usage:       "DISMISS <incident-id>",
-		Description: "dismiss a false positive",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Usage:       "DISMISS <nick> [#channel]",
+		Description: "clear cooldown for nick so future violations report immediately",
+		Handler: func(cmdCtx *cmdparse.Context, args string) string {
+			return b.cmdDismiss(cmdCtx, args)
+		},
 	})
 
 	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
@@ -385,6 +414,7 @@ func (b *Bot) parseAndReport(channel, result string) {
 		if b.log != nil {
 			b.log.Warn("sentinel incident", "channel", channel, "nick", nick, "severity", severity, "reason", reason)
 		}
+		b.recordIncident(channel, nick, severity, reason)
 		b.client.Cmd.Message(b.cfg.ModChannel, report)
 		if b.cfg.DMOperators {
 			for _, nick := range b.cfg.AlertNicks {
@@ -436,6 +466,127 @@ func pruneTimeMap(m map[string]time.Time, maxAge time.Duration) {
 			delete(m, k)
 		}
 	}
+}
+
+// recordIncident appends to the recent ring buffer, trimming to maxRecent.
+func (b *Bot) recordIncident(channel, nick, severity, reason string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.recent = append(b.recent, incidentRecord{
+		at: time.Now(), channel: channel, nick: nick, severity: severity, reason: reason,
+	})
+	if len(b.recent) > maxRecentIncidents {
+		b.recent = b.recent[len(b.recent)-maxRecentIncidents:]
+	}
+}
+
+func (b *Bot) cmdReport(ctx context.Context, cmdCtx *cmdparse.Context, args string) string {
+	channel := strings.TrimSpace(args)
+	if channel == "" {
+		channel = cmdCtx.Channel
+	}
+	if channel == "" {
+		return "sentinel: name a channel — usage: REPORT [#channel]"
+	}
+	b.mu.Lock()
+	buf := b.buffers[channel]
+	if buf == nil || len(buf.msgs) == 0 {
+		b.mu.Unlock()
+		return fmt.Sprintf("sentinel: no messages buffered for %s yet", channel)
+	}
+	msgs := buf.msgs
+	buf.msgs = nil
+	buf.lastScan = time.Now()
+	b.mu.Unlock()
+	go b.analyse(ctx, channel, msgs)
+	return fmt.Sprintf("sentinel: forced review of %d message(s) from %s — incidents (if any) will land in %s",
+		len(msgs), channel, b.cfg.ModChannel)
+}
+
+func (b *Bot) cmdStatus() string {
+	b.mu.Lock()
+	channels := make([]string, 0, len(b.buffers))
+	for ch := range b.buffers {
+		channels = append(channels, ch)
+	}
+	bufSizes := make(map[string]int, len(channels))
+	for ch, buf := range b.buffers {
+		bufSizes[ch] = len(buf.msgs)
+	}
+	recent := len(b.recent)
+	cooldowns := len(b.cooldown)
+	b.mu.Unlock()
+	sort.Strings(channels)
+
+	inflight := len(b.analyseSlot)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("sentinel: mod=%s | min severity=%s | window=%d/age=%s | analyses in-flight %d/%d\n",
+		b.cfg.ModChannel, b.cfg.MinSeverity, b.cfg.WindowSize, b.cfg.WindowAge.Round(time.Second),
+		inflight, maxConcurrentAnalyses))
+	if len(channels) == 0 {
+		sb.WriteString("watching: (no channels yet)")
+	} else {
+		sb.WriteString("watching:")
+		for _, ch := range channels {
+			sb.WriteString(fmt.Sprintf(" %s(%d)", ch, bufSizes[ch]))
+		}
+	}
+	sb.WriteString(fmt.Sprintf("\nrecent incidents: %d | cooldowns active: %d", recent, cooldowns))
+	return sb.String()
+}
+
+func (b *Bot) cmdRecent(args string) string {
+	limit := 5
+	if s := strings.TrimSpace(args); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= maxRecentIncidents {
+			limit = n
+		}
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.recent) == 0 {
+		return "sentinel: no incidents reported yet"
+	}
+	start := 0
+	if len(b.recent) > limit {
+		start = len(b.recent) - limit
+	}
+	tail := b.recent[start:]
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("sentinel: %d most recent incident(s):\n", len(tail)))
+	for _, inc := range tail {
+		sb.WriteString(fmt.Sprintf("  %s %s in %s | %s | %s — %s\n",
+			inc.at.Format("15:04:05"), inc.nick, inc.channel, inc.severity, "", inc.reason))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (b *Bot) cmdDismiss(cmdCtx *cmdparse.Context, args string) string {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return "sentinel: usage — DISMISS <nick> [#channel]"
+	}
+	fields := strings.Fields(args)
+	nick := fields[0]
+	channel := cmdCtx.Channel
+	if len(fields) > 1 && strings.HasPrefix(fields[1], "#") {
+		channel = fields[1]
+	}
+	if channel == "" {
+		return "sentinel: in a DM you must name a #channel — usage: DISMISS <nick> #channel"
+	}
+	key := channel + ":" + nick
+	b.mu.Lock()
+	_, had := b.cooldown[key]
+	delete(b.cooldown, key)
+	b.mu.Unlock()
+	if !had {
+		return fmt.Sprintf("sentinel: no active cooldown for %s in %s", nick, channel)
+	}
+	return fmt.Sprintf("sentinel: cleared cooldown for %s in %s", nick, channel)
 }
 
 func splitHostPort(addr string) (string, int, error) {

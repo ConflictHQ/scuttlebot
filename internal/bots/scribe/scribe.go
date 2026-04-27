@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -81,17 +82,30 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	router := cmdparse.NewRouter(botNick)
+	router.SetPurpose("the channel logger — writes a structured log of every message in joined channels")
+	router.Register(cmdparse.Command{
+		Name:        "tail",
+		Usage:       "TAIL [#channel] [N]",
+		Description: "show the last N entries (default 5)",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdTail(ctx, args)
+		},
+	})
 	router.Register(cmdparse.Command{
 		Name:        "search",
-		Usage:       "SEARCH <term>",
-		Description: "search channel logs",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Usage:       "SEARCH <term> [#channel]",
+		Description: "case-insensitive substring search of recent log entries",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdSearch(ctx, args)
+		},
 	})
 	router.Register(cmdparse.Command{
 		Name:        "stats",
-		Usage:       "STATS",
-		Description: "show channel message statistics",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Usage:       "STATS [#channel]",
+		Description: "show entry counts by channel and message type",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdStats(ctx, args)
+		},
 	})
 
 	// Log PRIVMSG — the agent message stream.
@@ -161,6 +175,178 @@ func (b *Bot) writeEntry(channel, nick, text string) {
 	if err := b.store.Append(entry); err != nil {
 		b.log.Error("scribe: failed to write log entry", "err", err)
 	}
+}
+
+// cmdTail returns the most recent log entries. In a channel context the
+// channel defaults to ctx.Channel; in a DM the operator must name the channel.
+func (b *Bot) cmdTail(ctx *cmdparse.Context, args string) string {
+	channel, n, err := parseChannelAndN(ctx, args, 5)
+	if err != nil {
+		return err.Error()
+	}
+	entries, err := b.store.Query(channel, n)
+	if err != nil {
+		return fmt.Sprintf("scribe: query error: %v", err)
+	}
+	if len(entries) == 0 {
+		if channel == "" {
+			return "scribe: no entries logged yet"
+		}
+		return fmt.Sprintf("scribe: no entries for %s", channel)
+	}
+	return formatEntries(entries)
+}
+
+func (b *Bot) cmdSearch(ctx *cmdparse.Context, args string) string {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return "scribe: usage — SEARCH <term> [#channel]"
+	}
+
+	// Split term/optional channel. Tolerates "search foo #general" or "search foo".
+	fields := strings.Fields(args)
+	channel := ctx.Channel
+	for i := len(fields) - 1; i >= 0; i-- {
+		if strings.HasPrefix(fields[i], "#") {
+			channel = fields[i]
+			fields = append(fields[:i], fields[i+1:]...)
+			break
+		}
+	}
+	term := strings.Join(fields, " ")
+	if term == "" {
+		return "scribe: usage — SEARCH <term> [#channel]"
+	}
+
+	// Search the most recent N entries to keep the work bounded.
+	const lookback = 1000
+	entries, err := b.store.Query(channel, lookback)
+	if err != nil {
+		return fmt.Sprintf("scribe: query error: %v", err)
+	}
+	needle := strings.ToLower(term)
+	var hits []Entry
+	for _, e := range entries {
+		if strings.Contains(strings.ToLower(e.Raw), needle) {
+			hits = append(hits, e)
+		}
+	}
+	if len(hits) == 0 {
+		return fmt.Sprintf("scribe: no matches for %q in last %d entries", term, lookback)
+	}
+	if len(hits) > 10 {
+		hits = hits[len(hits)-10:]
+	}
+	return fmt.Sprintf("scribe: %d match(es) for %q (showing last 10):\n%s", len(hits), term, formatEntries(hits))
+}
+
+func (b *Bot) cmdStats(ctx *cmdparse.Context, args string) string {
+	channel := strings.TrimSpace(args)
+	if channel == "" {
+		channel = ctx.Channel
+	}
+	entries, err := b.store.Query(channel, 0)
+	if err != nil {
+		return fmt.Sprintf("scribe: query error: %v", err)
+	}
+	if len(entries) == 0 {
+		if channel == "" {
+			return "scribe: no entries logged yet"
+		}
+		return fmt.Sprintf("scribe: no entries for %s", channel)
+	}
+
+	byChannel := make(map[string]int)
+	byType := make(map[string]int)
+	envelopes, raws := 0, 0
+	uniqueNicks := make(map[string]struct{})
+	for _, e := range entries {
+		byChannel[e.Channel]++
+		uniqueNicks[e.Nick] = struct{}{}
+		switch e.Kind {
+		case EntryKindEnvelope:
+			envelopes++
+			if e.MessageType != "" {
+				byType[e.MessageType]++
+			}
+		case EntryKindRaw:
+			raws++
+		}
+	}
+
+	var sb strings.Builder
+	scope := "all channels"
+	if channel != "" {
+		scope = channel
+	}
+	sb.WriteString(fmt.Sprintf("scribe: %d entries across %s | %d envelope, %d raw | %d unique nick(s)\n",
+		len(entries), scope, envelopes, raws, len(uniqueNicks)))
+	if channel == "" && len(byChannel) > 0 {
+		sb.WriteString("by channel:")
+		channels := sortedKeys(byChannel)
+		for _, ch := range channels {
+			sb.WriteString(fmt.Sprintf(" %s(%d)", ch, byChannel[ch]))
+		}
+		sb.WriteString("\n")
+	}
+	if len(byType) > 0 {
+		sb.WriteString("envelope types:")
+		types := sortedKeys(byType)
+		for _, t := range types {
+			sb.WriteString(fmt.Sprintf(" %s(%d)", t, byType[t]))
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// parseChannelAndN extracts a channel argument and an optional integer N from
+// the cmdparse args string. Defaults the channel to ctx.Channel and N to def.
+func parseChannelAndN(ctx *cmdparse.Context, args string, def int) (channel string, n int, err error) {
+	n = def
+	channel = ctx.Channel
+	for _, f := range strings.Fields(args) {
+		if strings.HasPrefix(f, "#") {
+			channel = f
+			continue
+		}
+		parsed, perr := strconv.Atoi(f)
+		if perr != nil || parsed <= 0 {
+			return "", 0, fmt.Errorf("scribe: bad argument %q — expected a positive integer or #channel", f)
+		}
+		if parsed > 50 {
+			parsed = 50 // cap to keep IRC replies sane
+		}
+		n = parsed
+	}
+	if channel == "" {
+		return "", 0, fmt.Errorf("scribe: in a DM you must name a #channel")
+	}
+	return channel, n, nil
+}
+
+func formatEntries(entries []Entry) string {
+	var sb strings.Builder
+	for _, e := range entries {
+		text := e.Raw
+		if e.Kind == EntryKindEnvelope && e.MessageType != "" {
+			text = fmt.Sprintf("[%s] %s", e.MessageType, e.Raw)
+		}
+		if len(text) > 180 {
+			text = text[:177] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("  %s %s <%s> %s\n",
+			e.At.Format("15:04:05"), e.Channel, e.Nick, text))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func sortedKeys(m map[string]int) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func splitHostPort(addr string) (string, int, error) {

@@ -23,6 +23,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -256,11 +258,17 @@ func (c *Client) dispatch(ctx context.Context, env *protocol.Envelope) {
 	}
 }
 
+// splitHostPort parses a host:port pair. Used at connect time so a malformed
+// ServerAddr fails fast instead of looping forever in reconnect with an
+// always-invalid address.
 func splitHostPort(addr string) (string, int, error) {
-	var host string
-	var port int
-	if _, err := fmt.Sscanf(addr, "%[^:]:%d", &host, &port); err != nil {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
 		return "", 0, fmt.Errorf("invalid address %q: %w", addr, err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid port in %q: %w", addr, err)
 	}
 	return host, port, nil
 }

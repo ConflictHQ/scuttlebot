@@ -14,8 +14,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lrstanley/girc"
@@ -59,16 +61,23 @@ type Bot struct {
 	store    Store
 	log      *slog.Logger
 	client   *girc.Client
+
+	mu        sync.Mutex
+	recent    []Entry // ring buffer for STATUS / RECENT command output
+	startedAt time.Time
 }
+
+const maxRecentSystem = 100
 
 // New creates a systembot.
 func New(ircAddr, password string, channels []string, store Store, log *slog.Logger) *Bot {
 	return &Bot{
-		ircAddr:  ircAddr,
-		password: password,
-		channels: channels,
-		store:    store,
-		log:      log,
+		ircAddr:   ircAddr,
+		password:  password,
+		channels:  channels,
+		store:     store,
+		log:       log,
+		startedAt: time.Now(),
 	}
 }
 
@@ -183,17 +192,30 @@ func (b *Bot) Start(ctx context.Context) error {
 	})
 
 	router := cmdparse.NewRouter(botNick)
+	router.SetPurpose("the system event logger — records joins/parts/quits/kicks/modes/notices")
 	router.Register(cmdparse.Command{
 		Name:        "status",
 		Usage:       "STATUS",
-		Description: "show connected users and channel counts",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Description: "show uptime, connected channels, and recent system event counts",
+		Handler: func(_ *cmdparse.Context, _ string) string {
+			return b.cmdStatus(c)
+		},
 	})
 	router.Register(cmdparse.Command{
 		Name:        "who",
 		Usage:       "WHO [#channel]",
-		Description: "show detailed user list",
-		Handler:     func(_ *cmdparse.Context, _ string) string { return "not implemented yet" },
+		Description: "list users in a channel",
+		Handler: func(ctx *cmdparse.Context, args string) string {
+			return b.cmdWho(c, ctx, args)
+		},
+	})
+	router.Register(cmdparse.Command{
+		Name:        "recent",
+		Usage:       "RECENT [N]",
+		Description: "show the last N system events (default 10, max 50)",
+		Handler: func(_ *cmdparse.Context, args string) string {
+			return b.cmdRecent(args)
+		},
 	})
 
 	c.Handlers.AddBg(girc.PRIVMSG, func(cl *girc.Client, e girc.Event) {
@@ -237,6 +259,105 @@ func (b *Bot) write(e Entry) {
 	if err := b.store.Append(e); err != nil {
 		b.log.Error("systembot: failed to write entry", "kind", e.Kind, "err", err)
 	}
+	b.mu.Lock()
+	b.recent = append(b.recent, e)
+	if len(b.recent) > maxRecentSystem {
+		b.recent = b.recent[len(b.recent)-maxRecentSystem:]
+	}
+	b.mu.Unlock()
+}
+
+func (b *Bot) cmdStatus(c *girc.Client) string {
+	b.mu.Lock()
+	counts := make(map[EntryKind]int)
+	for _, e := range b.recent {
+		counts[e.Kind]++
+	}
+	total := len(b.recent)
+	b.mu.Unlock()
+
+	channels := []string{}
+	if c != nil && c.IsConnected() {
+		channels = c.ChannelList()
+		sort.Strings(channels)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("systembot: uptime %s | joined %d channel(s)\n",
+		time.Since(b.startedAt).Round(time.Second), len(channels)))
+	if len(channels) > 0 {
+		sb.WriteString("channels:")
+		for _, ch := range channels {
+			sb.WriteString(" " + ch)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(fmt.Sprintf("recent events (%d in window):", total))
+	for _, kind := range []EntryKind{KindJoin, KindPart, KindQuit, KindKick, KindMode, KindNotice} {
+		if counts[kind] > 0 {
+			sb.WriteString(fmt.Sprintf(" %s=%d", kind, counts[kind]))
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (b *Bot) cmdWho(c *girc.Client, ctx *cmdparse.Context, args string) string {
+	channel := strings.TrimSpace(args)
+	if channel == "" {
+		channel = ctx.Channel
+	}
+	if channel == "" {
+		return "systembot: usage — WHO [#channel] (must name a channel in DMs)"
+	}
+	if c == nil {
+		return "systembot: not connected"
+	}
+	ch := c.LookupChannel(channel)
+	if ch == nil {
+		return fmt.Sprintf("systembot: not in %s — invite me with /invite %s", channel, botNick)
+	}
+	users := ch.UserList
+	sort.Strings(users)
+
+	if len(users) == 0 {
+		return fmt.Sprintf("systembot: %s — no users tracked", channel)
+	}
+	if len(users) > 60 {
+		return fmt.Sprintf("systembot: %s — %d user(s) (too many to list inline)", channel, len(users))
+	}
+	return fmt.Sprintf("systembot: %s (%d users): %s",
+		channel, len(users), strings.Join(users, " "))
+}
+
+func (b *Bot) cmdRecent(args string) string {
+	n := 10
+	if s := strings.TrimSpace(args); s != "" {
+		if parsed, err := strconv.Atoi(s); err == nil && parsed > 0 {
+			n = parsed
+		}
+	}
+	if n > 50 {
+		n = 50
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.recent) == 0 {
+		return "systembot: no events recorded yet"
+	}
+	start := 0
+	if len(b.recent) > n {
+		start = len(b.recent) - n
+	}
+	tail := b.recent[start:]
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("systembot: %d most recent event(s):\n", len(tail)))
+	for _, e := range tail {
+		sb.WriteString(fmt.Sprintf("  %s %s %s %s %s\n",
+			e.At.Format("15:04:05"), e.Kind, e.Channel, e.Nick, e.Text))
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 func splitHostPort(addr string) (string, int, error) {

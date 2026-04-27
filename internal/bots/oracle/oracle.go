@@ -212,11 +212,23 @@ func (b *Bot) Start(ctx context.Context) error {
 			return
 		}
 		target := e.Params[0]
-		if strings.HasPrefix(target, "#") {
-			return // channel message — ignore
-		}
 		nick := e.Source.Name
-		text := e.Last()
+		text := strings.TrimSpace(e.Last())
+
+		if strings.HasPrefix(target, "#") {
+			// Channel-addressed greeting/help — DMs are how oracle does work.
+			if reply := matchAddressed(b.nick, nick, text); reply != "" {
+				cl.Cmd.Message(target, reply)
+			}
+			return
+		}
+
+		// DM path. Trap greetings and HELP before the strict summarize parser
+		// so a user typing "hi" doesn't see "usage: summarize ...".
+		if isGreetOrHelp(text) {
+			cl.Cmd.Notice(nick, fmt.Sprintf("oracle here — I summarise IRC channel history. Try: summarize #channel [last=N] [format=toon|json]"))
+			return
+		}
 
 		go b.handle(ctx, cl, nick, text)
 	})
@@ -373,4 +385,41 @@ func splitHostPort(addr string) (string, int, error) {
 		return "", 0, fmt.Errorf("invalid port in %q: %w", addr, err)
 	}
 	return host, port, nil
+}
+
+// matchAddressed returns a friendly response when text addresses our nick in
+// a channel ("oracle: hi" / "oracle: help"). Returns "" if the message isn't
+// addressed to us or isn't a known intent.
+func matchAddressed(myNick, fromNick, text string) string {
+	lower := strings.ToLower(text)
+	prefixes := []string{strings.ToLower(myNick) + ": ", strings.ToLower(myNick) + ":", strings.ToLower(myNick) + ", "}
+	rest := ""
+	matched := false
+	for _, p := range prefixes {
+		if strings.HasPrefix(lower, p) {
+			rest = strings.TrimSpace(text[len(p):])
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return ""
+	}
+	if rest == "" {
+		return ""
+	}
+	if isGreetOrHelp(rest) {
+		return fmt.Sprintf("hi %s — I'm %s, the channel summariser. Send me a DM with: summarize #channel [last=N] [format=toon|json]", fromNick, myNick)
+	}
+	return fmt.Sprintf("%s: %s — I run from DMs only. Send me a private message with: summarize #channel [last=N]", fromNick, myNick)
+}
+
+// isGreetOrHelp returns true when text is a conversational opener or HELP.
+func isGreetOrHelp(text string) bool {
+	w := strings.ToLower(strings.TrimRight(strings.Fields(text + " ")[0], "!?.,"))
+	switch w {
+	case "hi", "hello", "hey", "yo", "sup", "hola", "howdy", "greetings", "ping", "help", "?":
+		return true
+	}
+	return false
 }

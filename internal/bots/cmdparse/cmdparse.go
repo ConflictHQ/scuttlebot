@@ -53,6 +53,7 @@ type Reply struct {
 // CommandRouter dispatches IRC messages to registered command handlers.
 type CommandRouter struct {
 	botNick  string
+	purpose  string              // one-line description shown on greet/help
 	commands map[string]*Command // lowercase name → command
 }
 
@@ -62,6 +63,26 @@ func NewRouter(botNick string) *CommandRouter {
 		botNick:  strings.ToLower(botNick),
 		commands: make(map[string]*Command),
 	}
+}
+
+// SetPurpose sets a one-line description of what this bot does.
+// Surfaced on greetings ("hi") and as a header in HELP output.
+func (r *CommandRouter) SetPurpose(s string) {
+	r.purpose = strings.TrimSpace(s)
+}
+
+// greetings is the set of conversational openers a router will respond to
+// with a friendly hello + nudge toward HELP. Matched case-insensitively
+// against the first whitespace-delimited word of the message body.
+var greetings = map[string]struct{}{
+	"hi": {}, "hello": {}, "hey": {}, "yo": {}, "sup": {},
+	"hola": {}, "howdy": {}, "greetings": {}, "ping": {},
+}
+
+func isGreeting(word string) bool {
+	w := strings.ToLower(strings.TrimRight(word, "!?.,"))
+	_, ok := greetings[w]
+	return ok
 }
 
 // Register adds a command to the router. Panics if name is empty or duplicate.
@@ -128,6 +149,13 @@ func (r *CommandRouter) Dispatch(nick, target, text string) *Reply {
 
 	cmd, ok := r.commands[cmdKey]
 	if !ok {
+		// Built-in greeting — respond conversationally with the bot's
+		// purpose and a pointer to HELP rather than barking "unknown
+		// command". Skipped if the bot registered a command of the same
+		// name, e.g. a real PING handler.
+		if isGreeting(cmdName) {
+			return r.greetReply(&ctx)
+		}
 		return r.unknownReply(&ctx, cmdName)
 	}
 
@@ -214,6 +242,9 @@ func (r *CommandRouter) helpReply(ctx *Context, args string) *Reply {
 	sort.Strings(names)
 
 	var sb strings.Builder
+	if r.purpose != "" {
+		sb.WriteString(fmt.Sprintf("%s — %s\n", r.botNick, r.purpose))
+	}
 	sb.WriteString(fmt.Sprintf("commands for %s:\n", r.botNick))
 	for _, name := range names {
 		cmd := r.commands[name]
@@ -225,6 +256,17 @@ func (r *CommandRouter) helpReply(ctx *Context, args string) *Reply {
 		Target: r.replyTarget(ctx),
 		Text:   sb.String(),
 	}
+}
+
+func (r *CommandRouter) greetReply(ctx *Context) *Reply {
+	var text string
+	switch {
+	case r.purpose != "":
+		text = fmt.Sprintf("hi %s — I'm %s, %s. Type HELP to see what I can do.", ctx.Nick, r.botNick, r.purpose)
+	default:
+		text = fmt.Sprintf("hi %s — type HELP to see what I can do.", ctx.Nick)
+	}
+	return &Reply{Target: r.replyTarget(ctx), Text: text}
 }
 
 func (r *CommandRouter) unknownReply(ctx *Context, cmdName string) *Reply {
