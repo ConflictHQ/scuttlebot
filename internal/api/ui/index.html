@@ -2703,7 +2703,11 @@ async function selectChannel(ch) {
 
   if (chatSSE) { chatSSE.close(); chatSSE = null; }
   const slug = ch.replace(/^#/,'');
-  const es = new EventSource(`/v1/channels/${slug}/stream?token=${encodeURIComponent(getToken())}`);
+  // Route SSE through _url() so the proxy prefix (e.g. /user/{u}/{server}/) is
+  // included. Hardcoding /v1/... resolves to the origin root and 404s in any
+  // proxy-hosted deployment (JupyterHub, ingress paths, etc).
+  const streamUrl = _url(`/v1/channels/${slug}/stream`) + `?token=${encodeURIComponent(getToken())}`;
+  const es = new EventSource(streamUrl);
   chatSSE = es;
   const badge = document.getElementById('chat-stream-status');
   es.onopen    = () => { badge.textContent='● live'; badge.style.color='#3fb950'; };
@@ -2714,11 +2718,12 @@ async function selectChannel(ch) {
       // Don't kick to login: the API token is still valid; only the SSE stream dropped.
       // Manually reschedule a reconnect (native EventSource won't retry once CLOSED).
       const slugRe = ch.replace(/^#/,'');
+      const reconnectUrl = _url(`/v1/channels/${slugRe}/stream`) + `?token=${encodeURIComponent(getToken())}`;
       setTimeout(() => {
         if (chatChannel !== ch) return; // user switched channels
         if (chatSSE && chatSSE.readyState !== EventSource.CLOSED) return;
         if (chatSSE) chatSSE.close();
-        chatSSE = new EventSource(`/v1/channels/${slugRe}/stream?token=${encodeURIComponent(getToken())}`);
+        chatSSE = new EventSource(reconnectUrl);
         chatSSE.onopen    = es.onopen;
         chatSSE.onmessage = es.onmessage;
         chatSSE.onerror   = es.onerror;
