@@ -1562,6 +1562,7 @@ type repoConfig struct {
 	IRCAddr   string   `yaml:"irc_addr"`
 	IRCTLS    *bool    `yaml:"irc_tls"`
 	IRCPass   string   `yaml:"irc_pass"`
+	Nick      string   `yaml:"nick"`
 	Channel   string   `yaml:"channel"`
 	Channels  []string `yaml:"channels"`
 }
@@ -1599,6 +1600,9 @@ func (rc *repoConfig) envOverrides() map[string]string {
 	}
 	if rc.IRCTLS != nil {
 		out["SCUTTLEBOT_IRC_TLS"] = strconv.FormatBool(*rc.IRCTLS)
+	}
+	if rc.Nick != "" {
+		out["SCUTTLEBOT_NICK"] = rc.Nick
 	}
 	return out
 }

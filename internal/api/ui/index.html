@@ -1756,6 +1756,8 @@ function copySessionToken(btn) {
 // --- channel share (scuttlebot.yaml for relays/agents) ---
 let _shareToken = null;        // long-lived API key minted on demand, cached per channel
 let _shareTokenChannel = null; // channel name the cached key was minted for
+let _shareNick = null;         // SASL nick auto-registered for the share key
+let _sharePass = null;         // SASL passphrase paired with _shareNick
 let _shareServerInfo = null;   // resolved server endpoints (irc_addr, network_name, etc.)
 
 // Strip /ui/ from the page path to get the API/proxy root the relay should use as `url:`.
@@ -1831,28 +1833,43 @@ async function openChannelShareModal() {
   document.getElementById('share-token-status').textContent = 'minting key…';
   document.getElementById('channel-share-overlay').classList.add('open');
 
-  // Mint a fresh, channel-named API key the first time the modal opens for this channel.
-  // Cached so toggling http/irc doesn't burn a new key on every flip.
+  // Mint a fresh, channel-named API key + register an agent the first time the
+  // modal opens for this channel. Cached so toggling http/irc doesn't burn a
+  // new key/nick on every flip.
   if (_shareToken === null || _shareTokenChannel !== chatChannel) {
     const slug = chatChannel.replace(/^#/, '');
     const stamp = new Date().toISOString().slice(0,16).replace(/[-:T]/g,'');
     try {
-      const result = await api('POST', '/v1/api-keys', {
+      const keyResult = await api('POST', '/v1/api-keys', {
         name: `share-${slug}-${stamp}`,
         scopes: ['chat', 'channels'],
         // omit expires_in → never expires (revoke from settings to retire)
       });
-      _shareToken = result.token;
+      _shareToken = keyResult.token;
+
+      // Register an IRC agent so the relay can SASL-auth against Ergo.
+      // Without this, irc_pass would be missing from the YAML and Ergo
+      // would reject the connection (REQUIRE_SASL=true on locked-down deploys).
+      const nick = `share-${slug}-${stamp}`.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+      const agentResult = await api('POST', '/v1/agents/register', {
+        nick,
+        type: 'worker',
+        channels: [chatChannel],
+        permissions: ['chat'],
+      });
+      _shareNick = (agentResult.credentials && agentResult.credentials.nick) || nick;
+      _sharePass = (agentResult.credentials && agentResult.credentials.passphrase) || '';
       _shareTokenChannel = chatChannel;
       document.getElementById('share-token-status').textContent =
-        'key: ' + (result.name ? esc(result.name) : '(unnamed)');
+        'key: ' + (keyResult.name ? esc(keyResult.name) : '(unnamed)') +
+        ' · nick: ' + esc(_shareNick);
     } catch (e) {
-      document.getElementById('share-yaml').value = '# failed to mint API key: ' + e.message;
+      document.getElementById('share-yaml').value = '# failed to provision share creds: ' + e.message;
       document.getElementById('share-token-status').textContent = '';
       return;
     }
   } else {
-    document.getElementById('share-token-status').textContent = 'reusing minted key';
+    document.getElementById('share-token-status').textContent = 'reusing minted key + nick';
   }
 
   // Fetch real server endpoints once per modal session so the YAML is "ready to go".
@@ -1890,6 +1907,8 @@ function renderShareYaml() {
   if (transport === 'irc') {
     yaml += `irc_addr: ${info.ircHost}:${info.ircPort}\n`;
     yaml += `irc_tls: ${info.ircTLS ? 'true' : 'false'}\n`;
+    if (_shareNick) yaml += `nick: ${_shareNick}\n`;
+    if (_sharePass) yaml += `irc_pass: ${_sharePass}\n`;
   }
   yaml += `channel: "${ch}"\n`;
   if (info.fromPublic) {

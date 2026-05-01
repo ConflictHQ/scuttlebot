@@ -3,9 +3,9 @@ ergo:
     binary_path: /Users/ragelink/repos/conflict/scuttlebot/data/ergo/ergo
     data_dir: ./data/ergo
     network_name: scuttlebot
-    server_name: irc.scuttlebot.local
-    irc_addr: 127.0.0.1:6667
-    api_addr: 127.0.0.1:8089
+    server_name: irc.scuttlebot.net
+    irc_addr: irc.scuttlebot.net:6667
+    api_addr: irc.scuttlebot.net:8089
     api_token: 40f721538f6720ddca1ee02c7e58fee8f75b4d46287fb5bd
     history:
         enabled: false
