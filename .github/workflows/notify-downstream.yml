@@ -1,0 +1,36 @@
+name: Notify downstream
+
+# Fires a repository_dispatch event at any downstream repository registered in
+# this repo's settings. The downstream is named only via repo configuration —
+# no downstream name lives in this workflow file, so the OSS repo doesn't
+# advertise its forks/distributions.
+#
+# To configure a downstream:
+#   gh secret set DOWNSTREAM_DISPATCH_TOKEN --body <PAT-with-repo-scope>
+#   gh variable set DOWNSTREAM_REPO --body <owner/repo>
+#
+# To disable: clear DOWNSTREAM_REPO. The job becomes a no-op.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    if: ${{ vars.DOWNSTREAM_REPO != '' }}
+    steps:
+      - name: Fire repository_dispatch
+        env:
+          GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "DOWNSTREAM_DISPATCH_TOKEN secret is not set; skipping."
+            exit 0
+          fi
+          gh api repos/${{ vars.DOWNSTREAM_REPO }}/dispatches \
+            -f event_type=upstream-push \
+            -f client_payload[upstream_sha]=${{ github.sha }} \
+            -f client_payload[upstream_ref]=${{ github.ref_name }} \
+            -f client_payload[upstream_repo]=${{ github.repository }}
