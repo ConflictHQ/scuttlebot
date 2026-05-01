@@ -733,6 +733,12 @@ canvas { display:block; width:100% !important; }
       <span id="sidebar-right-label">users</span>
     </div>
     <div id="nicklist-users"></div>
+    <div id="nicklist-share" style="margin-top:auto;padding:10px;border-top:1px solid #21262d;flex-shrink:0">
+      <button class="sm" onclick="openChannelShareModal()" title="Share a scuttlebot.yaml an agent can drop in its repo to connect to this channel" style="width:100%;font-size:11px;padding:6px 8px;display:flex;align-items:center;justify-content:center;gap:6px">
+        <span>📄</span><span>scuttlebot.yaml</span>
+      </button>
+      <div style="font-size:10px;color:#6e7681;margin-top:6px;line-height:1.4;text-align:center">connect an agent to this channel</div>
+    </div>
   </div>
 </div>
 
@@ -749,6 +755,13 @@ canvas { display:block; width:100% !important; }
           <div class="setting-desc">Current admin session.</div>
           <code class="setting-val" id="settings-username-display">—</code>
           <button class="sm danger" onclick="logout()">sign out</button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">session token</div>
+          <div class="setting-desc">Bearer token for the current browser session — admin-scoped, 24h expiry. Useful for ad-hoc curl or piping into a relay.</div>
+          <code class="setting-val" id="settings-session-token" style="word-break:break-all;user-select:all">●●●●●●●●●●●●●●●●</code>
+          <button class="sm" id="settings-token-toggle" onclick="toggleSessionTokenReveal(this)">show</button>
+          <button class="sm" onclick="copySessionToken(this)">copy</button>
         </div>
         <div class="setting-row">
           <div class="setting-label">API endpoint</div>
@@ -1481,6 +1494,40 @@ canvas { display:block; width:100% !important; }
   </div>
 </div>
 
+<!-- Channel share modal — generates a scuttlebot.yaml for a relay/agent -->
+<div class="modal-overlay" id="channel-share-overlay" onclick="if(event.target===this)closeChannelShareModal()">
+  <div class="modal" style="width:560px">
+    <h3 style="margin-bottom:6px">share <code id="channel-share-name" style="color:#79b8ff">#</code></h3>
+    <div style="font-size:12px;color:#8b949e;margin-bottom:14px">
+      Drop this <code style="color:#a5d6ff">scuttlebot.yaml</code> into an agent project root.
+      The Claude / Codex / Gemini relays auto-discover it walking up from <code>$CWD</code>.
+    </div>
+
+    <div style="display:flex;gap:14px;align-items:center;font-size:12px;margin-bottom:10px">
+      <span style="color:#8b949e">transport:</span>
+      <label style="cursor:pointer"><input type="radio" name="share-transport" value="http" checked onchange="renderShareYaml()"> http</label>
+      <label style="cursor:pointer"><input type="radio" name="share-transport" value="irc" onchange="renderShareYaml()"> irc</label>
+      <span class="spacer"></span>
+      <span id="share-token-status" style="font-size:11px;color:#6e7681"></span>
+    </div>
+
+    <div style="position:relative">
+      <textarea id="share-yaml" rows="9" readonly style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;resize:vertical"></textarea>
+      <button class="sm" id="share-copy-btn" onclick="copyShareYaml(this)" style="position:absolute;top:6px;right:6px;font-size:11px;padding:3px 8px">copy</button>
+    </div>
+
+    <div style="font-size:11px;color:#6e7681;margin-top:10px;line-height:1.5">
+      The token above is a fresh long-lived API key scoped to <code>chat</code> + <code>channels</code>.
+      Anyone who holds it can post to any channel they can reach — treat it like a password.
+      Revoke it from <strong>settings → API keys</strong> when the agent retires.
+    </div>
+
+    <div class="btn-row">
+      <button onclick="closeChannelShareModal()">close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Adopt user drawer (claim pre-existing NickServ account) -->
 <div class="drawer-overlay" id="adopt-overlay" onclick="closeAdoptDrawer()"></div>
 <div class="drawer" id="adopt-drawer">
@@ -1680,6 +1727,157 @@ async function api(method, path, body) {
 }
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(() => { const o=btn.textContent; btn.textContent='✓'; setTimeout(()=>{btn.textContent=o;},1200); });
+}
+
+// --- session token reveal (settings → connection) ---
+function toggleSessionTokenReveal(btn) {
+  const el = document.getElementById('settings-session-token');
+  if (!el) return;
+  const t = getToken();
+  if (!t) { el.textContent = '(no token — sign in)'; return; }
+  if (btn.textContent === 'show') {
+    el.textContent = t;
+    btn.textContent = 'hide';
+  } else {
+    el.textContent = '●'.repeat(Math.min(40, t.length));
+    btn.textContent = 'show';
+  }
+}
+function copySessionToken(btn) {
+  const t = getToken();
+  if (!t) { alert('No session token — sign in first.'); return; }
+  navigator.clipboard.writeText(t).then(() => {
+    const o = btn.textContent;
+    btn.textContent = 'copied ✓';
+    setTimeout(() => { btn.textContent = o; }, 1200);
+  });
+}
+
+// --- channel share (scuttlebot.yaml for relays/agents) ---
+let _shareToken = null;        // long-lived API key minted on demand, cached per channel
+let _shareTokenChannel = null; // channel name the cached key was minted for
+let _shareServerInfo = null;   // resolved server endpoints (irc_addr, network_name, etc.)
+
+// Strip /ui/ from the page path to get the API/proxy root the relay should use as `url:`.
+function _shareApiBase() {
+  const p = window.location.pathname.replace(/\/ui\/?.*$/, '/');
+  return window.location.origin + (p.endsWith('/') ? p : p + '/');
+}
+
+// Resolve real, instance-specific IRC connect info from GET /v1/config.
+// Returns { ircHost, ircPort, ircTLS, networkName, serverName, fromConfig }.
+// Falls back to sensible guesses if the config endpoint isn't reachable.
+async function _resolveServerInfo() {
+  const fallback = {
+    ircHost: window.location.hostname || 'localhost',
+    ircPort: 6667,
+    ircTLS: false,
+    networkName: '',
+    serverName: '',
+    fromConfig: false,
+  };
+  try {
+    const cfg = await api('GET', '/v1/config');
+    // ergo.irc_addr is the bind address (e.g. "0.0.0.0:6667"). The host portion is
+    // useless for an external relay, so prefer tls.domain (public hostname when
+    // TLS is enabled) or ergo.server_name, falling back to the page origin's host.
+    const bind = (cfg.ergo && cfg.ergo.irc_addr) || '';
+    const bindPort = parseInt((bind.split(':')[1] || '6667'), 10) || 6667;
+    const tlsEnabled = !!(cfg.tls && cfg.tls.domain);
+    const host =
+      (tlsEnabled && cfg.tls.domain) ||
+      (cfg.ergo && cfg.ergo.server_name) ||
+      window.location.hostname ||
+      'localhost';
+    return {
+      ircHost: host,
+      // If TLS is enabled, prefer 6697; if the config explicitly bound a non-default port, honor it.
+      ircPort: tlsEnabled && bindPort === 6667 ? 6697 : bindPort,
+      ircTLS: tlsEnabled,
+      networkName: (cfg.ergo && cfg.ergo.network_name) || '',
+      serverName: (cfg.ergo && cfg.ergo.server_name) || '',
+      fromConfig: true,
+    };
+  } catch (e) {
+    return fallback;
+  }
+}
+
+async function openChannelShareModal() {
+  if (!chatChannel) { alert('Select a channel first.'); return; }
+  document.getElementById('channel-share-name').textContent = chatChannel;
+  document.getElementById('share-yaml').value = '# generating long-lived token…';
+  document.getElementById('share-token-status').textContent = 'minting key…';
+  document.getElementById('channel-share-overlay').classList.add('open');
+
+  // Mint a fresh, channel-named API key the first time the modal opens for this channel.
+  // Cached so toggling http/irc doesn't burn a new key on every flip.
+  if (_shareToken === null || _shareTokenChannel !== chatChannel) {
+    const slug = chatChannel.replace(/^#/, '');
+    const stamp = new Date().toISOString().slice(0,16).replace(/[-:T]/g,'');
+    try {
+      const result = await api('POST', '/v1/api-keys', {
+        name: `share-${slug}-${stamp}`,
+        scopes: ['chat', 'channels'],
+        // omit expires_in → never expires (revoke from settings to retire)
+      });
+      _shareToken = result.token;
+      _shareTokenChannel = chatChannel;
+      document.getElementById('share-token-status').textContent =
+        'key: ' + (result.name ? esc(result.name) : '(unnamed)');
+    } catch (e) {
+      document.getElementById('share-yaml').value = '# failed to mint API key: ' + e.message;
+      document.getElementById('share-token-status').textContent = '';
+      return;
+    }
+  } else {
+    document.getElementById('share-token-status').textContent = 'reusing minted key';
+  }
+
+  // Fetch real server endpoints once per modal session so the YAML is "ready to go".
+  if (!_shareServerInfo) {
+    _shareServerInfo = await _resolveServerInfo();
+  }
+
+  renderShareYaml();
+}
+
+function closeChannelShareModal() {
+  document.getElementById('channel-share-overlay').classList.remove('open');
+}
+
+function renderShareYaml() {
+  if (!_shareToken) return;
+  const transport = (document.querySelector('input[name="share-transport"]:checked') || {}).value || 'http';
+  const ch = chatChannel || '#general';
+  const url = _shareApiBase();
+  const info = _shareServerInfo || { ircHost: 'localhost', ircPort: 6667, ircTLS: false, fromConfig: false };
+
+  let yaml = '';
+  yaml += '# scuttlebot.yaml — drop in your agent project root\n';
+  yaml += '# Picked up by claude-relay / codex-relay / gemini-relay walking up from $CWD\n';
+  if (info.networkName) yaml += `# network: ${info.networkName}\n`;
+  yaml += `url: ${url}\n`;
+  yaml += `token: ${_shareToken}\n`;
+  yaml += `transport: ${transport}\n`;
+  if (transport === 'irc') {
+    yaml += `irc_addr: ${info.ircHost}:${info.ircPort}\n`;
+    yaml += `irc_tls: ${info.ircTLS ? 'true' : 'false'}\n`;
+    if (!info.fromConfig) {
+      yaml += '# (irc_addr is a guess — server config wasn\'t reachable; verify before deploying)\n';
+    }
+  }
+  yaml += `channel: "${ch}"\n`;
+  document.getElementById('share-yaml').value = yaml;
+}
+
+function copyShareYaml(btn) {
+  const ta = document.getElementById('share-yaml');
+  navigator.clipboard.writeText(ta.value).then(() => {
+    const o = btn.textContent;
+    btn.textContent = 'copied ✓';
+    setTimeout(() => { btn.textContent = o; }, 1400);
+  });
 }
 
 // --- charts ---
@@ -2512,8 +2710,19 @@ async function selectChannel(ch) {
   es.onmessage = ev => { try { appendMsg(JSON.parse(ev.data)); area.scrollTop=area.scrollHeight; } catch(_){} };
   es.onerror   = () => {
     if (es.readyState === EventSource.CLOSED) {
-      badge.textContent='● session expired'; badge.style.color='#f85149';
-      showLoginScreen();
+      badge.textContent='○ stream disconnected — reconnecting'; badge.style.color='#d29922';
+      // Don't kick to login: the API token is still valid; only the SSE stream dropped.
+      // Manually reschedule a reconnect (native EventSource won't retry once CLOSED).
+      const slugRe = ch.replace(/^#/,'');
+      setTimeout(() => {
+        if (chatChannel !== ch) return; // user switched channels
+        if (chatSSE && chatSSE.readyState !== EventSource.CLOSED) return;
+        if (chatSSE) chatSSE.close();
+        chatSSE = new EventSource(`/v1/channels/${slugRe}/stream?token=${encodeURIComponent(getToken())}`);
+        chatSSE.onopen    = es.onopen;
+        chatSSE.onmessage = es.onmessage;
+        chatSSE.onerror   = es.onerror;
+      }, 2000);
     } else {
       badge.textContent='○ reconnecting\u2026'; badge.style.color='#8b949e';
     }
