@@ -1764,39 +1764,60 @@ function _shareApiBase() {
   return window.location.origin + (p.endsWith('/') ? p : p + '/');
 }
 
-// Resolve real, instance-specific IRC connect info from GET /v1/config.
-// Returns { ircHost, ircPort, ircTLS, networkName, serverName, fromConfig }.
-// Falls back to sensible guesses if the config endpoint isn't reachable.
+// Resolve real, instance-specific connect info from GET /v1/config.
+// Returns { httpUrl, ircHost, ircPort, ircTLS, networkName, fromConfig }.
+//
+// Critical: prefer runtime.private_ip (the actual VPC-reachable address)
+// over window.location.hostname (which routes through whatever auth proxy
+// fronts the public hostname — e.g. JupyterHub OAuth, an ingress, etc).
+// Public-hostname URLs work for browser users with a session cookie but
+// not for headless agents holding only an API token.
 async function _resolveServerInfo() {
+  const publicHost = window.location.hostname || 'localhost';
   const fallback = {
-    ircHost: window.location.hostname || 'localhost',
+    httpUrl: _shareApiBase(),
+    ircHost: publicHost,
     ircPort: 6667,
     ircTLS: false,
     networkName: '',
-    serverName: '',
     fromConfig: false,
+    fromPublic: true,
   };
   try {
     const cfg = await api('GET', '/v1/config');
-    // ergo.irc_addr is the bind address (e.g. "0.0.0.0:6667"). The host portion is
-    // useless for an external relay, so prefer tls.domain (public hostname when
-    // TLS is enabled) or ergo.server_name, falling back to the page origin's host.
-    const bind = (cfg.ergo && cfg.ergo.irc_addr) || '';
-    const bindPort = parseInt((bind.split(':')[1] || '6667'), 10) || 6667;
+    const rt = cfg.runtime || {};
     const tlsEnabled = !!(cfg.tls && cfg.tls.domain);
-    const host =
+    const privateIP = rt.private_ip || '';
+
+    // HTTP transport: reach scuttlebot directly on the task's VPC IP, port from
+    // runtime.api_port. Bypasses any front-door auth proxy.
+    let httpUrl;
+    if (privateIP && rt.api_port) {
+      const scheme = tlsEnabled ? 'https' : 'http';
+      httpUrl = `${scheme}://${privateIP}:${rt.api_port}/`;
+    } else {
+      // Fall back to the page's origin URL — works for browser-side use but
+      // will hit any auth gateway in front of scuttlebot.
+      httpUrl = _shareApiBase();
+    }
+
+    // IRC transport: prefer the runtime IP. tls.domain wins only when explicit
+    // TLS is configured (cert-validation path). server_name is an IRC protocol
+    // identifier, NOT a DNS name — never use it as a connect address.
+    const ircPort = parseInt(rt.irc_port || '6667', 10) || 6667;
+    const ircHost =
       (tlsEnabled && cfg.tls.domain) ||
-      (cfg.ergo && cfg.ergo.server_name) ||
-      window.location.hostname ||
-      'localhost';
+      privateIP ||
+      publicHost;
+
     return {
-      ircHost: host,
-      // If TLS is enabled, prefer 6697; if the config explicitly bound a non-default port, honor it.
-      ircPort: tlsEnabled && bindPort === 6667 ? 6697 : bindPort,
+      httpUrl,
+      ircHost,
+      ircPort: tlsEnabled && ircPort === 6667 ? 6697 : ircPort,
       ircTLS: tlsEnabled,
       networkName: (cfg.ergo && cfg.ergo.network_name) || '',
-      serverName: (cfg.ergo && cfg.ergo.server_name) || '',
       fromConfig: true,
+      fromPublic: !privateIP,
     };
   } catch (e) {
     return fallback;
@@ -1850,24 +1871,37 @@ function renderShareYaml() {
   if (!_shareToken) return;
   const transport = (document.querySelector('input[name="share-transport"]:checked') || {}).value || 'http';
   const ch = chatChannel || '#general';
-  const url = _shareApiBase();
-  const info = _shareServerInfo || { ircHost: 'localhost', ircPort: 6667, ircTLS: false, fromConfig: false };
+  const info = _shareServerInfo || {
+    httpUrl: _shareApiBase(),
+    ircHost: 'localhost',
+    ircPort: 6667,
+    ircTLS: false,
+    fromConfig: false,
+    fromPublic: true,
+  };
 
   let yaml = '';
   yaml += '# scuttlebot.yaml — drop in your agent project root\n';
   yaml += '# Picked up by claude-relay / codex-relay / gemini-relay walking up from $CWD\n';
   if (info.networkName) yaml += `# network: ${info.networkName}\n`;
-  yaml += `url: ${url}\n`;
+  yaml += `url: ${info.httpUrl}\n`;
   yaml += `token: ${_shareToken}\n`;
   yaml += `transport: ${transport}\n`;
   if (transport === 'irc') {
     yaml += `irc_addr: ${info.ircHost}:${info.ircPort}\n`;
     yaml += `irc_tls: ${info.ircTLS ? 'true' : 'false'}\n`;
-    if (!info.fromConfig) {
-      yaml += '# (irc_addr is a guess — server config wasn\'t reachable; verify before deploying)\n';
-    }
   }
   yaml += `channel: "${ch}"\n`;
+  if (info.fromPublic) {
+    yaml += '# NOTE: server did not report a private VPC IP. Falling back to the\n';
+    yaml += '#       public hostname — agents using this YAML will hit whatever\n';
+    yaml += '#       auth gateway fronts scuttlebot. Edit url/irc_addr to a VPC\n';
+    yaml += '#       address (or service-discovery DNS) for headless tokens.\n';
+  } else if (transport === 'http') {
+    yaml += '# url is the task\'s private VPC address — reachable only inside the same\n';
+    yaml += '# network (VPC / pod network). Bypasses any auth proxy in front of the\n';
+    yaml += '# public hostname. For external agents, edit to a routable address.\n';
+  }
   document.getElementById('share-yaml').value = yaml;
 }
 

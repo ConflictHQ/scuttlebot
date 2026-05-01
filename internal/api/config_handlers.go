@@ -2,11 +2,58 @@ package api
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/conflicthq/scuttlebot/internal/config"
 )
+
+// detectPrivateIP returns the first non-loopback IPv4 address bound to a local
+// interface — typically the container/VM's primary VPC IP. Returns "" if none
+// is found. Used to populate runtimeView.PrivateIP so clients (relays, the
+// share modal in the web UI, etc.) can connect to scuttlebot directly without
+// going through any HTTP proxy / auth gateway in front of the public hostname.
+func detectPrivateIP() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			var ip net.IP
+			switch v := a.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.To4() == nil {
+				continue
+			}
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+// portFromAddr extracts the port digits from an address like ":8080" or
+// "127.0.0.1:6667". Returns "" when no port is present.
+func portFromAddr(addr string) string {
+	i := strings.LastIndex(addr, ":")
+	if i < 0 || i == len(addr)-1 {
+		return ""
+	}
+	return addr[i+1:]
+}
 
 // configView is the JSON shape returned by GET /v1/config.
 // Secrets are masked — zero values mean "no change" on PUT.
@@ -21,6 +68,22 @@ type configView struct {
 	History     config.ConfigHistoryConfig `json:"config_history"`
 	AgentPolicy config.AgentPolicyConfig   `json:"agent_policy"`
 	Logging     config.LoggingConfig       `json:"logging"`
+	Runtime     runtimeView                `json:"runtime"`
+}
+
+// runtimeView reports the *runtime* (post-binding) network endpoints clients
+// should connect to. Distinct from ergo.irc_addr / api_addr which are bind
+// strings (often "0.0.0.0:port" or "127.0.0.1:port") and useless to a peer.
+//
+// PrivateIP is the container's primary non-loopback IPv4 — typically the
+// task ENI in ECS, the pod IP in Kubernetes, the VM IP elsewhere. Any peer
+// in the same VPC / network namespace can reach scuttlebot at PrivateIP:port
+// directly, bypassing any auth gateway sitting in front of the public host.
+type runtimeView struct {
+	PrivateIP string `json:"private_ip"`
+	APIPort   string `json:"api_port"`
+	IRCPort   string `json:"irc_port"`
+	MCPPort   string `json:"mcp_port"`
 }
 
 type bridgeConfigView struct {
@@ -104,6 +167,12 @@ func configToView(cfg config.Config) configView {
 		History:     cfg.History,
 		AgentPolicy: cfg.AgentPolicy,
 		Logging:     cfg.Logging,
+		Runtime: runtimeView{
+			PrivateIP: detectPrivateIP(),
+			APIPort:   portFromAddr(cfg.APIAddr),
+			IRCPort:   portFromAddr(cfg.Ergo.IRCAddr),
+			MCPPort:   portFromAddr(cfg.MCPAddr),
+		},
 	}
 }
 
