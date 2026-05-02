@@ -17,10 +17,59 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
+
+// repoConfigFilenames mirrors claude-relay's list. Same priority order so a
+// project that drops one file gets identical resolution across all relay
+// binaries (claude / codex / gemini / watchdog).
+var repoConfigFilenames = []string{
+	".scuttlebot.yaml",
+	".scuttlebot.yml",
+	"scuttlebot.yaml",
+	"scuttlebot.yml",
+}
+
+// repoConfig is the subset of the per-repo .scuttlebot.yaml the watchdog
+// cares about. The relays use a richer schema; we only need url+token.
+type repoConfig struct {
+	URL   string `yaml:"url"`
+	Token string `yaml:"token"`
+}
+
+// loadRepoConfig walks up from dir looking for any of repoConfigFilenames.
+// Stops at the git root or filesystem root.
+func loadRepoConfig(dir string) *repoConfig {
+	current := dir
+	for {
+		for _, name := range repoConfigFilenames {
+			candidate := filepath.Join(current, name)
+			data, err := os.ReadFile(candidate)
+			if err != nil {
+				continue
+			}
+			var rc repoConfig
+			if err := yaml.Unmarshal(data, &rc); err != nil {
+				return nil
+			}
+			fmt.Fprintf(os.Stderr, "relay-watchdog: loaded repo config from %s\n", candidate)
+			return &rc
+		}
+		if info, err := os.Stat(filepath.Join(current, ".git")); err == nil && info.IsDir() {
+			return nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil
+		}
+		current = parent
+	}
+}
 
 func loadEnvFile(path string) {
 	data, err := os.ReadFile(path)
@@ -49,8 +98,26 @@ func main() {
 		loadEnvFile(home + "/.config/scuttlebot-relay.env")
 	}
 
-	url := flag.String("url", os.Getenv("SCUTTLEBOT_URL"), "scuttlebot API URL")
-	token := flag.String("token", os.Getenv("SCUTTLEBOT_TOKEN"), "API token")
+	// Walk up from $CWD looking for a per-repo scuttlebot.yaml the same way
+	// claude-relay/codex-relay/gemini-relay do — so dropping a single file
+	// configures every relay binary identically. Only used when the env
+	// vars / flags don't supply a value (process env wins, matching the
+	// other relays' precedence).
+	var repoCfg *repoConfig
+	if cwd, err := os.Getwd(); err == nil {
+		repoCfg = loadRepoConfig(cwd)
+	}
+	defaultURL := os.Getenv("SCUTTLEBOT_URL")
+	defaultToken := os.Getenv("SCUTTLEBOT_TOKEN")
+	if defaultURL == "" && repoCfg != nil {
+		defaultURL = repoCfg.URL
+	}
+	if defaultToken == "" && repoCfg != nil {
+		defaultToken = repoCfg.Token
+	}
+
+	url := flag.String("url", defaultURL, "scuttlebot API URL")
+	token := flag.String("token", defaultToken, "API token")
 	interval := flag.Duration("interval", 10*time.Second, "poll interval")
 	flag.Parse()
 
