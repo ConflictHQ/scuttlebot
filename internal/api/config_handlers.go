@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -15,7 +16,15 @@ import (
 // is found. Used to populate runtimeView.PrivateIP so clients (relays, the
 // share modal in the web UI, etc.) can connect to scuttlebot directly without
 // going through any HTTP proxy / auth gateway in front of the public hostname.
+//
+// Can be overridden via SCUTTLEBOT_PRIVATE_IP environment variable.
 func detectPrivateIP() string {
+	// Allow override via environment variable for JupyterHub deployments where
+	// the scuttlebot service is exposed through a proxy or service mesh.
+	if override := os.Getenv("SCUTTLEBOT_PRIVATE_IP"); override != "" {
+		return override
+	}
+
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return ""
@@ -39,10 +48,23 @@ func detectPrivateIP() string {
 			if ip == nil || ip.IsLoopback() || ip.To4() == nil {
 				continue
 			}
+			// Skip link-local addresses (169.254.x.x) which are not routable
+			// across ECS tasks or Kubernetes pods.
+			if isLinkLocal(ip) {
+				continue
+			}
 			return ip.String()
 		}
 	}
 	return ""
+}
+
+// isLinkLocal returns true if ip is in the link-local range (169.254.0.0/16).
+func isLinkLocal(ip net.IP) bool {
+	if ip4 := ip.To4(); ip4 != nil {
+		return ip4[0] == 169 && ip4[1] == 254
+	}
+	return false
 }
 
 // portFromAddr extracts the port digits from an address like ":8080" or
