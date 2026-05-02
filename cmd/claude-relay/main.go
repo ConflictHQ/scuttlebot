@@ -1607,14 +1607,31 @@ func (rc *repoConfig) envOverrides() map[string]string {
 	return out
 }
 
-// loadRepoConfig walks up from dir looking for .scuttlebot.yaml.
+// repoConfigFilenames lists the per-repo config filenames the relay accepts,
+// in priority order. Forms in the wild:
+//   - dotfile to keep the file out of `ls` output
+//   - visible form for tooling globs that skip dotfiles
+//   - .yml for projects standardized on the short extension
+// Whichever lands first wins; we don't merge across them.
+var repoConfigFilenames = []string{
+	".scuttlebot.yaml",
+	".scuttlebot.yml",
+	"scuttlebot.yaml",
+	"scuttlebot.yml",
+}
+
+// loadRepoConfig walks up from dir looking for any of repoConfigFilenames.
 // Stops at the git root (directory containing .git) or the filesystem root.
 // Returns nil, nil if no config file is found.
 func loadRepoConfig(dir string) (*repoConfig, error) {
 	current := dir
 	for {
-		candidate := filepath.Join(current, ".scuttlebot.yaml")
-		if data, err := os.ReadFile(candidate); err == nil {
+		for _, name := range repoConfigFilenames {
+			candidate := filepath.Join(current, name)
+			data, err := os.ReadFile(candidate)
+			if err != nil {
+				continue
+			}
 			var rc repoConfig
 			if err := yaml.Unmarshal(data, &rc); err != nil {
 				return nil, fmt.Errorf("loadRepoConfig: parse %s: %w", candidate, err)
