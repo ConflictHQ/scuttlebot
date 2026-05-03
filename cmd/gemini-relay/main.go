@@ -897,16 +897,37 @@ func findSessionByUUID(dir, uuid string) string {
 // geminiChatsDirCandidates returns candidate ~/.gemini/tmp/<slug>/chats paths
 // in order of likelihood. Gemini CLI ≥0.36 uses basename(gitRoot); older
 // versions and non-git-repo runs use a full-path slug.
+//
+// Also includes candidates derived from filepath.EvalSymlinks(targetCWD)
+// because Gemini resolves the launch dir to its real path before computing
+// the slug. Without this, a relay started from a symlinked home (e.g.
+// /home/$user → /mnt/efs/$user, the standard calliope-agents layout) would
+// look under the symlink-name directory and miss the file Gemini actually
+// wrote under the resolved-path directory.
 func geminiChatsDirCandidates(home, targetCWD string) []string {
 	base := filepath.Join(home, ".gemini", "tmp")
+	seen := map[string]bool{}
 	out := []string{}
-	if gr := findGitRoot(targetCWD); gr != "" {
-		out = append(out, filepath.Join(base, filepath.Base(gr), "chats"))
+	add := func(p string) {
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
 	}
-	out = append(out,
-		filepath.Join(base, filepath.Base(targetCWD), "chats"),
-		filepath.Join(base, slugify(targetCWD), "chats"),
-	)
+
+	resolvedCWD, _ := filepath.EvalSymlinks(targetCWD)
+
+	for _, cwd := range []string{targetCWD, resolvedCWD} {
+		if cwd == "" {
+			continue
+		}
+		if gr := findGitRoot(cwd); gr != "" {
+			add(filepath.Join(base, filepath.Base(gr), "chats"))
+		}
+		add(filepath.Join(base, filepath.Base(cwd), "chats"))
+		add(filepath.Join(base, slugify(cwd), "chats"))
+	}
 	return out
 }
 
