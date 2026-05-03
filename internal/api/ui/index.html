@@ -2885,6 +2885,13 @@ let _chatUnread = 0;
 function appendMsg(msg, isHistory) {
   const area = document.getElementById('chat-msgs');
 
+  // Diff-line splash: the relays mirror Edit/Write/apply_patch diffs as raw
+  // +/-/@@ lines so IRC clients (which don't read meta) can see them. The
+  // structured tool_result card already renders the diff in this UI, so
+  // suppress the duplicates here. Toggle SCUTTLEBOT_MIRROR_DIFFS=0 on the
+  // relay side to stop them being emitted at all.
+  if (msg && msg.meta && msg.meta.type === 'diff_line') return;
+
   // Attribution: RELAYMSG delivers nicks as "user/bridge"; legacy uses "[nick] text".
   // Any message that came through the bridge was posted by a human via the web UI.
   let displayNick = msg.nick;

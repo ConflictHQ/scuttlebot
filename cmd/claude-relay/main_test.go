@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,8 +123,8 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.SessionID != "abc" {
 		t.Errorf("expected session ID abc, got %s", cfg.SessionID)
 	}
-	if cfg.Nick != "claude-scuttlebot-abc" {
-		t.Errorf("expected nick claude-scuttlebot-abc, got %s", cfg.Nick)
+	if cfg.Nick != "scuttlebot-claude-abc" {
+		t.Errorf("expected nick scuttlebot-claude-abc, got %s", cfg.Nick)
 	}
 }
 
@@ -396,5 +397,65 @@ func TestSessionMessagesThinking(t *testing.T) {
 	got = sessionMessages(line, true, time.Time{})
 	if len(got) != 2 || got[0].Text != "💭 reasoning here" || got[1].Text != "final answer" {
 		t.Fatalf("mirrorReasoning=true: got %#v", got)
+	}
+}
+
+func TestSessionMessagesEditDiffMirror(t *testing.T) {
+	// Edit tool should produce: summary line + diff lines (header + - + +) when
+	// mirror-diffs is enabled (default on).
+	t.Setenv("SCUTTLEBOT_MIRROR_DIFFS", "")
+	line := []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"foo.go","old_string":"oldA\noldB","new_string":"newA\nnewB"}}]}}`)
+	got := sessionMessages(line, false, time.Time{})
+	if len(got) < 2 {
+		t.Fatalf("expected summary + diff lines, got %d: %#v", len(got), got)
+	}
+	if got[0].Text != "edit foo.go" {
+		t.Fatalf("expected first line summary 'edit foo.go', got %q", got[0].Text)
+	}
+	if len(got[0].Meta) == 0 {
+		t.Fatalf("expected summary to carry tool_result Meta")
+	}
+	// Subsequent lines should be diff content tagged with diff_line meta.
+	wantTexts := []string{"@@ foo.go @@", "-oldA", "-oldB", "+newA", "+newB"}
+	if len(got) != 1+len(wantTexts) {
+		t.Fatalf("expected %d total lines, got %d: %#v", 1+len(wantTexts), len(got), got)
+	}
+	for i, want := range wantTexts {
+		if got[1+i].Text != want {
+			t.Errorf("diff line %d: got %q want %q", i, got[1+i].Text, want)
+		}
+		if string(got[1+i].Meta) != `{"type":"diff_line"}` {
+			t.Errorf("diff line %d: missing diff_line meta, got %s", i, got[1+i].Meta)
+		}
+	}
+}
+
+func TestMirrorDiffsDisabled(t *testing.T) {
+	t.Setenv("SCUTTLEBOT_MIRROR_DIFFS", "0")
+	line := []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"foo.go","old_string":"a","new_string":"b"}}]}}`)
+	got := sessionMessages(line, false, time.Time{})
+	if len(got) != 1 {
+		t.Fatalf("expected only summary line when disabled, got %d: %#v", len(got), got)
+	}
+	if got[0].Text != "edit foo.go" {
+		t.Fatalf("expected 'edit foo.go', got %q", got[0].Text)
+	}
+}
+
+func TestDiffMirrorLinesCap(t *testing.T) {
+	// Build a synthetic diff with more than diffMirrorMaxLines content lines.
+	var sb strings.Builder
+	sb.WriteString("@@ foo @@\n")
+	for i := 0; i < diffMirrorMaxLines+10; i++ {
+		sb.WriteString("+line\n")
+	}
+	out := diffMirrorLines(strings.TrimRight(sb.String(), "\n"))
+	// Cap is applied across all non-empty lines including the header.
+	if len(out) != diffMirrorMaxLines+1 {
+		t.Fatalf("expected %d lines (cap + overflow indicator), got %d", diffMirrorMaxLines+1, len(out))
+	}
+	last := out[len(out)-1].Text
+	if !strings.HasPrefix(last, "… +") || !strings.HasSuffix(last, " more diff lines") {
+		t.Errorf("expected overflow indicator, got %q", last)
 	}
 }

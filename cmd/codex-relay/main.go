@@ -1205,18 +1205,90 @@ func sessionMessages(line []byte, mirrorReasoning bool, since time.Time) []mirro
 	case "function_call":
 		if msg := summarizeFunctionCall(payload.Name, payload.Arguments); msg != "" {
 			meta := codexToolMeta(payload.Name, payload.Arguments)
-			return []mirrorLine{{Text: msg, Meta: meta}}
+			out := []mirrorLine{{Text: msg, Meta: meta}}
+			out = append(out, codexDiffMirror(payload.Name, payload.Arguments)...)
+			return out
 		}
 	case "custom_tool_call":
 		if msg := summarizeCustomToolCall(payload.Name, payload.Input); msg != "" {
 			meta := codexToolMeta(payload.Name, payload.Input)
-			return []mirrorLine{{Text: msg, Meta: meta}}
+			out := []mirrorLine{{Text: msg, Meta: meta}}
+			out = append(out, codexDiffMirror(payload.Name, payload.Input)...)
+			return out
 		}
 	case "message":
 		if payload.Role != "assistant" {
 			return nil
 		}
 		return flattenAssistantContent(payload.Content, mirrorReasoning)
+	}
+	return nil
+}
+
+// mirrorDiffsEnabled reports whether tool-call diffs should also be splashed
+// into the visible mirror stream as raw +/-/@@ lines so IRC clients (which
+// don't read the structured Meta envelope) can see them. Default on; flip to
+// "0"/"false" via SCUTTLEBOT_MIRROR_DIFFS to suppress.
+func mirrorDiffsEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SCUTTLEBOT_MIRROR_DIFFS"))) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
+}
+
+const diffMirrorMaxLines = 40
+
+var diffLineMeta = json.RawMessage(`{"type":"diff_line"}`)
+
+// diffMirrorLines turns a unified-diff-style string into one mirrorLine per
+// line, capped at diffMirrorMaxLines with an overflow indicator. Each line is
+// tagged with diffLineMeta so the post loop routes to LevelAction and the UI
+// can suppress these in favour of the structured tool_result card.
+func diffMirrorLines(diff string) []mirrorLine {
+	if diff == "" {
+		return nil
+	}
+	raw := strings.Split(diff, "\n")
+	var out []mirrorLine
+	emitted := 0
+	for i, l := range raw {
+		if l == "" {
+			continue
+		}
+		if emitted >= diffMirrorMaxLines {
+			remaining := 0
+			for _, r := range raw[i:] {
+				if r != "" {
+					remaining++
+				}
+			}
+			out = append(out, mirrorLine{
+				Text: fmt.Sprintf("… +%d more diff lines", remaining),
+				Meta: diffLineMeta,
+			})
+			break
+		}
+		out = append(out, mirrorLine{Text: l, Meta: diffLineMeta})
+		emitted++
+	}
+	return out
+}
+
+// codexDiffMirror returns extra mirror lines for the visible diff splash when
+// a tool call carries patch/diff content and SCUTTLEBOT_MIRROR_DIFFS is on.
+// Mirrors the diff-producing branches in codexToolMeta so the two stay in sync.
+func codexDiffMirror(name, argsJSON string) []mirrorLine {
+	if !mirrorDiffsEnabled() {
+		return nil
+	}
+	switch name {
+	case "apply_patch":
+		patch := sanitizeSecrets(argsJSON)
+		if patch == "" {
+			return nil
+		}
+		return diffMirrorLines(patch)
 	}
 	return nil
 }
