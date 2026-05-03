@@ -431,10 +431,18 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, filter
 // discoverSessionPath blocks until a session file is found (or ctx is cancelled).
 //
 // Claude Code creates the .jsonl lazily — only after the first user interaction —
-// so there is no meaningful deadline to impose. We scan every 250ms:
-//   - Primary:  look for the exact UUID we passed via --session-id
-//   - Fallback: look for any .jsonl whose mtime is after startedAt
-//     (handles Claude Code versions that ignore --session-id)
+// so there is no meaningful deadline to impose. We scan every 250ms in three
+// concentric tiers:
+//   1. Primary:   ~/.claude/projects/<sanitized-cwd>/<our-uuid>.jsonl
+//   2. Sibling:   any .jsonl in ~/.claude/projects/<sanitized-cwd>/ newer than startedAt
+//                 (handles Claude Code versions that ignore --session-id)
+//   3. Cross-dir: any .jsonl under ~/.claude/projects/<*>/ newer than startedAt
+//                 (handles Claude Code versions that pick a different cwd
+//                 encoding — e.g. ".../home-leomata" vs ".../-home-leomata",
+//                 or that resolve symlinks before encoding)
+// The cross-dir scan is intentionally last and time-bounded so we don't pick
+// up an unrelated user's stale session — only files written *after* the relay
+// started are eligible.
 func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (string, error) {
 	root, err := claudeSessionsRoot(cfg.TargetCWD)
 	if err != nil {
@@ -442,7 +450,9 @@ func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (
 	}
 
 	target := filepath.Join(root, cfg.ClaudeSessionID+".jsonl")
-	fmt.Fprintf(os.Stderr, "claude-relay: waiting for session file (send a message to Claude to begin)...\n")
+	home, _ := os.UserHomeDir()
+	projectsDir := filepath.Join(home, ".claude", "projects")
+	fmt.Fprintf(os.Stderr, "claude-relay: waiting for session file under %s (send a message to Claude to begin)...\n", root)
 
 	ticker := time.NewTicker(defaultScanInterval)
 	defer ticker.Stop()
@@ -452,10 +462,17 @@ func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (
 			fmt.Fprintf(os.Stderr, "claude-relay: found session file %s\n", target)
 			return target, nil
 		}
-		// Fallback: Claude Code may ignore --session-id and create the file
-		// under a self-chosen UUID once the session starts.
 		if p := newestSessionFile(root, startedAt); p != "" {
-			fmt.Fprintf(os.Stderr, "claude-relay: session file (by mtime) %s\n", p)
+			fmt.Fprintf(os.Stderr, "claude-relay: session file (by mtime, expected dir) %s\n", p)
+			return p, nil
+		}
+		// Cross-dir: walk siblings of the expected dir. Claude Code v2.x has
+		// shifted the cwd-encoding convention more than once; rather than
+		// hard-code every variant, accept any sibling dir's newest .jsonl
+		// whose mtime is after startedAt — that timestamp window restricts
+		// us to a session this relay actually triggered.
+		if p := newestSessionFileAcrossProjects(projectsDir, startedAt); p != "" {
+			fmt.Fprintf(os.Stderr, "claude-relay: session file (cross-dir) %s\n", p)
 			return p, nil
 		}
 		select {
@@ -464,6 +481,35 @@ func discoverSessionPath(ctx context.Context, cfg config, startedAt time.Time) (
 		case <-ticker.C:
 		}
 	}
+}
+
+// newestSessionFileAcrossProjects scans every immediate child of
+// ~/.claude/projects/ for the newest .jsonl whose mtime is after minTime.
+// Used as a last-resort fallback when Claude Code has changed its cwd
+// encoding scheme between releases.
+func newestSessionFileAcrossProjects(projectsDir string, minTime time.Time) string {
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return ""
+	}
+	var best string
+	var bestMod time.Time
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if p := newestSessionFile(filepath.Join(projectsDir, e.Name()), minTime); p != "" {
+			info, err := os.Stat(p)
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(bestMod) {
+				best = p
+				bestMod = info.ModTime()
+			}
+		}
+	}
+	return best
 }
 
 // newestSessionFile returns the most recently modified .jsonl file in dir
