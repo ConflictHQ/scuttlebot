@@ -1418,6 +1418,18 @@ func findLatestSessionPath(root, target string, notBefore time.Time, preExisting
 	}
 	var candidates []candidate
 
+	// Codex stores Cwd in the session header as its symlink-resolved real
+	// path (e.g. /mnt/efs/leomata when launched from /home/leomata, where
+	// the latter is a symlink). Compare against both forms so the relay
+	// accepts the file regardless of which path the user invoked it from.
+	cleanTarget := filepath.Clean(target)
+	resolvedTarget, _ := filepath.EvalSymlinks(target)
+	if resolvedTarget == "" {
+		resolvedTarget = cleanTarget
+	} else {
+		resolvedTarget = filepath.Clean(resolvedTarget)
+	}
+
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
@@ -1431,7 +1443,8 @@ func findLatestSessionPath(root, target string, notBefore time.Time, preExisting
 		if err != nil {
 			return nil
 		}
-		if filepath.Clean(meta.Cwd) != target {
+		metaCwd := filepath.Clean(meta.Cwd)
+		if metaCwd != cleanTarget && metaCwd != resolvedTarget {
 			return nil
 		}
 		if ts.Before(notBefore) {
