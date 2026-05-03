@@ -52,8 +52,8 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.SessionID != "abc" {
 		t.Errorf("expected session ID abc, got %s", cfg.SessionID)
 	}
-	if cfg.Nick != "gemini-scuttlebot-abc" {
-		t.Errorf("expected nick gemini-scuttlebot-abc, got %s", cfg.Nick)
+	if cfg.Nick != "scuttlebot-gemini-abc" {
+		t.Errorf("expected nick scuttlebot-gemini-abc, got %s", cfg.Nick)
 	}
 	if cfg.Transport != sessionrelay.TransportIRC {
 		t.Errorf("expected transport irc, got %s", cfg.Transport)

@@ -636,6 +636,11 @@ func sessionMessages(line []byte, mirrorReasoning bool, since time.Time) []mirro
 					Text: msg,
 					Meta: toolMeta(block.Name, block.Input),
 				})
+				if mirrorDiffsEnabled() {
+					if d := toolDiff(block.Name, block.Input); d != "" {
+						out = append(out, diffMirrorLines(d)...)
+					}
+				}
 			}
 		case "thinking":
 			if mirrorReasoning {
@@ -720,6 +725,98 @@ func toolMeta(name string, inputRaw json.RawMessage) json.RawMessage {
 	}
 	b, _ := json.Marshal(meta)
 	return b
+}
+
+// mirrorDiffsEnabled reports whether tool-call diffs should also be splashed
+// into the visible mirror stream as raw +/-/@@ lines so IRC clients (which
+// don't read the structured Meta envelope) can see them. Default on; flip to
+// "0"/"false" via SCUTTLEBOT_MIRROR_DIFFS to suppress.
+func mirrorDiffsEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SCUTTLEBOT_MIRROR_DIFFS"))) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
+}
+
+// diffMirrorMaxLines is the cap for visible diff content per tool call.
+// Beyond this we truncate and emit a "... +N more lines" indicator so a
+// large Write doesn't flood the channel.
+const diffMirrorMaxLines = 40
+
+// diffLineMeta marks a line as belonging to the visible diff splash so the
+// UI can suppress it (the structured tool_result card already shows the diff)
+// while IRC clients still see the raw text. Carrying any non-empty Meta also
+// routes the line to LevelAction in the post loop.
+var diffLineMeta = json.RawMessage(`{"type":"diff_line"}`)
+
+// diffMirrorLines turns a unified-diff-style string (as produced by
+// renderEditDiff) into one mirrorLine per line, capped at diffMirrorMaxLines
+// with an overflow indicator. Each line is tagged with diffLineMeta.
+func diffMirrorLines(diff string) []mirrorLine {
+	if diff == "" {
+		return nil
+	}
+	raw := strings.Split(diff, "\n")
+	var out []mirrorLine
+	emitted := 0
+	for _, l := range raw {
+		if l == "" {
+			continue
+		}
+		if emitted >= diffMirrorMaxLines {
+			remaining := 0
+			for _, r := range raw[len(out):] {
+				if r != "" {
+					remaining++
+				}
+			}
+			out = append(out, mirrorLine{
+				Text: fmt.Sprintf("… +%d more diff lines", remaining),
+				Meta: diffLineMeta,
+			})
+			break
+		}
+		out = append(out, mirrorLine{Text: l, Meta: diffLineMeta})
+		emitted++
+	}
+	return out
+}
+
+// toolDiff returns the diff text for a tool_use block when one is available,
+// or "" otherwise. Mirrors the tool-name switch used by toolMeta so the two
+// stay in sync — anything that ships data["diff"] in toolMeta should also
+// produce a non-empty string here.
+func toolDiff(name string, inputRaw json.RawMessage) string {
+	var input map[string]json.RawMessage
+	_ = json.Unmarshal(inputRaw, &input)
+	str := func(key string) string {
+		v, ok := input[key]
+		if !ok {
+			return ""
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return strings.Trim(string(v), `"`)
+		}
+		return s
+	}
+	switch name {
+	case "Edit":
+		oldS := sanitizeSecrets(str("old_string"))
+		newS := sanitizeSecrets(str("new_string"))
+		if oldS == "" && newS == "" {
+			return ""
+		}
+		return renderEditDiff(str("file_path"), oldS, newS)
+	case "Write":
+		content := sanitizeSecrets(str("content"))
+		if content == "" {
+			return ""
+		}
+		return renderEditDiff(str("file_path"), "", content)
+	}
+	return ""
 }
 
 // renderEditDiff produces a minimal unified-diff-style string suitable for the

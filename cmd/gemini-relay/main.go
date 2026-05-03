@@ -98,6 +98,60 @@ func renderEditDiff(file, oldS, newS string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// mirrorDiffsEnabled reports whether tool-call diffs should also be splashed
+// into the visible mirror stream as raw +/-/@@ lines so IRC clients (which
+// don't read the structured Meta envelope) can see them. Default on; flip to
+// "0"/"false" via SCUTTLEBOT_MIRROR_DIFFS to suppress.
+func mirrorDiffsEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SCUTTLEBOT_MIRROR_DIFFS"))) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
+}
+
+const diffMirrorMaxLines = 40
+
+var diffLineMeta = json.RawMessage(`{"type":"diff_line"}`)
+
+// postDiffMirror splashes the rendered diff into visible chat lines (one per
+// +/-/@@ line) so IRC sees the same content the structured tool_result card
+// shows in the chat UI. Capped at diffMirrorMaxLines with an overflow note.
+// No-op when mirror-diffs is disabled or the diff is empty.
+func postDiffMirror(ctx context.Context, filtered *sessionrelay.FilteredConnector, relay sessionrelay.Connector, diff string) {
+	if !mirrorDiffsEnabled() || diff == "" {
+		return
+	}
+	raw := strings.Split(diff, "\n")
+	emitted := 0
+	for i, l := range raw {
+		if l == "" {
+			continue
+		}
+		if emitted >= diffMirrorMaxLines {
+			remaining := 0
+			for _, r := range raw[i:] {
+				if r != "" {
+					remaining++
+				}
+			}
+			text := fmt.Sprintf("… +%d more diff lines", remaining)
+			if filtered != nil {
+				_ = filtered.PostAtLevel(ctx, sessionrelay.LevelAction, text, diffLineMeta)
+			} else if relay != nil {
+				_ = relay.PostWithMeta(ctx, text, diffLineMeta)
+			}
+			return
+		}
+		if filtered != nil {
+			_ = filtered.PostAtLevel(ctx, sessionrelay.LevelAction, l, diffLineMeta)
+		} else if relay != nil {
+			_ = relay.PostWithMeta(ctx, l, diffLineMeta)
+		}
+		emitted++
+	}
+}
+
 func debugf(format string, args ...any) {
 	if relayDebug {
 		fmt.Fprintf(os.Stderr, format, args...)
@@ -837,6 +891,7 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 					} else if file := getStr("path"); file != "" {
 						data["file"] = file
 					}
+					var diffStr string
 					if strings.Contains(lowerName, "edit") || strings.Contains(lowerName, "write") || strings.Contains(lowerName, "replace") {
 						oldS := sanitizeSecrets(getStr("old_string"))
 						newS := sanitizeSecrets(getStr("new_string"))
@@ -845,7 +900,8 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 						}
 						if oldS != "" || newS != "" {
 							fileStr, _ := data["file"].(string)
-							data["diff"] = renderEditDiff(fileStr, oldS, newS)
+							diffStr = renderEditDiff(fileStr, oldS, newS)
+							data["diff"] = diffStr
 						}
 					}
 					meta, _ := json.Marshal(map[string]any{
@@ -861,6 +917,7 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 					} else {
 						_ = relay.PostWithMeta(ctx, text, meta)
 					}
+					postDiffMirror(ctx, filtered, relay, diffStr)
 				}
 			}
 		}
