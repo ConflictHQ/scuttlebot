@@ -706,95 +706,55 @@ func (s *relayState) shouldInterrupt(now time.Time) bool {
 // geminiSessionMirrorLoop discovers and polls a Gemini CLI session file
 // for structured tool call metadata, emitting it via PostWithMeta.
 func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, filtered *sessionrelay.FilteredConnector, cfg config, ptyDedup *relaymirror.PTYMirror) {
+	startedAt := time.Now()
 	// Discover the Gemini session file directory.
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gemini-relay: session mirror: %v\n", err)
 		return
 	}
-	// Gemini CLI stores sessions under ~/.gemini/tmp/<basename(gitRoot)>/chats/
-	// when running inside a git repo, with sha256(gitRoot) as projectHash in
-	// the session JSON. Outside a git repo it falls back to a slug of the cwd.
-	// Try candidates in order of likelihood and pick the first that exists —
-	// or the first one a new session file appears in.
-	candidates := geminiChatsDirCandidates(home, cfg.TargetCWD)
-	chatsDir := candidates[0]
-	matched := false
-	for _, c := range candidates {
-		if info, err := os.Stat(c); err == nil && info.IsDir() {
-			chatsDir = c
-			matched = true
-			break
-		}
-	}
-	// Final fallback: Gemini CLI ≥0.40 hashes the project path with sha256
-	// (e.g. ~/.gemini/tmp/<64-hex>/chats) and there's no public spec for the
-	// exact input. Rather than chase every variant, walk every existing
-	// subdir of ~/.gemini/tmp and pick the one with the newest session-*
-	// file. Keeps the relay working across CLI version bumps.
-	if !matched {
-		base := filepath.Join(home, ".gemini", "tmp")
-		if entries, err := os.ReadDir(base); err == nil {
-			var bestDir string
-			var bestMod time.Time
-			for _, e := range entries {
-				if !e.IsDir() {
-					continue
-				}
-				cd := filepath.Join(base, e.Name(), "chats")
-				if files, err := os.ReadDir(cd); err == nil {
-					for _, f := range files {
-						if !strings.HasPrefix(f.Name(), "session-") {
-							continue
-						}
-						info, err := f.Info()
-						if err != nil {
-							continue
-						}
-						if info.ModTime().After(bestMod) {
-							bestMod = info.ModTime()
-							bestDir = cd
-						}
-					}
-				}
-			}
-			if bestDir != "" {
-				fmt.Fprintf(os.Stderr, "gemini-relay: using cross-dir fallback chats dir %s\n", bestDir)
-				chatsDir = bestDir
-			}
-		}
-	}
-	_ = os.MkdirAll(chatsDir, 0755)
-	existing := relaymirror.SnapshotDir(chatsDir)
 
 	// When resuming into an existing session (gemini --resume <uuid>), the CLI
-	// appends to the matching session file rather than creating a new one. The
-	// watcher would never see a "new" file and would time out. Detect resume
-	// and use the existing file directly, seeding msgIdx past the prior history.
+	// appends to the matching session file rather than creating a new one, so
+	// no "new" file ever appears for the watcher to see. Detect resume and
+	// use the existing file directly, seeding msgIdx past the prior history.
 	var sessionPath string
 	startIdx := 0
 	if resumeUUID := extractResumeUUID(cfg.Args); resumeUUID != "" {
-		if path := findSessionByUUID(chatsDir, resumeUUID); path != "" {
-			sessionPath = path
-			if _, idx, err := relaymirror.PollGeminiSession(path, 0); err == nil {
-				startIdx = idx
+		// Search every existing chats dir; the resumed session may live under
+		// any of the candidate slugs or the sha256-hashed dir.
+		for _, dir := range geminiAllExistingChatsDirs(home, cfg.TargetCWD) {
+			if path := findSessionByUUID(dir, resumeUUID); path != "" {
+				sessionPath = path
+				if _, idx, err := relaymirror.PollGeminiSession(path, 0); err == nil {
+					startIdx = idx
+				}
+				fmt.Fprintf(os.Stderr, "gemini-relay: resuming into %s (skipping %d prior messages)\n", sessionPath, startIdx)
+				break
 			}
-			fmt.Fprintf(os.Stderr, "gemini-relay: resuming into %s (skipping %d prior messages)\n", sessionPath, startIdx)
 		}
 	}
 
-	// Fresh-session path: wait for a new file to appear.
+	// Fresh-session path: poll the entire ~/.gemini/tmp/*/chats/ tree for any
+	// session-* file that appears (or is modified) after relay startup. This
+	// handles three cases at once:
+	//   1. Project basename slug: ~/.gemini/tmp/<basename>/chats/...
+	//   2. Full-path slug:        ~/.gemini/tmp/<slug-of-cwd>/chats/...
+	//   3. CLI ≥0.40 sha256 hash: ~/.gemini/tmp/<64-hex>/chats/...
+	// Pre-locking onto a single chatsDir before Gemini has chosen one is
+	// brittle — especially on a fresh project where no chats dir exists yet
+	// and the CLI's path-derivation rules are version-dependent.
 	if sessionPath == "" {
-		watcher := relaymirror.NewSessionWatcher(chatsDir, "session-", 60*time.Second)
-		p, err := watcher.Discover(ctx, existing)
-		if err != nil {
+		preExisting := geminiSessionFilesSnapshot(home)
+		if path, err := waitForNewGeminiSession(ctx, home, preExisting, startedAt, 60*time.Second); err != nil {
 			if ctx.Err() == nil {
-				fmt.Fprintf(os.Stderr, "gemini-relay: session discovery in %s: %v\n", chatsDir, err)
+				fmt.Fprintf(os.Stderr, "gemini-relay: session discovery: %v\n", err)
 			}
 			return
+		} else {
+			sessionPath = path
+			fmt.Fprintf(os.Stderr, "gemini-relay: session file discovered: %s\n", sessionPath)
 		}
-		sessionPath = p
-		fmt.Fprintf(os.Stderr, "gemini-relay: session file discovered: %s\n", sessionPath)
 	}
 
 	// Poll the session file for new messages.
@@ -988,6 +948,137 @@ func findSessionByUUID(dir, uuid string) string {
 		}
 	}
 	return ""
+}
+
+// geminiAllExistingChatsDirs returns every chats dir we can think of —
+// the candidate slugs plus every existing subdir of ~/.gemini/tmp/ that
+// contains a "chats" directory (covers CLI ≥0.40's sha256-hashed paths).
+// Used by the resume code path to search broadly for the UUID.
+func geminiAllExistingChatsDirs(home, targetCWD string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	add := func(p string) {
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	for _, c := range geminiChatsDirCandidates(home, targetCWD) {
+		if info, err := os.Stat(c); err == nil && info.IsDir() {
+			add(c)
+		}
+	}
+	base := filepath.Join(home, ".gemini", "tmp")
+	if entries, err := os.ReadDir(base); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			cd := filepath.Join(base, e.Name(), "chats")
+			if info, err := os.Stat(cd); err == nil && info.IsDir() {
+				add(cd)
+			}
+		}
+	}
+	return out
+}
+
+// geminiSessionFilesSnapshot records every existing session-* file under
+// ~/.gemini/tmp/*/chats/ at the moment the relay starts, mapped to its
+// modtime. waitForNewGeminiSession uses this to ignore pre-existing files
+// when looking for a freshly-spawned session.
+func geminiSessionFilesSnapshot(home string) map[string]time.Time {
+	out := map[string]time.Time{}
+	base := filepath.Join(home, ".gemini", "tmp")
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		cd := filepath.Join(base, e.Name(), "chats")
+		files, err := os.ReadDir(cd)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if !strings.HasPrefix(f.Name(), "session-") {
+				continue
+			}
+			info, err := f.Info()
+			if err != nil {
+				continue
+			}
+			out[filepath.Join(cd, f.Name())] = info.ModTime()
+		}
+	}
+	return out
+}
+
+// waitForNewGeminiSession polls ~/.gemini/tmp/*/chats/ every 500ms looking
+// for a session-* file that either didn't exist in the snapshot or has been
+// modified after startedAt. Returns the path of the newest match, or an
+// error on timeout.
+//
+// This is the recovery path for fresh-session discovery when we can't predict
+// which subdir the current Gemini version will use. Polling the whole tree is
+// cheaper than chasing every CLI-version-specific path-derivation rule.
+func waitForNewGeminiSession(ctx context.Context, home string, snapshot map[string]time.Time, startedAt time.Time, timeout time.Duration) (string, error) {
+	deadline := time.After(timeout)
+	tick := time.NewTicker(500 * time.Millisecond)
+	defer tick.Stop()
+	base := filepath.Join(home, ".gemini", "tmp")
+
+	for {
+		var bestPath string
+		var bestMod time.Time
+		entries, _ := os.ReadDir(base)
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			cd := filepath.Join(base, e.Name(), "chats")
+			files, err := os.ReadDir(cd)
+			if err != nil {
+				continue
+			}
+			for _, f := range files {
+				if !strings.HasPrefix(f.Name(), "session-") {
+					continue
+				}
+				p := filepath.Join(cd, f.Name())
+				info, err := f.Info()
+				if err != nil {
+					continue
+				}
+				prevMod, wasPreExisting := snapshot[p]
+				// New file (not in snapshot) OR pre-existing file whose modtime
+				// jumped past startedAt — both mean Gemini is now writing here.
+				isNew := !wasPreExisting && info.ModTime().After(startedAt.Add(-1*time.Second))
+				wasTouched := wasPreExisting && info.ModTime().After(prevMod) && info.ModTime().After(startedAt.Add(-1*time.Second))
+				if !isNew && !wasTouched {
+					continue
+				}
+				if info.ModTime().After(bestMod) {
+					bestMod = info.ModTime()
+					bestPath = p
+				}
+			}
+		}
+		if bestPath != "" {
+			return bestPath, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-deadline:
+			return "", fmt.Errorf("no new session-* file appeared under %s within %s", base, timeout)
+		case <-tick.C:
+		}
+	}
 }
 
 // geminiChatsDirCandidates returns candidate ~/.gemini/tmp/<slug>/chats paths
