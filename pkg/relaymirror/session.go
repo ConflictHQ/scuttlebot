@@ -1,6 +1,7 @@
 package relaymirror
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -174,11 +175,29 @@ type GeminiSession struct {
 
 // PollGeminiSession reads a Gemini session file and returns messages since
 // the given index. Returns the new message count.
+//
+// Handles two on-disk formats:
+//
+//   - Legacy (Gemini CLI ≤0.39): single JSON document
+//     {"sessionId":"...","messages":[{...},{...}]}
+//
+//   - JSONL (Gemini CLI ≥0.40, file extension .jsonl): one object per line.
+//     Mix of:
+//       header  → {"sessionId":"...","projectHash":"...","kind":"main"}
+//       message → {"id":"...","timestamp":"...","type":"user|gemini|info","content":...}
+//       update  → {"$set":{"lastUpdated":"..."}}
+//     We only collect lines carrying a "type" field; the header and $set
+//     bookkeeping rows are skipped.
 func PollGeminiSession(path string, sinceIdx int) ([]GeminiMessage, int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, sinceIdx, err
 	}
+
+	if isGeminiJSONL(data) {
+		return parseGeminiJSONL(data, sinceIdx)
+	}
+
 	var session GeminiSession
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, sinceIdx, err
@@ -188,4 +207,49 @@ func PollGeminiSession(path string, sinceIdx int) ([]GeminiMessage, int, error) 
 	}
 	newMsgs := session.Messages[sinceIdx:]
 	return newMsgs, len(session.Messages), nil
+}
+
+// isGeminiJSONL reports whether data looks like newline-delimited JSON
+// (multiple top-level objects on separate lines) rather than a single JSON
+// document. Cheap heuristic — counts content lines beginning with '{'.
+func isGeminiJSONL(data []byte) bool {
+	objects := 0
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		t := bytes.TrimSpace(line)
+		if len(t) > 0 && t[0] == '{' {
+			objects++
+			if objects > 1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func parseGeminiJSONL(data []byte, sinceIdx int) ([]GeminiMessage, int, error) {
+	var messages []GeminiMessage
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		// Filter: only lines with a top-level "type" field are messages.
+		// Header has "kind", $set updates have "$set" — neither qualifies.
+		var probe map[string]json.RawMessage
+		if err := json.Unmarshal(line, &probe); err != nil {
+			continue
+		}
+		if _, ok := probe["type"]; !ok {
+			continue
+		}
+		var m GeminiMessage
+		if err := json.Unmarshal(line, &m); err != nil {
+			continue
+		}
+		messages = append(messages, m)
+	}
+	if len(messages) <= sinceIdx {
+		return nil, sinceIdx, nil
+	}
+	return messages[sinceIdx:], len(messages), nil
 }

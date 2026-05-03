@@ -928,13 +928,14 @@ func extractResumeUUID(args []string) string {
 }
 
 // findSessionByUUID returns the path of a session file matching the UUID's
-// first 8 hex chars (Gemini's session-<ts>-<short-uuid>.json naming).
+// first 8 hex chars. Gemini's filename is session-<ts>-<short-uuid>.<ext>
+// where <ext> is .json on CLI ≤0.39 and .jsonl on ≥0.40 — accept either.
 func findSessionByUUID(dir, uuid string) string {
 	short := strings.ReplaceAll(uuid, "-", "")
 	if len(short) < 8 {
 		return ""
 	}
-	suffix := short[:8] + ".json"
+	prefix := short[:8]
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
@@ -943,8 +944,9 @@ func findSessionByUUID(dir, uuid string) string {
 		if e.IsDir() {
 			continue
 		}
-		if strings.HasSuffix(e.Name(), suffix) {
-			return filepath.Join(dir, e.Name())
+		name := e.Name()
+		if strings.HasSuffix(name, prefix+".json") || strings.HasSuffix(name, prefix+".jsonl") {
+			return filepath.Join(dir, name)
 		}
 	}
 	return ""
