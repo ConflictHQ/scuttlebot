@@ -665,10 +665,49 @@ func geminiSessionMirrorLoop(ctx context.Context, relay sessionrelay.Connector, 
 	// or the first one a new session file appears in.
 	candidates := geminiChatsDirCandidates(home, cfg.TargetCWD)
 	chatsDir := candidates[0]
+	matched := false
 	for _, c := range candidates {
 		if info, err := os.Stat(c); err == nil && info.IsDir() {
 			chatsDir = c
+			matched = true
 			break
+		}
+	}
+	// Final fallback: Gemini CLI ≥0.40 hashes the project path with sha256
+	// (e.g. ~/.gemini/tmp/<64-hex>/chats) and there's no public spec for the
+	// exact input. Rather than chase every variant, walk every existing
+	// subdir of ~/.gemini/tmp and pick the one with the newest session-*
+	// file. Keeps the relay working across CLI version bumps.
+	if !matched {
+		base := filepath.Join(home, ".gemini", "tmp")
+		if entries, err := os.ReadDir(base); err == nil {
+			var bestDir string
+			var bestMod time.Time
+			for _, e := range entries {
+				if !e.IsDir() {
+					continue
+				}
+				cd := filepath.Join(base, e.Name(), "chats")
+				if files, err := os.ReadDir(cd); err == nil {
+					for _, f := range files {
+						if !strings.HasPrefix(f.Name(), "session-") {
+							continue
+						}
+						info, err := f.Info()
+						if err != nil {
+							continue
+						}
+						if info.ModTime().After(bestMod) {
+							bestMod = info.ModTime()
+							bestDir = cd
+						}
+					}
+				}
+			}
+			if bestDir != "" {
+				fmt.Fprintf(os.Stderr, "gemini-relay: using cross-dir fallback chats dir %s\n", bestDir)
+				chatsDir = bestDir
+			}
 		}
 	}
 	_ = os.MkdirAll(chatsDir, 0755)
