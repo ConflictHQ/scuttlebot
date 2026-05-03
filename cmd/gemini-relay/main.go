@@ -1146,7 +1146,7 @@ func loadConfig(args []string) (config, error) {
 
 	nick := getenvOr(fileConfig, "SCUTTLEBOT_NICK", "")
 	if nick == "" {
-		nick = fmt.Sprintf("gemini-%s-%s", sanitize(filepath.Base(target)), cfg.SessionID)
+		nick = defaultRelayNick("gemini", target, cfg.SessionID)
 	}
 	cfg.Nick = sanitize(nick)
 	cfg.ChannelStateFile = getenvOr(fileConfig, "SCUTTLEBOT_CHANNEL_STATE_FILE", defaultChannelStateFile(cfg.Nick))
@@ -1386,6 +1386,33 @@ func sanitize(value string) string {
 func defaultSessionID(target string) string {
 	sum := crc32.ChecksumIEEE([]byte(fmt.Sprintf("%s|%d|%d|%d", target, os.Getpid(), os.Getppid(), time.Now().UnixNano())))
 	return fmt.Sprintf("%08x", sum)
+}
+
+// defaultRelayNick formats the per-spawn IRC nick as
+// "<user>-<cli><tier>-<session>" — see claude-relay/main.go for the full
+// shape. Duplicated across relay binaries to keep them independent.
+func defaultRelayNick(cli, target, sessionID string) string {
+	user := os.Getenv("JUPYTERHUB_USER")
+	if user == "" {
+		user = filepath.Base(target)
+	}
+	tier := ""
+	if name := os.Getenv("JUPYTERHUB_SERVER_NAME"); name != "" {
+		parts := strings.Split(name, "-")
+		var shortcode string
+		if len(parts) >= 3 {
+			shortcode = parts[1]
+		} else if len(parts) == 2 {
+			shortcode = parts[1]
+		}
+		if shortcode != "" {
+			last := shortcode[len(shortcode)-1:]
+			if last >= "a" && last <= "z" {
+				tier = last
+			}
+		}
+	}
+	return fmt.Sprintf("%s-%s%s-%s", sanitize(user), cli, tier, sessionID)
 }
 
 func isInteractiveTTY() bool {

@@ -1305,7 +1305,7 @@ func loadConfig(args []string) (config, error) {
 
 	nick := getenvOr(fileConfig, "SCUTTLEBOT_NICK", "")
 	if nick == "" {
-		nick = fmt.Sprintf("claude-%s-%s", sanitize(filepath.Base(target)), cfg.SessionID)
+		nick = defaultRelayNick("claude", target, cfg.SessionID)
 	}
 	cfg.Nick = sanitize(nick)
 	cfg.ChannelStateFile = getenvOr(fileConfig, "SCUTTLEBOT_CHANNEL_STATE_FILE", defaultChannelStateFile(cfg.Nick))
@@ -1549,6 +1549,45 @@ func sanitize(value string) string {
 func defaultSessionID(target string) string {
 	sum := crc32.ChecksumIEEE([]byte(fmt.Sprintf("%s|%d|%d|%d", target, os.Getpid(), os.Getppid(), time.Now().UnixNano())))
 	return fmt.Sprintf("%08x", sum)
+}
+
+// defaultRelayNick formats the per-spawn IRC nick as
+// "<user>-<cli><tier>-<session>" — e.g. "leomata-claudeb-3t8b0q" for
+// claude-relay running in an agent-browser pod for user "leomata".
+//
+//   user    : $JUPYTERHUB_USER, falling back to basename(cwd)
+//   cli     : binary name short (claude / codex / gemini)
+//   tier    : last char of the middle segment of $JUPYTERHUB_SERVER_NAME
+//             (e.g. "agnb" → "b", "agnd" → "d", "agnt" → "t", "sbot" → "t",
+//             "ide-x" → "e"). Empty when not running under JupyterHub.
+//   session : the relay's SessionID (already-sanitised crc32 / uuid prefix).
+//
+// All inputs pass through sanitize() so the output is IRC-nick-safe.
+func defaultRelayNick(cli, target, sessionID string) string {
+	user := os.Getenv("JUPYTERHUB_USER")
+	if user == "" {
+		user = filepath.Base(target)
+	}
+	tier := ""
+	if name := os.Getenv("JUPYTERHUB_SERVER_NAME"); name != "" {
+		// e.g. "leomata-agnb-g9dl8i" → ["leomata","agnb","g9dl8i"]; the
+		// shortcode is at index 1 (or len-2 if there are >=3 parts), and
+		// its last char is the per-tier identifier.
+		parts := strings.Split(name, "-")
+		var shortcode string
+		if len(parts) >= 3 {
+			shortcode = parts[1]
+		} else if len(parts) == 2 {
+			shortcode = parts[1]
+		}
+		if shortcode != "" {
+			last := shortcode[len(shortcode)-1:]
+			if last >= "a" && last <= "z" {
+				tier = last
+			}
+		}
+	}
+	return fmt.Sprintf("%s-%s%s-%s", sanitize(user), cli, tier, sessionID)
 }
 
 func isInteractiveTTY() bool {
