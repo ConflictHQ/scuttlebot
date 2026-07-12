@@ -1,6 +1,6 @@
 # scuttlebot Bootstrap
 
-This is the primary conventions document. All agent shims (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `calliope.md`) point here.
+This is the primary conventions document. All agent shims (`CLAUDE.md`, `AGENTS.md`, `calliope.md`) point here.
 
 An agent given this document and a business requirement should be able to generate correct, idiomatic code without exploring the codebase.
 
