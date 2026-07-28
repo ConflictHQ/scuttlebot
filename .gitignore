@@ -22,3 +22,5 @@ test-results/
 /scuttlebot
 /scuttlectl
 /relay-watchdog
+__pycache__/
+*.pyc
