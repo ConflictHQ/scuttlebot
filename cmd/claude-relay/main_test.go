@@ -335,6 +335,8 @@ func TestDiscoverSessionPathFindsFile(t *testing.T) {
 }
 
 func TestDiscoverSessionPathTimeout(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
 	cfg := config{
 		ClaudeSessionID: uuid.New().String(),
 		TargetCWD:       t.TempDir(), // empty dir, no session file
@@ -351,6 +353,8 @@ func TestDiscoverSessionPathTimeout(t *testing.T) {
 }
 
 func TestDiscoverSessionPathWaitsForFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
 	sessionID := uuid.New().String()
 	cfg := config{
 		ClaudeSessionID: sessionID,
