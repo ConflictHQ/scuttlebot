@@ -44,6 +44,7 @@ func TestCreateWithTeam(t *testing.T) {
 	looked := s.Lookup(tok2)
 	if looked == nil {
 		t.Fatal("lookup returned nil")
+		return
 	}
 	if looked.Team != "alpha" {
 		t.Errorf("lookup: expected team %q, got %q", "alpha", looked.Team)
@@ -115,6 +116,7 @@ func TestTestStoreWithTeam(t *testing.T) {
 	admin := s.Lookup("admin-tok")
 	if admin == nil {
 		t.Fatal("admin key not found")
+		return
 	}
 	if admin.Team != "" {
 		t.Errorf("admin key should have no team, got %q", admin.Team)
@@ -123,6 +125,7 @@ func TestTestStoreWithTeam(t *testing.T) {
 	team := s.Lookup("team-tok")
 	if team == nil {
 		t.Fatal("team key not found")
+		return
 	}
 	if team.Team != "alpha" {
 		t.Errorf("team key: expected team %q, got %q", "alpha", team.Team)
