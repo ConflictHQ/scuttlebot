@@ -1039,31 +1039,10 @@ func defaultSessionID(target string) string {
 }
 
 // defaultRelayNick formats the per-spawn IRC nick as
-// "<user>-<cli><tier>-<session>" — see claude-relay/main.go for the full
-// shape. Duplicated across relay binaries to avoid pulling them into a
-// shared package for one helper.
+// "<cli>-<repo>-<session>" so runtime prefixes remain easy to scan and
+// match the relay's documented addressing convention.
 func defaultRelayNick(cli, target, sessionID string) string {
-	user := os.Getenv("JUPYTERHUB_USER")
-	if user == "" {
-		user = filepath.Base(target)
-	}
-	tier := ""
-	if name := os.Getenv("JUPYTERHUB_SERVER_NAME"); name != "" {
-		parts := strings.Split(name, "-")
-		var shortcode string
-		if len(parts) >= 3 {
-			shortcode = parts[1]
-		} else if len(parts) == 2 {
-			shortcode = parts[1]
-		}
-		if shortcode != "" {
-			last := shortcode[len(shortcode)-1:]
-			if last >= "a" && last <= "z" {
-				tier = last
-			}
-		}
-	}
-	return fmt.Sprintf("%s-%s%s-%s", sanitize(user), cli, tier, sessionID)
+	return fmt.Sprintf("%s-%s-%s", cli, sanitize(filepath.Base(target)), sessionID)
 }
 
 func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, filtered *sessionrelay.FilteredConnector, cfg config, startedAt time.Time, preExisting map[string]struct{}, ptyDedup *relaymirror.PTYMirror) {
