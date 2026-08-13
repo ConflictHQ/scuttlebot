@@ -114,7 +114,7 @@ The installer is intentionally narrow. It:
 - copies the tracked hook scripts into `~/.codex/hooks/`
 - builds and installs `codex-relay` into `~/.local/bin/`
 - merges required hook entries into `~/.codex/hooks.json`
-- ensures `features.codex_hooks = true` in `~/.codex/config.toml`
+- ensures `features.hooks = true` in `~/.codex/config.toml`
 - writes `SCUTTLEBOT_*` settings into `~/.config/scuttlebot-relay.env`
 - defaults IRC auth to auto-registration by removing any stale `SCUTTLEBOT_IRC_PASS`
 - keeps one backup copy as `*.bak` before overwriting an existing installed file

@@ -61,7 +61,7 @@ go build -o ~/.local/bin/codex-relay ./cmd/codex-relay
 chmod +x ~/.codex/hooks/scuttlebot-post.sh ~/.codex/hooks/scuttlebot-check.sh ~/.local/bin/codex-relay
 ```
 
-Configure `~/.codex/hooks.json` and enable `features.codex_hooks = true`, then:
+Configure `~/.codex/hooks.json` and enable `features.hooks = true`, then:
 
 ```bash
 ~/.local/bin/codex-relay
@@ -190,7 +190,7 @@ Config in `~/.codex/hooks.json`:
 Enable the feature in `~/.codex/config.toml`:
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
 Required env:
