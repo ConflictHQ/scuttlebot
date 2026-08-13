@@ -54,6 +54,18 @@ grep -q '^SCUTTLEBOT_RELAY_ENABLED=1$' "$SCUTTLEBOT_CONFIG_FILE"
 
 # Codex with --with-hooks
 printf 'Testing Codex installer (--with-hooks)...\n'
+mkdir -p "$HOME/.codex"
+cat > "$CODEX_CONFIG_TOML" <<'EOF'
+model = "gpt-test"
+
+[features]
+codex_hooks = false
+hooks = false
+web_search = true
+
+[mcp_servers.example]
+command = "example"
+EOF
 bash "$REPO_ROOT/skills/openai-relay/scripts/install-codex-relay.sh" \
   --url http://localhost:8080 \
   --token "test-token" \
@@ -65,6 +77,11 @@ bash "$REPO_ROOT/skills/openai-relay/scripts/install-codex-relay.sh" \
 [ -f "$HOME/.codex/hooks/scuttlebot-check.sh" ]
 [ -f "$HOME/.codex/hooks.json" ]
 [ -f "$HOME/.codex/config.toml" ]
+grep -q '^hooks = true$' "$CODEX_CONFIG_TOML"
+[ "$(grep -c '^hooks = true$' "$CODEX_CONFIG_TOML")" -eq 1 ]
+! grep -q '^[[:space:]]*codex_hooks[[:space:]]*=' "$CODEX_CONFIG_TOML"
+grep -q '^web_search = true$' "$CODEX_CONFIG_TOML"
+grep -q '^command = "example"$' "$CODEX_CONFIG_TOML"
 
 # 2. Gemini — default (hooks skipped)
 printf 'Testing Gemini installer (default, no hooks)...\n'
