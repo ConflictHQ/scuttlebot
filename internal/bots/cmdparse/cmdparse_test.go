@@ -33,6 +33,7 @@ func TestDM_BasicCommand(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "replay #general last=10")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Target != "alice" {
 		t.Errorf("target = %q, want %q", reply.Target, "alice")
@@ -47,6 +48,7 @@ func TestDM_CaseInsensitive(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "REPLAY #general")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Text != "replaying: #general" {
 		t.Errorf("text = %q, want %q", reply.Text, "replaying: #general")
@@ -58,6 +60,7 @@ func TestDM_NoArgs(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "status")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Text != "ok" {
 		t.Errorf("text = %q, want %q", reply.Text, "ok")
@@ -114,6 +117,7 @@ func TestFantasy_BasicCommand(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "!replay #logs last=20")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Target != "#general" {
 		t.Errorf("target = %q, want %q", reply.Target, "#general")
@@ -128,6 +132,7 @@ func TestFantasy_CaseInsensitive(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "!STATUS")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Text != "ok" {
 		t.Errorf("text = %q, want %q", reply.Text, "ok")
@@ -181,6 +186,7 @@ func TestAddressed_ColonSpace(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "scroll: replay #logs")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Target != "#general" {
 		t.Errorf("target = %q, want %q", reply.Target, "#general")
@@ -195,6 +201,7 @@ func TestAddressed_ColonNoSpace(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "scroll:replay #logs")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Text != "replaying: #logs" {
 		t.Errorf("text = %q, want %q", reply.Text, "replaying: #logs")
@@ -206,6 +213,7 @@ func TestAddressed_Comma(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "scroll, status")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Text != "ok" {
 		t.Errorf("text = %q, want %q", reply.Text, "ok")
@@ -217,6 +225,7 @@ func TestAddressed_CaseInsensitiveBotNick(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "Scroll: status")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Text != "ok" {
 		t.Errorf("text = %q, want %q", reply.Text, "ok")
@@ -254,6 +263,7 @@ func TestHelp_DM(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "help")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Target != "alice" {
 		t.Errorf("target = %q, want %q", reply.Target, "alice")
@@ -274,6 +284,7 @@ func TestHelp_Fantasy(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "!help")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Target != "#general" {
 		t.Errorf("target = %q, want %q", reply.Target, "#general")
@@ -288,6 +299,7 @@ func TestHelp_Addressed(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "scroll: help")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Target != "#general" {
 		t.Errorf("target = %q, want %q", reply.Target, "#general")
@@ -299,6 +311,7 @@ func TestHelp_SpecificCommand(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "help replay")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if !strings.Contains(reply.Text, "replay channel history") {
 		t.Errorf("help replay should show description, got: %s", reply.Text)
@@ -313,6 +326,7 @@ func TestHelp_SpecificCommandCaseInsensitive(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "HELP REPLAY")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if !strings.Contains(reply.Text, "replay channel history") {
 		t.Errorf("expected description, got: %s", reply.Text)
@@ -324,6 +338,7 @@ func TestHelp_UnknownCommand(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "help nosuchcmd")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if !strings.Contains(reply.Text, "unknown command") {
 		t.Errorf("expected unknown command message, got: %s", reply.Text)
@@ -337,6 +352,7 @@ func TestUnknown_DM(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "frobnicate something")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if !strings.Contains(reply.Text, `unknown command "frobnicate"`) {
 		t.Errorf("expected unknown command message, got: %s", reply.Text)
@@ -354,6 +370,7 @@ func TestUnknown_Fantasy(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "!frobnicate")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Target != "#general" {
 		t.Errorf("target = %q, want %q", reply.Target, "#general")
@@ -368,6 +385,7 @@ func TestUnknown_Addressed(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "scroll: frobnicate")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if !strings.Contains(reply.Text, `unknown command "frobnicate"`) {
 		t.Errorf("expected unknown command message, got: %s", reply.Text)
@@ -414,6 +432,7 @@ func TestLeadingTrailingWhitespace(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "  status  ")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Text != "ok" {
 		t.Errorf("text = %q, want %q", reply.Text, "ok")
@@ -428,6 +447,7 @@ func TestGreet_Addressed(t *testing.T) {
 	reply := r.Dispatch("alice", "#general", "scroll: hi")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Target != "#general" {
 		t.Errorf("target = %q, want %q", reply.Target, "#general")
@@ -448,6 +468,7 @@ func TestGreet_DM_NoPurpose(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "hello")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if !strings.Contains(reply.Text, "hi alice") {
 		t.Errorf("expected greeting, got: %s", reply.Text)
@@ -491,6 +512,7 @@ func TestBridgePrefix_StrippedAndAddressingMatches(t *testing.T) {
 	reply := r.Dispatch("bridge", "#general", "[glen] scroll: status")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if reply.Text != "ok" {
 		t.Errorf("text = %q, want %q", reply.Text, "ok")
@@ -502,6 +524,7 @@ func TestBridgePrefix_PreservesRealNickInGreeting(t *testing.T) {
 	reply := r.Dispatch("bridge", "#general", "[alice] scroll: hi")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if !strings.Contains(reply.Text, "hi alice") {
 		t.Errorf("expected greeting to use real nick alice, got: %s", reply.Text)
@@ -523,6 +546,7 @@ func TestHelp_IncludesPurpose(t *testing.T) {
 	reply := r.Dispatch("alice", "scroll", "help")
 	if reply == nil {
 		t.Fatal("expected reply, got nil")
+		return
 	}
 	if !strings.Contains(reply.Text, "history-replay bot") {
 		t.Errorf("expected HELP to include purpose, got: %s", reply.Text)

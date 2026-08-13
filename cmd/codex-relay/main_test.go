@@ -58,6 +58,17 @@ func TestTargetCWD(t *testing.T) {
 	}
 }
 
+func TestDefaultRelayNickKeepsCodexPrefixFirst(t *testing.T) {
+	t.Setenv("JUPYTERHUB_USER", "astrolift")
+	t.Setenv("JUPYTERHUB_SERVER_NAME", "astrolift-agnb-terminal")
+
+	got := defaultRelayNick("codex", "/work/astrolift", "3349b971")
+	want := "codex-astrolift-3349b971"
+	if got != want {
+		t.Fatalf("defaultRelayNick = %q, want %q", got, want)
+	}
+}
+
 func TestRelayStateShouldInterruptOnlyWhenRecentlyBusy(t *testing.T) {
 	t.Helper()
 

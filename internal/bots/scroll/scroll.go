@@ -130,7 +130,7 @@ func (b *Bot) Start(ctx context.Context) error {
 
 		// DM path: trap greetings before the strict replay parser.
 		if isGreetOrHelp(text) {
-			client.Cmd.Notice(nick, fmt.Sprintf("scroll here — I replay channel history. Try: replay #channel [last=N] [since=<unix_ms>] [format=json|toon]"))
+			client.Cmd.Notice(nick, "scroll here — I replay channel history. Try: replay #channel [last=N] [since=<unix_ms>] [format=json|toon]")
 			return
 		}
 		b.handle(client, nick, text)

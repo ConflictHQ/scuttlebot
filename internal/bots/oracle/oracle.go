@@ -226,7 +226,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		// DM path. Trap greetings and HELP before the strict summarize parser
 		// so a user typing "hi" doesn't see "usage: summarize ...".
 		if isGreetOrHelp(text) {
-			cl.Cmd.Notice(nick, fmt.Sprintf("oracle here — I summarise IRC channel history. Try: summarize #channel [last=N] [format=toon|json]"))
+			cl.Cmd.Notice(nick, "oracle here — I summarise IRC channel history. Try: summarize #channel [last=N] [format=toon|json]")
 			return
 		}
 
