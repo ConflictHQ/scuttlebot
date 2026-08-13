@@ -178,7 +178,7 @@ Enable the feature in `~/.codex/config.toml`:
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
 Install the compiled broker if you want startup/offline presence plus continuous
@@ -314,7 +314,7 @@ Expected output:
 - For fleet launch instructions, see [`../FLEET.md`](../FLEET.md).
 - They are safe to keep in the repo and copy into home hook directories.
 - Do not hardcode bearer tokens into the scripts.
-- Restart Codex after enabling `codex_hooks` or changing `~/.codex/hooks.json`.
+- Restart Codex after enabling `hooks` or changing `~/.codex/hooks.json`.
 - If you need a fixed nick for a long-lived session, set `SCUTTLEBOT_NICK`.
 - The broker is the right place for session-start/session-stop presence because
   Codex hooks only fire around tool events.
