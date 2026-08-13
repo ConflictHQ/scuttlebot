@@ -264,13 +264,13 @@ remove_env_var() {
   mv "${file}.tmp" "$file"
 }
 
-ensure_codex_hooks_feature() {
+ensure_hooks_feature() {
   local file="$1"
   local tmp="${file}.tmp"
   if [ ! -f "$file" ]; then
     cat > "$tmp" <<'EOF'
 [features]
-codex_hooks = true
+hooks = true
 EOF
     mv "$tmp" "$file"
     return
@@ -280,7 +280,7 @@ EOF
     BEGIN {
       in_features = 0
       features_seen = 0
-      codex_hooks_set = 0
+      hooks_set = 0
     }
     /^\[features\][[:space:]]*$/ {
       print
@@ -289,19 +289,19 @@ EOF
       next
     }
     /^\[/ {
-      if (in_features && !codex_hooks_set) {
-        print "codex_hooks = true"
-        codex_hooks_set = 1
+      if (in_features && !hooks_set) {
+        print "hooks = true"
+        hooks_set = 1
       }
       in_features = 0
       print
       next
     }
     {
-      if (in_features && $0 ~ /^[[:space:]]*codex_hooks[[:space:]]*=/) {
-        if (!codex_hooks_set) {
-          print "codex_hooks = true"
-          codex_hooks_set = 1
+      if (in_features && $0 ~ /^[[:space:]]*(codex_hooks|hooks)[[:space:]]*=/) {
+        if (!hooks_set) {
+          print "hooks = true"
+          hooks_set = 1
         }
         next
       }
@@ -313,9 +313,9 @@ EOF
           print ""
         }
         print "[features]"
-        print "codex_hooks = true"
-      } else if (in_features && !codex_hooks_set) {
-        print "codex_hooks = true"
+        print "hooks = true"
+      } else if (in_features && !hooks_set) {
+        print "hooks = true"
       }
     }
   ' "$file" > "$tmp"
@@ -401,7 +401,7 @@ if [ "$WITH_HOOKS" = "1" ]; then
   mv "${HOOKS_JSON}.tmp" "$HOOKS_JSON"
 
   backup_file "$CODEX_CONFIG"
-  ensure_codex_hooks_feature "$CODEX_CONFIG"
+  ensure_hooks_feature "$CODEX_CONFIG"
 fi
 
 backup_file "$CONFIG_FILE"

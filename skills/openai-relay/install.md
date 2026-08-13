@@ -63,7 +63,7 @@ This installer:
 - copies the tracked hook scripts into `~/.codex/hooks/`
 - builds and installs `codex-relay` into `~/.local/bin/`
 - merges the required entries into `~/.codex/hooks.json`
-- enables `features.codex_hooks = true` in `~/.codex/config.toml`
+- enables `features.hooks = true` in `~/.codex/config.toml`
 - writes or updates `~/.config/scuttlebot-relay.env`
 - defaults IRC auth to auto-registration by removing any stale `SCUTTLEBOT_IRC_PASS`
 
@@ -172,7 +172,7 @@ Enable hooks in `~/.codex/config.toml`:
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
 Keep shared relay settings in `~/.config/scuttlebot-relay.env`:
