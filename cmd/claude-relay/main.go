@@ -433,13 +433,14 @@ func mirrorSessionLoop(ctx context.Context, relay sessionrelay.Connector, filter
 // Claude Code creates the .jsonl lazily — only after the first user interaction —
 // so there is no meaningful deadline to impose. We scan every 250ms in three
 // concentric tiers:
-//   1. Primary:   ~/.claude/projects/<sanitized-cwd>/<our-uuid>.jsonl
-//   2. Sibling:   any .jsonl in ~/.claude/projects/<sanitized-cwd>/ newer than startedAt
-//                 (handles Claude Code versions that ignore --session-id)
-//   3. Cross-dir: any .jsonl under ~/.claude/projects/<*>/ newer than startedAt
-//                 (handles Claude Code versions that pick a different cwd
-//                 encoding — e.g. ".../home-leomata" vs ".../-home-leomata",
-//                 or that resolve symlinks before encoding)
+//  1. Primary:   ~/.claude/projects/<sanitized-cwd>/<our-uuid>.jsonl
+//  2. Sibling:   any .jsonl in ~/.claude/projects/<sanitized-cwd>/ newer than startedAt
+//     (handles Claude Code versions that ignore --session-id)
+//  3. Cross-dir: any .jsonl under ~/.claude/projects/<*>/ newer than startedAt
+//     (handles Claude Code versions that pick a different cwd
+//     encoding — e.g. ".../home-leomata" vs ".../-home-leomata",
+//     or that resolve symlinks before encoding)
+//
 // The cross-dir scan is intentionally last and time-bounded so we don't pick
 // up an unrelated user's stale session — only files written *after* the relay
 // started are eligible.
@@ -1652,12 +1653,12 @@ func defaultSessionID(target string) string {
 // "<user>-<cli><tier>-<session>" — e.g. "leomata-claudeb-3t8b0q" for
 // claude-relay running in an agent-browser pod for user "leomata".
 //
-//   user    : $JUPYTERHUB_USER, falling back to basename(cwd)
-//   cli     : binary name short (claude / codex / gemini)
-//   tier    : last char of the middle segment of $JUPYTERHUB_SERVER_NAME
-//             (e.g. "agnb" → "b", "agnd" → "d", "agnt" → "t", "sbot" → "t",
-//             "ide-x" → "e"). Empty when not running under JupyterHub.
-//   session : the relay's SessionID (already-sanitised crc32 / uuid prefix).
+//	user    : $JUPYTERHUB_USER, falling back to basename(cwd)
+//	cli     : binary name short (claude / codex / gemini)
+//	tier    : last char of the middle segment of $JUPYTERHUB_SERVER_NAME
+//	          (e.g. "agnb" → "b", "agnd" → "d", "agnt" → "t", "sbot" → "t",
+//	          "ide-x" → "e"). Empty when not running under JupyterHub.
+//	session : the relay's SessionID (already-sanitised crc32 / uuid prefix).
 //
 // All inputs pass through sanitize() so the output is IRC-nick-safe.
 func defaultRelayNick(cli, target, sessionID string) string {
@@ -1794,6 +1795,7 @@ func (rc *repoConfig) envOverrides() map[string]string {
 //   - dotfile to keep the file out of `ls` output
 //   - visible form for tooling globs that skip dotfiles
 //   - .yml for projects standardized on the short extension
+//
 // Whichever lands first wins; we don't merge across them.
 var repoConfigFilenames = []string{
 	".scuttlebot.yaml",

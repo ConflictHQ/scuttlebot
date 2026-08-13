@@ -183,9 +183,9 @@ type GeminiSession struct {
 //
 //   - JSONL (Gemini CLI ≥0.40, file extension .jsonl): one object per line.
 //     Mix of:
-//       header  → {"sessionId":"...","projectHash":"...","kind":"main"}
-//       message → {"id":"...","timestamp":"...","type":"user|gemini|info","content":...}
-//       update  → {"$set":{"lastUpdated":"..."}}
+//     header  → {"sessionId":"...","projectHash":"...","kind":"main"}
+//     message → {"id":"...","timestamp":"...","type":"user|gemini|info","content":...}
+//     update  → {"$set":{"lastUpdated":"..."}}
 //     We only collect lines carrying a "type" field; the header and $set
 //     bookkeeping rows are skipped.
 func PollGeminiSession(path string, sinceIdx int) ([]GeminiMessage, int, error) {
