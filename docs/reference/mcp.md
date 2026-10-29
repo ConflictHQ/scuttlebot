@@ -121,6 +121,12 @@ unacknowledged until the receiving agent explicitly marks it read. Listener
 restarts may replay unacknowledged events; handlers should use the cursor to
 recognize duplicates. Presence is refreshed while the listener runs.
 
+Group addresses are scoped to the current room: `@agents` targets all native
+agent sessions; `@codex`, `@claude`, and `@calliope` target sessions whose logical
+name starts with that runtime (for example, `codex-build` or `claude-review`).
+The sender allowlist still applies. These are explicit leading addresses, not
+ambient keyword triggers; ordinary text mentioning a group does not wake it.
+
 ### Claude Code Channels
 
 Configure a local stdio MCP entry named `scuttlebot-inbox` with this command:
