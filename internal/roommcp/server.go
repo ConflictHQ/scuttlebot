@@ -34,7 +34,7 @@ type SessionInput struct {
 }
 type SendInput struct {
 	SessionInput
-	Text string `json:"text" jsonschema:"One short chat message, at most 350 UTF-8 bytes. Link to large artifacts instead."`
+	Text string `json:"text" jsonschema:"Message or multiline text block, up to 32768 UTF-8 bytes. Native clients receive the complete text; IRC transport splits it safely."`
 }
 type ReadInput struct {
 	SessionInput
@@ -182,8 +182,8 @@ func (s *Service) send(ctx context.Context, req *mcp.CallToolRequest, in SendInp
 	if err != nil {
 		return nil, nil, err
 	}
-	if strings.TrimSpace(in.Text) == "" || len(in.Text) > 350 || strings.ContainsAny(in.Text, "\r\n\x00") {
-		return nil, nil, fmt.Errorf("text must be one nonempty line of at most 350 UTF-8 bytes")
+	if strings.TrimSpace(in.Text) == "" || len(in.Text) > bridge.MaxMessageBytes || strings.ContainsRune(in.Text, 0) {
+		return nil, nil, fmt.Errorf("text must be nonempty and at most %d UTF-8 bytes, without NUL", bridge.MaxMessageBytes)
 	}
 	s.Store.mu.Lock()
 	v, err := s.existing(a, in.SessionInput, ch)

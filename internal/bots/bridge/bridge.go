@@ -463,25 +463,23 @@ func (b *Bot) SendWithMeta(ctx context.Context, channel, text, senderNick string
 	if b.client == nil {
 		return fmt.Errorf("bridge: not connected")
 	}
-	// Build optional IRCv3 tag prefix for meta-type.
-	tagPrefix := ""
-	if meta != nil && meta.Type != "" {
-		tagPrefix = "@+scuttlebot/meta-type=" + meta.Type + " "
+	metaType := ""
+	if meta != nil {
+		metaType = meta.Type
 	}
-	if senderNick != "" && b.relaySep != "" {
-		// Use RELAYMSG for native attribution.
-		_ = b.client.Cmd.SendRawf("%sRELAYMSG %s %s :%s", tagPrefix, channel, senderNick, text)
-	} else {
-		ircText := text
-		if senderNick != "" {
-			ircText = "[" + senderNick + "] " + text
+	lines, normalized, err := messageLines(channel, text, senderNick, metaType, b.relaySep != "")
+	if err != nil {
+		return err
+	}
+	for i, line := range lines {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("bridge: interrupted after %d/%d IRC lines: %w", i, len(lines), err)
 		}
-		if tagPrefix != "" {
-			_ = b.client.Cmd.SendRawf("%sPRIVMSG %s :%s", tagPrefix, channel, ircText)
-		} else {
-			b.client.Cmd.Message(channel, ircText)
+		if err := b.client.Cmd.SendRawf("%s", line); err != nil {
+			return fmt.Errorf("bridge: send failed after %d/%d IRC lines: %w", i, len(lines), err)
 		}
 	}
+	text = normalized
 
 	if senderNick != "" {
 		b.TouchUser(channel, senderNick)
