@@ -21,8 +21,14 @@ import (
 )
 
 type nativeProfile struct {
-	URL   string `json:"url"`
-	Token string `json:"token"`
+	URL     string                        `json:"url"`
+	Token   string                        `json:"token"`
+	Inboxes map[string]nativeInboxBinding `json:"inboxes,omitempty"`
+}
+
+type nativeInboxBinding struct {
+	Room           string   `json:"room"`
+	AllowedSenders []string `json:"allowed_senders"`
 }
 
 func cmdNative(args []string, baseURL, token string, explicitURL bool) error {
@@ -113,6 +119,16 @@ func cmdNative(args []string, baseURL, token string, explicitURL bool) error {
 		return fmt.Errorf("run scuttlectl --url https://your-server connect first, or set SCUTTLEBOT_URL and SCUTTLEBOT_TOKEN")
 	}
 	if args[0] == "channel" || args[0] == "watch-codex" {
+		// Profile bindings let a restarted MCP subprocess pick up corrected
+		// routes even if its host cached the original launch arguments.
+		if binding, ok := profile.Inboxes[*sessionName]; ok {
+			if binding.Room != "" {
+				*room = binding.Room
+			}
+			if binding.AllowedSenders != nil {
+				*allowed = strings.Join(binding.AllowedSenders, ",")
+			}
+		}
 		if strings.TrimSpace(*sessionName) == "" || strings.TrimSpace(*allowed) == "" {
 			return fmt.Errorf("--session and --allow-sender are required")
 		}
