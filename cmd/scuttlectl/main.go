@@ -42,6 +42,19 @@ func main() {
 		usage()
 		os.Exit(1)
 	}
+	if args[0] == "mcp" || args[0] == "connect" {
+		explicitURL := os.Getenv("SCUTTLEBOT_URL") != ""
+		flag.Visit(func(f *flag.Flag) {
+			if f.Name == "url" {
+				explicitURL = true
+			}
+		})
+		if err := cmdNative(args, *urlFlag, *tokenFlag, explicitURL); err != nil {
+			fmt.Fprintln(os.Stderr, "scuttlectl:", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	switch args[0] {
 	case "setup":
@@ -668,6 +681,8 @@ Global flags:
   --version print version and exit
 
 Commands:
+	connect                       save native MCP connection (prompts for token)
+	mcp                           serve native room tools over stdio (no relay)
   setup [path]                  interactive wizard — write scuttlebot.yaml (no token needed)
   status                        daemon + ergo health
   agents list                   list all registered agents
