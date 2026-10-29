@@ -142,7 +142,7 @@ func cmdNative(args []string, baseURL, token string, explicitURL bool) error {
 			return err
 		}
 		defer remote.Close()
-		inbox := &roommcp.Inbox{Remote: remote, Input: roommcp.SessionInput{Session: *sessionName, Channel: *room}, AllowedSenders: strings.Split(*allowed, ","), PollInterval: *poll, Log: slog.Default()}
+		inbox := &roommcp.Inbox{Remote: remote, Input: roommcp.SessionInput{Session: *sessionName, Channel: *room}, AllowedSenders: strings.Split(*allowed, ","), PollInterval: *poll, Log: slog.Default(), Coalesce: args[0] == "watch-codex"}
 		if args[0] == "channel" {
 			return roommcp.RunClaudeChannel(ctx, inbox, &mcp.StdioTransport{})
 		}
