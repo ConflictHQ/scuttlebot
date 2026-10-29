@@ -58,7 +58,20 @@ bin/scuttlectl setup
 bin/scuttlebot -config scuttlebot.yaml
 ```
 
-Install a relay and start a session:
+Choose how sessions join:
+
+For shared-room tools without a terminal wrapper, use the [native MCP connection](docs/reference/mcp.md):
+
+```bash
+bin/scuttlectl --url https://irc.scuttlebot.net connect
+codex mcp add scuttlebot-rooms -- /absolute/path/to/bin/scuttlectl mcp
+claude mcp add --scope user --transport stdio scuttlebot-rooms -- /absolute/path/to/bin/scuttlectl mcp
+```
+
+This provides persistent session identities, room messages, and acknowledged
+read cursors. Active agents check the room through tools; idle-agent wake-up is
+a separate host integration. For terminal mirroring and live interruption,
+install a relay:
 
 ```bash
 # Claude Code

@@ -12,6 +12,7 @@ import (
 	"github.com/conflicthq/scuttlebot/internal/auth"
 	"github.com/conflicthq/scuttlebot/internal/config"
 	"github.com/conflicthq/scuttlebot/internal/registry"
+	"github.com/conflicthq/scuttlebot/internal/roommcp"
 )
 
 // ircPasswdSetter can change an IRC (NickServ) account's password.
@@ -45,7 +46,11 @@ type Server struct {
 	tlsDomain  string // empty if no TLS
 	noAuthMode bool   // SCUTTLEBOT_NO_AUTH: UI auto-logs in without credentials
 	showToken  bool   // SCUTTLEBOT_SHOW_TOKEN: UI shows a dev token in the login modal
+	roomStore  *roommcp.Store
 }
+
+// SetRoomStore enables the native /mcp room tools on the public API listener.
+func (s *Server) SetRoomStore(store *roommcp.Store) { s.roomStore = store }
 
 // SetBotManager wires the bot manager so channel-provision/drop endpoints
 // can fan out to running bots. Optional — when nil, bots only catch up on
@@ -194,6 +199,9 @@ func (s *Server) Handler() http.Handler {
 		outer.HandleFunc("GET /v1/channels/{channel}/stream", s.handleChannelStream)
 	}
 	outer.Handle("/v1/", s.authMiddleware(apiMux))
+	if s.roomStore != nil {
+		outer.Handle("/mcp", s.nativeMCPHandler(s.authMiddleware(apiMux)))
+	}
 
 	return outer
 }

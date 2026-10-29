@@ -107,6 +107,7 @@ type Bot struct {
 	joinCh     chan string
 	client     *girc.Client
 	onUserJoin func(channel, nick string) // optional callback when a non-bridge user joins
+	onMessage  func(Message) error        // optional durable journal, called before live delivery
 
 	// namesUsers is our own authoritative user list populated from RPL_NAMREPLY.
 	// channel → nick → mode prefix ("@", "+", or "")
@@ -670,6 +671,14 @@ func (b *Bot) Stats() Stats {
 
 // dispatch pushes a message to the ring buffer and fans out to subscribers.
 func (b *Bot) dispatch(msg Message) {
+	b.mu.RLock()
+	observer := b.onMessage
+	b.mu.RUnlock()
+	if observer != nil {
+		if err := observer(msg); err != nil {
+			b.log.Error("persist room message", "err", err)
+		}
+	}
 	b.msgTotal.Add(1)
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -684,6 +693,13 @@ func (b *Bot) dispatch(msg Message) {
 		default: // slow consumer, drop
 		}
 	}
+}
+
+// SetMessageObserver attaches a durable journal. Set before starting the bot.
+func (b *Bot) SetMessageObserver(observer func(Message) error) {
+	b.mu.Lock()
+	b.onMessage = observer
+	b.mu.Unlock()
 }
 
 // joinLoop reads from joinCh and joins channels on demand.

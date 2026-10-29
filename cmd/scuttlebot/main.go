@@ -26,6 +26,7 @@ import (
 	"github.com/conflicthq/scuttlebot/internal/ergo"
 	"github.com/conflicthq/scuttlebot/internal/mcp"
 	"github.com/conflicthq/scuttlebot/internal/registry"
+	"github.com/conflicthq/scuttlebot/internal/roommcp"
 	"github.com/conflicthq/scuttlebot/internal/store"
 	"github.com/conflicthq/scuttlebot/internal/topology"
 )
@@ -162,6 +163,14 @@ func main() {
 		log.Info("api key store loaded", "keys", len(apiKeyStore.List()))
 	}
 
+	// Persistent native MCP room identities, acknowledgments and observed history.
+	roomStore, err := roommcp.OpenStore(filepath.Join(cfg.Ergo.DataDir, "rooms.sqlite"))
+	if err != nil {
+		log.Error("room store", "err", err)
+		os.Exit(1)
+	}
+	defer roomStore.Close()
+
 	// Start bridge bot (powers the web chat UI).
 	var bridgeBot *bridge.Bot
 	if cfg.Bridge.Enabled {
@@ -185,6 +194,7 @@ func main() {
 			time.Duration(cfg.Bridge.WebUserTTLMinutes)*time.Minute,
 			log,
 		)
+		bridgeBot.SetMessageObserver(roomStore.Record)
 		go func() {
 			if err := bridgeBot.Start(ctx); err != nil {
 				log.Error("bridge bot error", "err", err)
@@ -425,6 +435,7 @@ func main() {
 	}
 	apiSrv := api.New(reg, apiKeyStore, bridgeBot, policyStore, adminStore, llmCfg, topoIface, cfgStore, ergoMgr.API(), cfg.TLS.Domain, noAuthMode, showToken, log)
 	apiSrv.SetBotManager(botMgr)
+	apiSrv.SetRoomStore(roomStore)
 	// Re-apply ChanServ AMODE for every persisted agent under the current
 	// policy so stale +o grants written under older code (e.g. before
 	// orchestrators defaulted to +v) get cleared automatically on restart.

@@ -77,6 +77,7 @@ internal/
   config/               # YAML config loading + validation
   ergo/                 # Ergo IRC server lifecycle + config generation
   mcp/                  # MCP server for AI agent connectivity
+  roommcp/              # native room tools, durable identities/cursors/history, SDK transports
   registry/             # agent registration + SASL credential issuance
   topology/             # channel provisioning + mode/topic management
 pkg/
@@ -329,6 +330,12 @@ type bot interface {
 | Ergo IRC | `ircs://localhost:6697` |
 | scuttlebot API | `http://localhost:8080` |
 | MCP server | `http://localhost:8081` |
+
+Native room MCP also runs at `/mcp` on the main HTTP/HTTPS API listener. It uses
+the same API scopes/team rules and journals joined-room messages in
+`<ergo-data-dir>/rooms.sqlite`. `scuttlectl mcp` exposes the same tools over stdio
+against existing REST deployments, with client-local SQLite state. See
+[`docs/reference/mcp.md`](docs/reference/mcp.md) for delivery limits and setup.
 
 ---
 
