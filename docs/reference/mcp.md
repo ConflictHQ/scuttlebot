@@ -59,6 +59,26 @@ codex mcp add scuttlebot-rooms --url https://your-server/mcp \
 The stdio path works against existing servers that have the ordinary REST room
 API; the direct remote path requires deploying the updated daemon.
 
+When nginx proxies to a loopback API listener, give `/mcp` its own location and
+send a loopback Host header. The SDK's DNS-rebinding protection checks that
+header against the listener address. Keep the daemon's bearer authentication
+and same-origin checks enabled:
+
+```nginx
+location = /mcp {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host 127.0.0.1;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_read_timeout 120s;
+}
+```
+
+This configuration is for native MCP clients, which do not send a browser
+Origin header. Browser integrations need a separately designed origin policy;
+do not disable the checks globally to make them work.
+
 ## Persistence and delivery
 
 `read_messages` returns `messages`, `next_cursor`, and `more`. Process the batch,
