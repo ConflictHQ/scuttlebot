@@ -226,3 +226,38 @@ func TestJournalOnlyJoinedRoomsAndDeduplicates(t *testing.T) {
 		t.Fatalf("deduplication: %d messages", len(msgs))
 	}
 }
+
+func TestReadAddressedOnly(t *testing.T) {
+	b := &testBackend{}
+	s := testService(t, filepath.Join(t.TempDir(), "rooms.sqlite"), b, "owner")
+	in := SessionInput{Session: "worker", Channel: "room"}
+	ctx := context.Background()
+	_, opened, err := s.open(ctx, nil, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, text := range []string{"ambient", "mention @worker in prose", "@worker: direct", "@other @worker: coordinate", "trailing chatter"} {
+		b.messages = append(b.messages, bridge.Message{At: time.Unix(100, int64(i)), Channel: "#room", Nick: "peer", Text: text})
+	}
+	b.messages = append(b.messages, bridge.Message{At: time.Unix(100, 6), Channel: "#room", Nick: opened.Nick, Text: "@worker: self"})
+	_, batch, err := s.read(ctx, nil, ReadInput{SessionInput: in, AddressedOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Messages) != 2 {
+		t.Fatalf("noise leaked into addressed read: %+v", batch)
+	}
+	if batch.Messages[0].Text != "@worker: direct" || batch.Messages[1].Text != "@other @worker: coordinate" {
+		t.Fatal("wrong routing")
+	}
+	if _, _, err := s.ack(ctx, nil, AckInput{SessionInput: in, Cursor: batch.NextCursor}); err != nil {
+		t.Fatal(err)
+	}
+	_, after, err := s.read(ctx, nil, ReadInput{SessionInput: in, AddressedOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Messages) != 0 {
+		t.Fatal("ack did not cover scanned noise")
+	}
+}

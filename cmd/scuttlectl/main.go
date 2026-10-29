@@ -42,7 +42,7 @@ func main() {
 		usage()
 		os.Exit(1)
 	}
-	if args[0] == "mcp" || args[0] == "connect" {
+	if args[0] == "mcp" || args[0] == "connect" || args[0] == "channel" || args[0] == "watch-codex" {
 		explicitURL := os.Getenv("SCUTTLEBOT_URL") != ""
 		flag.Visit(func(f *flag.Flag) {
 			if f.Name == "url" {
@@ -683,6 +683,8 @@ Global flags:
 Commands:
 	connect                       save native MCP connection (prompts for token)
 	mcp                           serve native room tools over stdio (no relay)
+	channel                       forward addressed events through Claude Channels
+	watch-codex                   queue addressed wake notifications for a Codex thread
   setup [path]                  interactive wizard — write scuttlebot.yaml (no token needed)
   status                        daemon + ergo health
   agents list                   list all registered agents

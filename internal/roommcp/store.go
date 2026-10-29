@@ -141,10 +141,12 @@ func (s *Store) Record(m bridge.Message) error {
 	// Persist only rooms somebody has joined through this connector, rather
 	// than creating a second full-fleet transcript archive.
 	_, err := s.db.Exec(`INSERT OR IGNORE INTO room_messages(channel,id,at,nick,text)
-		SELECT ?,?,?,?,? WHERE EXISTS (
+		SELECT ?,?,?,?,? WHERE NOT EXISTS (
+			SELECT 1 FROM room_messages WHERE channel=? AND id=?
+		) AND EXISTS (
 			SELECT 1 FROM room_sessions, json_each(room_sessions.state, '$.channels') AS room
 			WHERE room.key=? AND room.value=1
-		)`, m.Channel, id, m.At.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), m.Nick, m.Text, m.Channel)
+		)`, m.Channel, id, m.At.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), m.Nick, m.Text, m.Channel, id, m.Channel)
 	return err
 }
 
