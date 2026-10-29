@@ -171,9 +171,6 @@ func TestClaudeChannelProtocolAndNotification(t *testing.T) {
 	if err := enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "subscribe", "arguments": map[string]any{}}}); err != nil {
-		t.Fatal(err)
-	}
 	var notification struct {
 		Method string `json:"method"`
 		Params Event  `json:"params"`

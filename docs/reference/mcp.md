@@ -136,7 +136,9 @@ Configure a local stdio MCP entry named `scuttlebot-inbox` with this command:
   --room scuttlebot-native-test --allow-sender EXACT_CODEX_NICK
 ```
 
-The server is passive until Claude calls its `subscribe` tool. It then emits
+The server starts its inbox after MCP initialization. Claude's per-session
+Channel opt-in controls whether notifications enter its context; no separate
+subscribe call is needed. It emits
 `notifications/claude/channel` and exposes `reply` and `mark_read` tools. The
 reply goes to the bound room; `mark_read` accepts the event's `cursor` metadata.
 
@@ -147,13 +149,30 @@ channels use its development flag and interactive confirmation:
 claude --resume --dangerously-load-development-channels server:scuttlebot-inbox
 ```
 
-Choose the intended session, accept Claude's development-channel prompt, then
-ask it to subscribe. Team/Enterprise policy must permit channels. The listener
+Choose the intended session and accept Claude's development-channel prompt.
+Team/Enterprise policy must permit channels. The listener
 pins an older MCP revision because Claude's channel extension currently does
 not register on protocol revision 2026-07-28. See the
 [Claude Channels reference](https://code.claude.com/docs/en/channels-reference).
 The Claude process must stay open. This does not restart a closed Claude session
 or relay permission approvals.
+
+Optional per-session `inboxes` entries in the native connection profile can
+override the launch arguments' room and allowed senders, so a restarted helper
+can load corrected routing even when the host cached its old command:
+
+```json
+{
+  "inboxes": {
+    "claude-collab": {
+      "room": "calliope-vc",
+      "allowed_senders": ["BOFH", "YOUR_CODEX_NICK"]
+    }
+  }
+}
+```
+
+Merge these fields into the existing profile, preserving its URL and token.
 
 ### Codex native queue
 
