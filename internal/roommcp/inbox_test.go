@@ -64,6 +64,23 @@ func TestExplicitRecipientRouting(t *testing.T) {
 		}
 	}
 }
+
+func TestFleetHandles(t *testing.T) {
+	for _, tc := range []struct {
+		text, session string
+		want          bool
+	}{
+		{"@agents: hello", "codex-build", true}, {"@agents hello", "claude-review", true},
+		{"@codex: check", "codex-build", true}, {"@codex: check", "claude-review", false},
+		{"@claude: review", "claude-review", true}, {"@calliope: check", "calliope-build", true},
+		{"@calliope: check", "codex-build", false}, {"@claude @codex: coordinate", "codex-build", true},
+		{"we discussed @agents", "codex-build", false}, {"@codex-extra: hi", "codex-build", false},
+	} {
+		if got := addressedToAgent(tc.text, tc.session, "mcp-"+tc.session+"-123"); got != tc.want {
+			t.Errorf("%q to %s: got %v want %v", tc.text, tc.session, got, tc.want)
+		}
+	}
+}
 func TestInboxIgnoresNoiseAndWaitsForAcknowledgment(t *testing.T) {
 	f := &inboxFake{messages: []Message{
 		{Cursor: "1", Nick: "peer", Text: "chatter"}, {Cursor: "2", Nick: "stranger", Text: "@worker: untrusted"},

@@ -47,10 +47,21 @@ func (w *Inbox) matches(m Message) bool {
 	if !allowed {
 		return false
 	}
-	for _, name := range []string{w.Input.Session, w.opened.Nick} {
-		if name != "" && addressedTo(m.Text, name) {
+	return addressedToAgent(m.Text, w.Input.Session, w.opened.Nick)
+}
+
+// Fleet handles are explicit addresses, scoped by the room being read. Runtime
+// groups follow the existing runtime-prefixed logical session naming contract.
+func addressedToAgent(text, session, nick string) bool {
+	for _, target := range []string{session, nick, "agents"} {
+		if target != "" && addressedTo(text, target) {
 			return true
 		}
+	}
+	runtime := strings.ToLower(strings.SplitN(session, "-", 2)[0])
+	switch runtime {
+	case "codex", "claude", "calliope":
+		return addressedTo(text, runtime)
 	}
 	return false
 }

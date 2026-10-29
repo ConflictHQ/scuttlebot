@@ -39,7 +39,7 @@ type SendInput struct {
 type ReadInput struct {
 	SessionInput
 	Limit         int  `json:"limit,omitempty" jsonschema:"Maximum messages, default 20, maximum 100."`
-	AddressedOnly bool `json:"addressed_only,omitempty" jsonschema:"Return only messages whose leading recipient list names this session or its nick; omit ambient room chatter."`
+	AddressedOnly bool `json:"addressed_only,omitempty" jsonschema:"Return only leading addresses for this session, its nick, @agents, or its runtime group (@codex, @claude, @calliope); omit ambient chatter."`
 }
 type AckInput struct {
 	SessionInput
@@ -239,7 +239,7 @@ func (s *Service) read(ctx context.Context, req *mcp.CallToolRequest, in ReadInp
 	if in.AddressedOnly {
 		filtered := make([]Message, 0, len(out.Messages))
 		for _, m := range out.Messages {
-			if m.Nick != v.Nick && (addressedTo(m.Text, v.Name) || addressedTo(m.Text, v.Nick)) {
+			if !strings.EqualFold(m.Nick, v.Nick) && addressedToAgent(m.Text, v.Name, v.Nick) {
 				filtered = append(filtered, m)
 			}
 		}
