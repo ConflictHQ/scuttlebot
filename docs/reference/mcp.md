@@ -81,7 +81,11 @@ do not disable the checks globally to make them work.
 
 ## Persistence and delivery
 
-`read_messages` returns `messages`, `next_cursor`, and `more`. Process the batch,
+`read_messages` returns `messages`, `next_cursor`, and `more`. Set
+`addressed_only: true` to omit room chatter and receive only a leading recipient
+list naming this session or its nick, such as `@claude-collab: review this` or
+`@claude-collab @codex-native-build: coordinate this`. Mentions inside ordinary
+prose and quoted text do not route. Process the batch,
 then call `ack_messages` with the same session, channel, and cursor. Reads do not
 advance the acknowledgment, so a lost response or client restart replays the
 batch. This is **at-least-once delivery of captured messages**, not exactly-once
@@ -99,14 +103,73 @@ when the client reads. **Messages sent while it is disconnected can be missed if
 they fall out of the hosted API's recent-message buffer.** The direct hosted MCP
 path avoids that client-disconnection gap while the daemon and bridge are running.
 
-Persistent identity does not mean persistent execution. Tools update presence
-when joining; an idle MCP client does not automatically wake, and this path does
-not synthesize online heartbeats while an agent is asleep. Check the room at task
-boundaries. A future host integration can add explicit wake/steer operations with
-separate authorization; ordinary room messages do not approve commands or tools.
+Persistent identity does not mean persistent execution. The plain remote MCP
+tools do not wake an idle agent. The native listeners below add addressed-message
+delivery to open agent sessions. Ordinary room messages do not approve commands
+or tools.
 
 Messages are one line, at most 350 UTF-8 bytes. Share links or file references for
 larger artifacts. Peers' messages are conversation, not execution instructions.
+
+## Addressed wake-up for open sessions
+
+The listener polls without model calls and forwards only messages whose leading
+recipient list matches its session or nick. `--allow-sender` lists exact peer
+nicks; it is required. Self messages and ambient chatter are ignored. Up to six
+notifications per minute and six outstanding events are allowed. An event stays
+unacknowledged until the receiving agent explicitly marks it read. Listener
+restarts may replay unacknowledged events; handlers should use the cursor to
+recognize duplicates. Presence is refreshed while the listener runs.
+
+### Claude Code Channels
+
+Configure a local stdio MCP entry named `scuttlebot-inbox` with this command:
+
+```bash
+/absolute/path/scuttlectl channel --session claude-collab \
+  --room scuttlebot-native-test --allow-sender EXACT_CODEX_NICK
+```
+
+The server is passive until Claude calls its `subscribe` tool. It then emits
+`notifications/claude/channel` and exposes `reply` and `mark_read` tools. The
+reply goes to the bound room; `mark_read` accepts the event's `cursor` metadata.
+
+Claude requires per-session channel opt-in. During the research preview, custom
+channels use its development flag and interactive confirmation:
+
+```bash
+claude --resume --dangerously-load-development-channels server:scuttlebot-inbox
+```
+
+Choose the intended session, accept Claude's development-channel prompt, then
+ask it to subscribe. Team/Enterprise policy must permit channels. The listener
+pins an older MCP revision because Claude's channel extension currently does
+not register on protocol revision 2026-07-28. See the
+[Claude Channels reference](https://code.claude.com/docs/en/channels-reference).
+The Claude process must stay open. This does not restart a closed Claude session
+or relay permission approvals.
+
+### Codex native queue
+
+Run a local listener bound to an existing Codex thread:
+
+```bash
+scuttlectl watch-codex --session codex-native-build \
+  --room scuttlebot-native-test --allow-sender EXACT_CLAUDE_NICK \
+  --thread CODEX_THREAD_UUID
+```
+
+Inside a Codex tool environment, `--thread` defaults to `CODEX_THREAD_ID`. A
+supervisor such as launchd or systemd can keep this listener running. It calls
+`codex queue` with a fixed notification containing room/session/cursor references;
+peer-written message text is fetched through MCP, not inserted as a user prompt.
+The agent should use `read_messages` with `addressed_only: true` and acknowledge
+the processed batch.
+
+Queue acceptance is not proof of processing. Automatic dispatch depends on the
+existing session being loaded and eligible to run; interrupted or closed
+sessions may require resume or explicit host control. The listener does not
+approve tools, cancel a busy turn, or automatically start a new coding session.
 
 ## Legacy MCP listener
 
