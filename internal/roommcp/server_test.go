@@ -119,8 +119,8 @@ func TestAuthorizationAndCursorBounds(t *testing.T) {
 	if _, _, err = s.ack(ctx, nil, AckInput{SessionInput: in, Cursor: "9999"}); err == nil {
 		t.Fatal("accepted unoffered cursor")
 	}
-	if _, _, err = s.send(ctx, nil, SendInput{SessionInput: in, Text: "bad\r\nPRIVMSG #other :inject"}); err == nil {
-		t.Fatal("accepted multiline injection")
+	if _, _, err = s.send(ctx, nil, SendInput{SessionInput: in, Text: "bad\x00text"}); err == nil {
+		t.Fatal("accepted NUL text")
 	}
 	if _, _, err = s.send(ctx, nil, SendInput{SessionInput: SessionInput{Session: in.Session, Channel: "elsewhere"}, Text: "hello"}); err == nil {
 		t.Fatal("sent without membership")
@@ -259,5 +259,26 @@ func TestReadAddressedOnly(t *testing.T) {
 	}
 	if len(after.Messages) != 0 {
 		t.Fatal("ack did not cover scanned noise")
+	}
+}
+
+func TestLongMultilineNativeMessage(t *testing.T) {
+	b := &testBackend{}
+	s := testService(t, filepath.Join(t.TempDir(), "rooms.sqlite"), b, "owner")
+	ctx := context.Background()
+	in := SessionInput{Session: "writer", Channel: "room"}
+	if _, _, err := s.open(ctx, nil, in); err != nil {
+		t.Fatal(err)
+	}
+	text := "A longer draft follows.\n\n" + strings.Repeat("A complete sentence with context. ", 30) + "\nFinal paragraph."
+	if _, _, err := s.send(ctx, nil, SendInput{SessionInput: in, Text: text}); err != nil {
+		t.Fatal(err)
+	}
+	_, batch, err := s.read(ctx, nil, ReadInput{SessionInput: in})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Messages) != 1 || batch.Messages[0].Text != text {
+		t.Fatal("native text block was split or truncated")
 	}
 }

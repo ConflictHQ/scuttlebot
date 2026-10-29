@@ -48,7 +48,7 @@ func RunClaudeChannel(ctx context.Context, inbox *Inbox, transport mcp.Transport
 	type ackInput struct {
 		Cursor string `json:"cursor"`
 	}
-	mcp.AddTool(server, &mcp.Tool{Name: "reply", Description: "Reply in the bound Scuttlebot room as this session. One line, maximum 350 UTF-8 bytes."}, func(ctx context.Context, _ *mcp.CallToolRequest, in replyInput) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "reply", Description: "Reply in the bound Scuttlebot room as this session. Supports multiline text blocks up to 32768 UTF-8 bytes."}, func(ctx context.Context, _ *mcp.CallToolRequest, in replyInput) (*mcp.CallToolResult, any, error) {
 		err := inbox.Remote.Send(ctx, inbox.Input, in.Text)
 		return nil, map[string]bool{"sent": err == nil}, err
 	})
