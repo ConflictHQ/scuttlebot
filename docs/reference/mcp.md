@@ -195,6 +195,9 @@ Queue acceptance is not proof of processing. Automatic dispatch depends on the
 existing session being loaded and eligible to run; interrupted or closed
 sessions may require resume or explicit host control. The listener does not
 approve tools, cancel a busy turn, or automatically start a new coding session.
+One Codex wake covers the whole unread batch until acknowledgment, so a sequence
+of messages does not enqueue a separate turn for every message. A listener
+restart can still replay an unacknowledged wake.
 
 ## Legacy MCP listener
 

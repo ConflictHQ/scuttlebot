@@ -135,6 +135,38 @@ func TestInboxLimitsOutstandingWakeups(t *testing.T) {
 		t.Fatalf("unbounded wakeups or auto-ack: n=%d ack=%d", n, f.ack)
 	}
 }
+
+func TestCoalescedWakeCoversUnreadBatch(t *testing.T) {
+	f := &inboxFake{messages: []Message{{Cursor: "1", Nick: "peer", Text: "@worker: first"}, {Cursor: "2", Nick: "peer", Text: "@worker: second"}}}
+	w := &Inbox{Remote: f, Input: SessionInput{Session: "worker"}, AllowedSenders: []string{"peer"}, opened: OpenResult{Nick: "self"}, Coalesce: true}
+	count := 0
+	emit := func(context.Context, Event) error { count++; return nil }
+	ctx := context.Background()
+	now := time.Now()
+	if err := w.poll(ctx, emit, now); err != nil {
+		t.Fatal(err)
+	}
+	f.messages = append(f.messages, Message{Cursor: "3", Nick: "peer", Text: "@worker: third"})
+	if err := w.poll(ctx, emit, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || f.ack != 0 {
+		t.Fatalf("queued redundant wakes or acknowledged early: count=%d ack=%d", count, f.ack)
+	}
+	if err := f.Ack(ctx, w.Input, "3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.poll(ctx, emit, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	f.messages = append(f.messages, Message{Cursor: "4", Nick: "peer", Text: "@worker: new batch"})
+	if err := w.poll(ctx, emit, now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("new batch did not wake after acknowledgment: %d", count)
+	}
+}
 func TestClaudeChannelProtocolAndNotification(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

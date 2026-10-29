@@ -27,6 +27,7 @@ type Inbox struct {
 	AllowedSenders []string
 	PollInterval   time.Duration
 	Log            *slog.Logger
+	Coalesce       bool // one wake covers the unread batch until the agent acknowledges it
 	sent           map[string]bool
 	window         time.Time
 	wakes          int
@@ -116,6 +117,9 @@ func (w *Inbox) poll(ctx context.Context, emit func(context.Context, Event) erro
 			continue
 		}
 		pending = true
+		if w.Coalesce && len(w.sent) > 0 {
+			continue
+		}
 		if w.sent[m.Cursor] || w.wakes >= 6 || len(w.sent) >= 6 {
 			continue
 		}
